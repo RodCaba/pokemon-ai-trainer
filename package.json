@@ -1,0 +1,33 @@
+{
+  "name": "pokemon-ai-trainer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:contract": "RUN_CONTRACT_TESTS=1 vitest run tests/contract",
+    "typecheck": "tsc --noEmit",
+    "tool:calc": "tsx src/cli/tool-calc.ts",
+    "data:build:reg-m-a": "tsx scripts/data/build-reg-m-a.ts",
+    "data:refresh:reg-m-a": "tsx scripts/data/fetchers/smogon-champions-sets.ts",
+    "tool:roster": "tsx src/cli/tool-roster.ts"
+  },
+  "dependencies": {
+    "@pkmn/dex": "^0.10.7",
+    "@smogon/calc": "git+https://github.com/RodCaba/damage-calc.git#c1f6bc0fa2e0ee068b9e3061fa68b7db307e6c55&path:/calc",
+    "better-sqlite3": "^12.9.0",
+    "drizzle-orm": "^0.45.2",
+    "zod": "^3.23.0",
+    "zod-to-json-schema": "^3.22.0"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.0.0",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}

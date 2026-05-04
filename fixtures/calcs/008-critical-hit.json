@@ -1,0 +1,45 @@
+{
+  "id": "008-critical-hit",
+  "schema_version": 1,
+  "scenario": "Critical hit modifier on a STAB physical move. Garchomp 'SM Battle Spot Singles Choice Attacker' (Choice Scarf, Rough Skin) Earthquake (isCrit: true) vs. inline non-Mega Tyranitar (Sand Stream + Leftovers, bulky-special spread).",
+  "showdown_calc_url": null,
+  "verified_at": "2026-05-04",
+  "verified_by": "RSCA",
+  "attacker": {
+    "kind": "set",
+    "species_id": "garchomp",
+    "set_name": "SM Battle Spot Singles Choice Attacker"
+  },
+  "defender": {
+    "kind": "inline",
+    "species": "Tyranitar",
+    "ability": "Sand Stream",
+    "item": "Leftovers",
+    "nature": "Careful",
+    "sps": { "hp": 32, "atk": 0, "def": 0, "spa": 0, "spd": 32, "spe": 0 },
+    "moves": ["Crunch", "Stone Edge", "Earthquake", "Protect"],
+    "stat_boosts": { "atk": 0, "def": 0, "spa": 0, "spd": 0, "spe": 0, "acc": 0, "eva": 0 }
+  },
+  "move": { "name": "Earthquake", "isCrit": true },
+  "field": {
+    "weather": "None",
+    "terrain": "None",
+    "isGravity": false,
+    "isMagicRoom": false,
+    "isWonderRoom": false,
+    "isTrickRoom": false,
+    "attackerSide": { "reflect": false, "lightScreen": false, "auroraVeil": false, "tailwind": false, "friendGuards": 0, "isHelpingHand": false, "isBattery": false, "isPowerSpot": false },
+    "defenderSide": { "reflect": false, "lightScreen": false, "auroraVeil": false, "tailwind": false, "friendGuards": 0, "isHelpingHand": false, "isBattery": false, "isPowerSpot": false }
+  },
+  "expected": {
+    "rolls": [176, 180, 180, 182, 186, 188, 188, 192, 194, 194, 198, 200, 200, 204, 206, 210],
+    "min_percent": 85,
+    "max_percent": 101.4,
+    "ko_chance": {
+      "description": "6.3% chance to OHKO",
+      "chance": 0.0625,
+      "n": 1
+    },
+    "description": "32 Atk Garchomp Earthquake vs. 32 HP / 0 Def Tyranitar on a critical hit: 176-210 (85 - 101.4%) -- 6.3% chance to OHKO"
+  }
+}

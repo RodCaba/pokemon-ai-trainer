@@ -1,0 +1,45 @@
+{
+  "id": "009-multi-hit-pin-missile",
+  "schema_version": 1,
+  "scenario": "Multi-hit move with explicit hit count. Heracross 'SM 1v1 Bulky Offense' (Heracronite + Guts pre-Mega; Mega-Heracross's Skill Link locks 5 hits) Pin Missile (hits: 5) vs. inline non-Mega Tyranitar (Sand Stream + Leftovers, bulky-special spread).",
+  "showdown_calc_url": null,
+  "verified_at": "2026-05-04",
+  "verified_by": "RSCA",
+  "attacker": {
+    "kind": "set",
+    "species_id": "heracross",
+    "set_name": "SM 1v1 Bulky Offense"
+  },
+  "defender": {
+    "kind": "inline",
+    "species": "Tyranitar",
+    "ability": "Sand Stream",
+    "item": "Leftovers",
+    "nature": "Careful",
+    "sps": { "hp": 32, "atk": 0, "def": 0, "spa": 0, "spd": 32, "spe": 0 },
+    "moves": ["Crunch", "Stone Edge", "Earthquake", "Protect"],
+    "stat_boosts": { "atk": 0, "def": 0, "spa": 0, "spd": 0, "spe": 0, "acc": 0, "eva": 0 }
+  },
+  "move": { "name": "Pin Missile", "isCrit": false, "hits": 5 },
+  "field": {
+    "weather": "None",
+    "terrain": "None",
+    "isGravity": false,
+    "isMagicRoom": false,
+    "isWonderRoom": false,
+    "isTrickRoom": false,
+    "attackerSide": { "reflect": false, "lightScreen": false, "auroraVeil": false, "tailwind": false, "friendGuards": 0, "isHelpingHand": false, "isBattery": false, "isPowerSpot": false },
+    "defenderSide": { "reflect": false, "lightScreen": false, "auroraVeil": false, "tailwind": false, "friendGuards": 0, "isHelpingHand": false, "isBattery": false, "isPowerSpot": false }
+  },
+  "expected": {
+    "rolls": [250, 270, 270, 270, 270, 270, 280, 280, 280, 280, 280, 300, 300, 300, 300, 310],
+    "min_percent": 120.7,
+    "max_percent": 149.7,
+    "ko_chance": {
+      "description": "guaranteed OHKO",
+      "chance": 1,
+      "n": 1
+    },
+    "description": "6+ Atk Heracross-Mega Pin Missile (5 hits) vs. 32 HP / 0 Def Tyranitar: 250-310 (120.7 - 149.7%) -- guaranteed OHKO"
+  }
+}

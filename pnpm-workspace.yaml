@@ -1,0 +1,3 @@
+onlyBuiltDependencies:
+  - "@smogon/calc"
+  - "better-sqlite3"

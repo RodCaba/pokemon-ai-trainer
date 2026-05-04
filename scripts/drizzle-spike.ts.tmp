@@ -1,0 +1,29 @@
+import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { eq } from "drizzle-orm";
+import * as schema from "/Users/rodrigo/src/pokemon-ai-trainer/src/db/drizzle-schema";
+
+const sqlite = new Database(":memory:");
+sqlite.pragma("foreign_keys = ON");
+const db = drizzle(sqlite, { schema });
+
+// Apply schema as raw SQL for the spike (drizzle-kit migration generation is the long-term path).
+sqlite.exec(`
+CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z');
+CREATE TABLE species (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, dex_no INTEGER NOT NULL CHECK(dex_no>0), form_id TEXT, is_mega INTEGER NOT NULL CHECK(is_mega IN(0,1)), types TEXT NOT NULL, weight_kg REAL NOT NULL CHECK(weight_kg>0), height_m REAL NOT NULL CHECK(height_m>0), aliases TEXT NOT NULL DEFAULT '[]', source_json TEXT NOT NULL);
+`);
+
+// Type-safe insert via drizzle
+db.insert(schema.species).values({
+  id: "garchomp", displayName: "Garchomp", dexNo: 445, formId: null, isMega: 0,
+  types: JSON.stringify(["Dragon","Ground"]), weightKg: 95.0, heightM: 1.9, aliases: "[]",
+  sourceJson: "{}",
+}).run();
+
+// Type-safe select via drizzle
+const result = db.select().from(schema.species).where(eq(schema.species.id, "garchomp")).get();
+console.log("type-safe drizzle select:", result?.displayName, "dex_no=" + result?.dexNo);
+
+// Case-insensitive lookup using collate nocase via raw SQL through drizzle's `sql`
+sqlite.close();
+console.log("OK — drizzle works on better-sqlite3 with our schema");

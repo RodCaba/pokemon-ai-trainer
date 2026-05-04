@@ -1,0 +1,45 @@
+{
+  "id": "021-friend-guard",
+  "schema_version": 1,
+  "scenario": "Friend Guard 0.75x reduction (one ally on the defender's side has Friend Guard). Same input as fixture 010 except defenderSide.friendGuards = 1. Damage rolls should be 0.75x of the no-FG baseline. Garchomp 'SM Battle Spot Singles Choice Attacker' Earthquake vs. inline non-Mega Tyranitar with 1 FG ally on defender's side.",
+  "showdown_calc_url": null,
+  "verified_at": "2026-05-04",
+  "verified_by": "RSCA",
+  "attacker": {
+    "kind": "set",
+    "species_id": "garchomp",
+    "set_name": "SM Battle Spot Singles Choice Attacker"
+  },
+  "defender": {
+    "kind": "inline",
+    "species": "Tyranitar",
+    "ability": "Sand Stream",
+    "item": "Leftovers",
+    "nature": "Careful",
+    "sps": { "hp": 32, "atk": 0, "def": 0, "spa": 0, "spd": 32, "spe": 0 },
+    "moves": ["Crunch", "Stone Edge", "Earthquake", "Protect"],
+    "stat_boosts": { "atk": 0, "def": 0, "spa": 0, "spd": 0, "spe": 0, "acc": 0, "eva": 0 }
+  },
+  "move": { "name": "Earthquake", "isCrit": false },
+  "field": {
+    "weather": "None",
+    "terrain": "None",
+    "isGravity": false,
+    "isMagicRoom": false,
+    "isWonderRoom": false,
+    "isTrickRoom": false,
+    "attackerSide": { "reflect": false, "lightScreen": false, "auroraVeil": false, "tailwind": false, "friendGuards": 0, "isHelpingHand": false, "isBattery": false, "isPowerSpot": false },
+    "defenderSide": { "reflect": false, "lightScreen": false, "auroraVeil": false, "tailwind": false, "friendGuards": 1, "isHelpingHand": false, "isBattery": false, "isPowerSpot": false }
+  },
+  "expected": {
+    "rolls": [87, 90, 90, 91, 91, 94, 94, 96, 96, 99, 99, 100, 100, 103, 103, 105],
+    "min_percent": 42,
+    "max_percent": 50.7,
+    "ko_chance": {
+      "description": "guaranteed 3HKO after Leftovers recovery",
+      "chance": 1,
+      "n": 3
+    },
+    "description": "32 Atk Garchomp Earthquake vs. 32 HP / 0 Def Tyranitar with an ally's Friend Guard: 87-105 (42 - 50.7%) -- guaranteed 3HKO after Leftovers recovery"
+  }
+}
