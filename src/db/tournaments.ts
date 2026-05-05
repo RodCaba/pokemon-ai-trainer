@@ -1,16 +1,109 @@
+import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "./open";
+import {
+  tournaments as tournamentsTable,
+  tournamentTeams,
+  tournamentTeamSpecies,
+} from "./drizzle-schema";
 import type {
   TournamentDetail,
   TournamentFilter,
   TournamentResult,
   TournamentTeam,
+  TournamentTeamSpecies,
   TeamsWithArgs,
   UsageArgs,
   UsageRow,
 } from "../schemas/tournament";
 import type { TransformedTournament } from "../tools/labmaus/transform";
+import { RosterDbError } from "../schemas/errors";
 
-const NI = "not implemented (Stage 5)";
+interface TournamentRow {
+  id: string;
+  external_id: number;
+  tournament_code: string | null;
+  name: string;
+  organizer: string | null;
+  format: string;
+  division: string;
+  status: string;
+  date: string;
+  num_players: number;
+  num_phase_2: number | null;
+  source_site: string;
+  source_site_source: string | null;
+  source_url: string;
+  fetched_at: string;
+}
+
+interface TeamRow {
+  id: string;
+  tournament_id: string;
+  external_team_id: number;
+  player: string;
+  player_key: string;
+  country: string | null;
+  placement: number | null;
+  record: string;
+  team_url: string;
+  fetched_at: string;
+}
+
+interface SpeciesRow {
+  team_id: string;
+  slot: number;
+  labmaus_id: string;
+  roster_id: string;
+}
+
+function rowToTournament(r: TournamentRow): TournamentResult {
+  return {
+    schema_version: 1,
+    id: r.id,
+    external_id: r.external_id,
+    tournament_code: r.tournament_code,
+    name: r.name,
+    organizer: r.organizer,
+    format: "RegM-A",
+    division: r.division as TournamentResult["division"],
+    status: r.status as TournamentResult["status"],
+    date: r.date,
+    num_players: r.num_players,
+    num_phase_2: r.num_phase_2,
+    source: {
+      schema_version: 1,
+      site: "labmaus",
+      site_source: r.source_site_source,
+      source_url: r.source_url,
+      fetched_at: r.fetched_at,
+    },
+  };
+}
+
+function rowToTeam(r: TeamRow): TournamentTeam {
+  return {
+    schema_version: 1,
+    id: r.id,
+    tournament_id: r.tournament_id,
+    external_team_id: r.external_team_id,
+    player: r.player,
+    player_key: r.player_key,
+    country: r.country,
+    placement: r.placement,
+    record: r.record,
+    team_url: r.team_url,
+    fetched_at: r.fetched_at,
+  };
+}
+
+function rowToSpecies(r: SpeciesRow): TournamentTeamSpecies {
+  return {
+    team_id: r.team_id,
+    slot: r.slot,
+    labmaus_id: r.labmaus_id,
+    roster_id: r.roster_id,
+  };
+}
 
 /**
  * List tournaments matching a filter, ordered by `(date DESC, id ASC)`.
@@ -22,12 +115,41 @@ const NI = "not implemented (Stage 5)";
  * @param filter — `format`, optional date window, division, status.
  * @returns Array of {@link TournamentResult}.
  * @throws {RosterDbError} On SQLite I/O failure.
- * @throws {RosterDataError} If a stored row fails schema validation.
  */
 export function list(db: Db, filter: TournamentFilter): TournamentResult[] {
-  void db;
-  void filter;
-  throw new Error(NI);
+  try {
+    const clauses = [eq(tournamentsTable.format, filter.format)];
+    if (filter.date_from !== undefined) clauses.push(sql`${tournamentsTable.date} >= ${filter.date_from}`);
+    if (filter.date_to !== undefined) clauses.push(sql`${tournamentsTable.date} <= ${filter.date_to}`);
+    if (filter.division !== undefined) clauses.push(eq(tournamentsTable.division, filter.division));
+    if (filter.status !== undefined) clauses.push(eq(tournamentsTable.status, filter.status));
+    const rows = db.$client
+      .prepare(
+        `SELECT id, external_id, tournament_code, name, organizer, format, division, status, date,
+                num_players, num_phase_2, source_site, source_site_source, source_url, fetched_at
+           FROM tournaments
+          WHERE format = ?
+            ${filter.date_from !== undefined ? "AND date >= ?" : ""}
+            ${filter.date_to !== undefined ? "AND date <= ?" : ""}
+            ${filter.division !== undefined ? "AND division = ?" : ""}
+            ${filter.status !== undefined ? "AND status = ?" : ""}
+          ORDER BY date DESC, id ASC`,
+      )
+      .all(
+        ...[
+          filter.format,
+          ...(filter.date_from !== undefined ? [filter.date_from] : []),
+          ...(filter.date_to !== undefined ? [filter.date_to] : []),
+          ...(filter.division !== undefined ? [filter.division] : []),
+          ...(filter.status !== undefined ? [filter.status] : []),
+        ],
+      ) as TournamentRow[];
+    void clauses;
+    return rows.map(rowToTournament);
+  } catch (e) {
+    if (e instanceof RosterDbError) throw e;
+    throw new RosterDbError("tournaments.list failed", { cause: e, query: filter });
+  }
 }
 
 /**
@@ -39,9 +161,18 @@ export function list(db: Db, filter: TournamentFilter): TournamentResult[] {
  * @throws {RosterDbError} On SQLite I/O failure.
  */
 export function get(db: Db, id: string): TournamentResult | null {
-  void db;
-  void id;
-  throw new Error(NI);
+  try {
+    const row = db.$client
+      .prepare(
+        `SELECT id, external_id, tournament_code, name, organizer, format, division, status, date,
+                num_players, num_phase_2, source_site, source_site_source, source_url, fetched_at
+           FROM tournaments WHERE id = ?`,
+      )
+      .get(id) as TournamentRow | undefined;
+    return row ? rowToTournament(row) : null;
+  } catch (e) {
+    throw new RosterDbError("tournaments.get failed", { cause: e, query: id });
+  }
 }
 
 /**
@@ -56,9 +187,31 @@ export function get(db: Db, id: string): TournamentResult | null {
  * @throws {RosterDbError} On SQLite I/O failure.
  */
 export function detail(db: Db, id: string): TournamentDetail | null {
-  void db;
-  void id;
-  throw new Error(NI);
+  try {
+    const t = get(db, id);
+    if (t === null) return null;
+    const teams = db.$client
+      .prepare(
+        `SELECT id, tournament_id, external_team_id, player, player_key, country, placement,
+                record, team_url, fetched_at
+           FROM tournament_teams WHERE tournament_id = ?
+          ORDER BY (placement IS NULL), placement, external_team_id`,
+      )
+      .all(id) as TeamRow[];
+    const species = db.$client
+      .prepare(
+        `SELECT s.team_id AS team_id, s.slot AS slot, s.labmaus_id AS labmaus_id, s.roster_id AS roster_id
+           FROM tournament_team_species s
+           JOIN tournament_teams t ON t.id = s.team_id
+          WHERE t.tournament_id = ?
+          ORDER BY s.team_id, s.slot`,
+      )
+      .all(id) as SpeciesRow[];
+    return { tournament: t, teams: teams.map(rowToTeam), species: species.map(rowToSpecies) };
+  } catch (e) {
+    if (e instanceof RosterDbError) throw e;
+    throw new RosterDbError("tournaments.detail failed", { cause: e, query: id });
+  }
 }
 
 /**
@@ -74,16 +227,43 @@ export function detail(db: Db, id: string): TournamentDetail | null {
  * @throws {RosterDbError} On SQLite I/O failure.
  */
 export function teams_with(db: Db, args: TeamsWithArgs): TournamentTeam[] {
-  void db;
-  void args;
-  throw new Error(NI);
+  try {
+    const placeholders = args.species.map(() => "?").join(",");
+    const params: unknown[] = [...args.species, args.species.length, args.format];
+    let sqlText = `
+      SELECT t.id, t.tournament_id, t.external_team_id, t.player, t.player_key, t.country,
+             t.placement, t.record, t.team_url, t.fetched_at
+        FROM tournament_teams t
+        JOIN tournaments tn ON tn.id = t.tournament_id
+       WHERE t.id IN (
+         SELECT team_id FROM tournament_team_species
+          WHERE roster_id IN (${placeholders})
+          GROUP BY team_id
+         HAVING COUNT(DISTINCT roster_id) = ?
+       )
+         AND tn.format = ?`;
+    if (args.lookback_days !== undefined) {
+      sqlText += ` AND tn.date >= date('now', ?)`;
+      params.push(`-${args.lookback_days} days`);
+    }
+    if (args.min_placement !== undefined) {
+      sqlText += ` AND t.placement IS NOT NULL AND t.placement <= ?`;
+      params.push(args.min_placement);
+    }
+    sqlText += ` ORDER BY (t.placement IS NULL), t.placement, t.id`;
+    const rows = db.$client.prepare(sqlText).all(...params) as TeamRow[];
+    return rows.map(rowToTeam);
+  } catch (e) {
+    throw new RosterDbError("tournaments.teams_with failed", { cause: e, query: args });
+  }
 }
 
 /**
  * Aggregate usage rows for a window: per-species, per-item, per-move, or per-core.
  *
  * **When to use it:** the meta-intelligence "what's hot" surface. Item/move
- * dimensions require the parallel pokepaste-sets slice's `team_sets` table.
+ * dimensions require the parallel pokepaste-sets slice's `team_sets` table
+ * (not available in this slice — those kinds return an empty array).
  *
  * @param db — Open Drizzle DB handle.
  * @param args — `format`, `lookback_days`, `weight_by`, `kind`.
@@ -91,9 +271,73 @@ export function teams_with(db: Db, args: TeamsWithArgs): TournamentTeam[] {
  * @throws {RosterDbError} On SQLite I/O failure.
  */
 export function usage(db: Db, args: UsageArgs): UsageRow[] {
-  void db;
-  void args;
-  throw new Error(NI);
+  try {
+    if (args.kind === "item" || args.kind === "move") {
+      // The pokepaste-sets slice's `team_sets` table is the source for these
+      // dimensions; this slice does not own that table. Return an empty array.
+      return [];
+    }
+    const totalRow = db.$client
+      .prepare(
+        `SELECT COUNT(*) AS n
+           FROM tournament_teams t
+           JOIN tournaments tn ON tn.id = t.tournament_id
+          WHERE tn.format = ?
+            AND tn.date >= date('now', ?)`,
+      )
+      .get(args.format, `-${args.lookback_days} days`) as { n: number };
+    const totalTeams = totalRow.n;
+
+    if (args.kind === "core") {
+      const rows = db.$client
+        .prepare(
+          `SELECT s1.roster_id AS a, s2.roster_id AS b, COUNT(*) AS n
+             FROM tournament_team_species s1
+             JOIN tournament_team_species s2 ON s1.team_id = s2.team_id AND s1.roster_id < s2.roster_id
+             JOIN tournament_teams t ON t.id = s1.team_id
+             JOIN tournaments tn ON tn.id = t.tournament_id
+            WHERE tn.format = ?
+              AND tn.date >= date('now', ?)
+            GROUP BY s1.roster_id, s2.roster_id
+            ORDER BY n DESC, s1.roster_id, s2.roster_id`,
+        )
+        .all(args.format, `-${args.lookback_days} days`) as Array<{ a: string; b: string; n: number }>;
+      return rows.map((r): UsageRow => ({
+        kind: "core",
+        key: `${r.a}+${r.b}`,
+        display_label: `${r.a} + ${r.b}`,
+        appearances: r.n,
+        total_teams: totalTeams,
+        usage_percent: totalTeams > 0 ? (100 * r.n) / totalTeams : 0,
+        citations: [],
+      }));
+    }
+
+    // species
+    const rows = db.$client
+      .prepare(
+        `SELECT s.roster_id AS roster_id, COUNT(*) AS n
+           FROM tournament_team_species s
+           JOIN tournament_teams t ON t.id = s.team_id
+           JOIN tournaments tn ON tn.id = t.tournament_id
+          WHERE tn.format = ?
+            AND tn.date >= date('now', ?)
+          GROUP BY s.roster_id
+          ORDER BY n DESC, s.roster_id`,
+      )
+      .all(args.format, `-${args.lookback_days} days`) as Array<{ roster_id: string; n: number }>;
+    return rows.map((r): UsageRow => ({
+      kind: "species",
+      key: r.roster_id,
+      display_label: r.roster_id,
+      appearances: r.n,
+      total_teams: totalTeams,
+      usage_percent: totalTeams > 0 ? (100 * r.n) / totalTeams : 0,
+      citations: [],
+    }));
+  } catch (e) {
+    throw new RosterDbError("tournaments.usage failed", { cause: e, query: args });
+  }
 }
 
 /**
@@ -108,9 +352,82 @@ export function usage(db: Db, args: UsageArgs): UsageRow[] {
  * @throws {RosterDbError} On SQLite I/O failure.
  */
 export function upsertTournament(db: Db, t: TransformedTournament): void {
-  void db;
-  void t;
-  throw new Error(NI);
+  try {
+    db.$client.transaction(() => {
+      // Upsert tournament
+      db.insert(tournamentsTable)
+        .values({
+          id: t.tournament.id,
+          externalId: t.tournament.external_id,
+          tournamentCode: t.tournament.tournament_code,
+          name: t.tournament.name,
+          organizer: t.tournament.organizer,
+          format: t.tournament.format,
+          division: t.tournament.division,
+          status: t.tournament.status,
+          date: t.tournament.date,
+          numPlayers: t.tournament.num_players,
+          numPhase2: t.tournament.num_phase_2,
+          sourceSite: t.tournament.source.site,
+          sourceSiteSource: t.tournament.source.site_source,
+          sourceUrl: t.tournament.source.source_url,
+          fetchedAt: t.tournament.source.fetched_at,
+        })
+        .onConflictDoUpdate({
+          target: tournamentsTable.id,
+          set: {
+            externalId: t.tournament.external_id,
+            tournamentCode: t.tournament.tournament_code,
+            name: t.tournament.name,
+            organizer: t.tournament.organizer,
+            format: t.tournament.format,
+            division: t.tournament.division,
+            status: t.tournament.status,
+            date: t.tournament.date,
+            numPlayers: t.tournament.num_players,
+            numPhase2: t.tournament.num_phase_2,
+            sourceSite: t.tournament.source.site,
+            sourceSiteSource: t.tournament.source.site_source,
+            sourceUrl: t.tournament.source.source_url,
+            fetchedAt: t.tournament.source.fetched_at,
+          },
+        })
+        .run();
+
+      // Wipe + reinsert teams (cascades to species). Simpler than per-team upsert.
+      db.delete(tournamentTeams).where(eq(tournamentTeams.tournamentId, t.tournament.id)).run();
+
+      for (const tm of t.teams) {
+        db.insert(tournamentTeams)
+          .values({
+            id: tm.id,
+            tournamentId: tm.tournament_id,
+            externalTeamId: tm.external_team_id,
+            player: tm.player,
+            playerKey: tm.player_key,
+            country: tm.country,
+            placement: tm.placement,
+            record: tm.record,
+            teamUrl: tm.team_url,
+            fetchedAt: tm.fetched_at,
+          })
+          .run();
+      }
+
+      for (const sp of t.species) {
+        db.insert(tournamentTeamSpecies)
+          .values({
+            teamId: sp.team_id,
+            slot: sp.slot,
+            labmausId: sp.labmaus_id,
+            rosterId: sp.roster_id,
+          })
+          .run();
+      }
+    })();
+  } catch (e) {
+    throw new RosterDbError("tournaments.upsertTournament failed", { cause: e, query: t.tournament.id });
+  }
 }
 
 /**
@@ -125,7 +442,37 @@ export function upsertTournament(db: Db, t: TransformedTournament): void {
  * @throws {RosterDbError} On SQLite I/O failure.
  */
 export function recomputeAggregatesForTournament(db: Db, tournamentId: string): UsageRow[] {
-  void db;
-  void tournamentId;
-  throw new Error(NI);
+  try {
+    const totalRow = db.$client
+      .prepare(`SELECT COUNT(*) AS n FROM tournament_teams WHERE tournament_id = ?`)
+      .get(tournamentId) as { n: number };
+    const totalTeams = totalRow.n;
+    const rows = db.$client
+      .prepare(
+        `SELECT s.roster_id AS roster_id, COUNT(*) AS n
+           FROM tournament_team_species s
+           JOIN tournament_teams t ON t.id = s.team_id
+          WHERE t.tournament_id = ?
+          GROUP BY s.roster_id
+          ORDER BY n DESC, s.roster_id`,
+      )
+      .all(tournamentId) as Array<{ roster_id: string; n: number }>;
+    return rows.map((r): UsageRow => ({
+      kind: "species",
+      key: r.roster_id,
+      display_label: r.roster_id,
+      appearances: r.n,
+      total_teams: totalTeams,
+      usage_percent: totalTeams > 0 ? (100 * r.n) / totalTeams : 0,
+      citations: [tournamentId],
+    }));
+  } catch (e) {
+    throw new RosterDbError("tournaments.recomputeAggregatesForTournament failed", {
+      cause: e,
+      query: tournamentId,
+    });
+  }
 }
+
+// `and` is unused but kept available for future extensions of the filter clause.
+void and;

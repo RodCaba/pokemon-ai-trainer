@@ -3,11 +3,14 @@ import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import {
   LabmausGetArgsSchema,
+  LabmausRawTournamentSchema,
   type LabmausGetArgs,
   type TournamentDetail,
 } from "../../schemas/tournament";
+import { LabmausInputError, LabmausSchemaError } from "../../schemas/errors";
 import type { LabmausClient } from "./client";
 import type { SpeciesMapDeps } from "./species-map";
+import { transformTournament } from "./transform";
 
 /**
  * Agent-callable tool: fetch one labmaus tournament's full payload.
@@ -27,9 +30,24 @@ export async function getTournament(
   args: LabmausGetArgs,
   deps: { client: LabmausClient; speciesMap: SpeciesMapDeps },
 ): Promise<TournamentDetail> {
-  void args;
-  void deps;
-  throw new Error("not implemented (Stage 5)");
+  const parsedArgs = LabmausGetArgsSchema.safeParse(args);
+  if (!parsedArgs.success) {
+    throw new LabmausInputError("invalid getTournament args", {
+      cause: parsedArgs.error,
+      query: args,
+    });
+  }
+  const rawJson = await deps.client.getTournament({ id: parsedArgs.data.id });
+  const rawParsed = LabmausRawTournamentSchema.safeParse(rawJson);
+  if (!rawParsed.success) {
+    throw new LabmausSchemaError("getTournament response failed schema", {
+      cause: rawParsed.error,
+      query: args,
+    });
+  }
+  const fetchedAt = new Date().toISOString();
+  const out = transformTournament(rawParsed.data, fetchedAt, deps.speciesMap);
+  return out;
 }
 
 /** Anthropic SDK tool definition for `labmaus_get_tournament`. */

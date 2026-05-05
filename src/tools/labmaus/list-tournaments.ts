@@ -3,10 +3,14 @@ import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import {
   LabmausListArgsSchema,
+  TournamentSummarySchema,
   type LabmausListArgs,
   type TournamentSummary,
 } from "../../schemas/tournament";
+import { LabmausInputError, LabmausSchemaError } from "../../schemas/errors";
 import type { LabmausClient } from "./client";
+
+const REGULATION_DISPLAY = "Regulation Set M-A";
 
 /**
  * Agent-callable tool: list completed Reg M-A tournaments in a date range.
@@ -25,9 +29,26 @@ export async function listTournaments(
   args: LabmausListArgs,
   deps: { client: LabmausClient },
 ): Promise<TournamentSummary[]> {
-  void args;
-  void deps;
-  throw new Error("not implemented (Stage 5)");
+  const parsedArgs = LabmausListArgsSchema.safeParse(args);
+  if (!parsedArgs.success) {
+    throw new LabmausInputError("invalid listTournaments args", {
+      cause: parsedArgs.error,
+      query: args,
+    });
+  }
+  const raw = await deps.client.listCompletedTournaments({
+    regulation: REGULATION_DISPLAY,
+    from: parsedArgs.data.date_range.from,
+    to: parsedArgs.data.date_range.to,
+  });
+  const arrayParsed = TournamentSummarySchema.array().safeParse(raw);
+  if (!arrayParsed.success) {
+    throw new LabmausSchemaError("listTournaments response failed schema", {
+      cause: arrayParsed.error,
+      query: args,
+    });
+  }
+  return arrayParsed.data;
 }
 
 /** Anthropic SDK tool definition for `labmaus_list_tournaments`. */

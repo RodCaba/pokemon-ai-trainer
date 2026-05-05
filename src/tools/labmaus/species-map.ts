@@ -37,13 +37,12 @@ export interface SpeciesMapDeps {
  * species. For a hard-fail variant that throws on unknown ids, use
  * {@link labmausIdToRosterIdOrThrow}.
  *
- * @param labmausId — A labmaus dex id like `"006"`, `"038-a"`, `"479-w"`, or
- *   the literal `"902"` (Basculegion-M) whose display name is `"Basculegion ♂"`.
+ * @param labmausId — A labmaus dex id like `"006"`, `"038-a"`, `"479-w"`.
  * @param displayName — Parallel display name from `team_names` if available.
  *   Reserved for future heuristic resolution; the v1 implementation just looks
  *   up by id.
  * @param deps — `aliasRepo` (a `species_alias_labmaus` repo) + `db`.
- * @returns The roster id (e.g. `"ninetales-alola"`) or `null` if no mapping.
+ * @returns The roster id (e.g. `"ninetalesalola"`) or `null` if no mapping.
  *
  * @example
  *   labmausIdToRosterId("038-a", "Ninetales-Alola", deps); // "ninetalesalola"
@@ -53,15 +52,18 @@ export function labmausIdToRosterId(
   displayName: string | null,
   deps: SpeciesMapDeps,
 ): string | null {
-  void labmausId;
   void displayName;
-  void deps;
-  throw new Error("not implemented (Stage 5)");
+  const row = deps.aliasRepo.get(deps.db, labmausId, "RegM-A");
+  return row ? row.roster_id : null;
 }
 
 /**
  * Same as {@link labmausIdToRosterId} but throws on miss.
  *
+ * @param labmausId — A labmaus dex id.
+ * @param displayName — Parallel display name (reserved for future use).
+ * @param deps — Species-map dependencies.
+ * @returns The roster id (never null).
  * @throws {LabmausUnknownSpeciesError} If no roster id is mapped. The error's
  *   message and `.query` both carry the offending labmaus id.
  */
@@ -70,9 +72,11 @@ export function labmausIdToRosterIdOrThrow(
   displayName: string | null,
   deps: SpeciesMapDeps,
 ): string {
-  void labmausId;
-  void displayName;
-  void deps;
-  // Match the documented contract so the type-check passes; behavior body is Stage 5.
-  throw new LabmausUnknownSpeciesError("not implemented (Stage 5)", { query: labmausId });
+  const r = labmausIdToRosterId(labmausId, displayName, deps);
+  if (r === null) {
+    throw new LabmausUnknownSpeciesError(`unknown labmaus species id: ${labmausId}`, {
+      query: labmausId,
+    });
+  }
+  return r;
 }
