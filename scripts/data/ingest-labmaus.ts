@@ -15,18 +15,14 @@
  *   2  invalid argv
  */
 
-import { existsSync, readFileSync } from "node:fs";
 import { open } from "../../src/db/open";
 import { createLabmausClient } from "../../src/tools/labmaus/client";
 import { listTournaments } from "../../src/tools/labmaus/list-tournaments";
 import { getTournament } from "../../src/tools/labmaus/get-tournament";
 import * as tournaments from "../../src/db/tournaments";
-import * as aliasRepo from "../../src/db/species-alias-labmaus";
-import { speciesAliasLabmaus } from "../../src/db/drizzle-schema";
 import {
   LabmausNetworkError,
   LabmausSchemaError,
-  LabmausUnknownSpeciesError,
 } from "../../src/schemas/errors";
 
 interface ParsedArgs {
@@ -96,34 +92,6 @@ function chunkDateRange(from: string, to: string, days: number): Array<{ from: s
   return out;
 }
 
-function seedAliasTable(db: ReturnType<typeof open>, seedPath: string): void {
-  if (!existsSync(seedPath)) return;
-  const raw = JSON.parse(readFileSync(seedPath, "utf8")) as Array<{
-    labmausId: string;
-    rosterId: string;
-  }>;
-  const sourceJson = JSON.stringify({
-    origin: "data/labmaus/species-alias-seed.json",
-    fetched_at: new Date().toISOString(),
-  });
-  db.$client.transaction(() => {
-    for (const r of raw) {
-      // Skip rows whose roster id isn't in the species table — surfaces seed/roster drift.
-      const exists = db.$client
-        .prepare(`SELECT 1 FROM species WHERE id = ?`)
-        .get(r.rosterId) as { 1: number } | undefined;
-      if (!exists) continue;
-      db.insert(speciesAliasLabmaus)
-        .values({ id: r.labmausId, rosterId: r.rosterId, sourceJson })
-        .onConflictDoUpdate({
-          target: speciesAliasLabmaus.id,
-          set: { rosterId: r.rosterId, sourceJson },
-        })
-        .run();
-    }
-  })();
-}
-
 // TODO(stage6-deferred): replace fakeFetchEmpty with cache-driven replay in
 // pokepaste-sets slice or ingest-hardening slice
 // (see docs/reviews/labmaus-tournaments.md §9).
@@ -183,18 +151,16 @@ async function runCrossCheck(
   const theirsRaw = raw?.pokemon;
   if (!theirsRaw || theirsRaw.length === 0) return;
 
+  // Our recomputed ranking now reads from team_sets (canonical roster ids).
+  // When pokepaste hasn't ingested yet for this tournament, ours is [] and
+  // there's no meaningful comparison to run.
   const ours = tournaments.recomputeAggregatesForTournament(db, tournamentDomainId);
-  // Map labmaus aggregate keys (their `id`) into our roster ids via the alias
-  // repo, so the comparison is on a common keyspace.
+  if (ours.length === 0) return;
+  // Their keys are labmaus dex ids; ours are roster ids — without the alias
+  // table the keyspaces no longer line up directly. Cross-check is skipped
+  // until a labmaus-id ↔ roster-id translation is reintroduced (e.g. via
+  // pokepaste-derived dex-id co-occurrence). Non-fatal.
   const theirsMapped: Array<{ key: string; usage_percent: number }> = [];
-  for (const t of theirsRaw) {
-    const labmausId = t.id;
-    if (!labmausId) continue;
-    const alias = aliasRepo.get(db, labmausId, "RegM-A");
-    if (!alias) continue;
-    const usagePercent = t.usage_percent ?? t.usage ?? 0;
-    theirsMapped.push({ key: alias.roster_id, usage_percent: usagePercent });
-  }
   const diffs = compareWithinTolerance(ours, theirsMapped);
   for (const d of diffs) {
     process.stderr.write(
@@ -227,8 +193,6 @@ export async function main(argv: string[]): Promise<number> {
 
   const db = open(parsed.dbPath);
   try {
-    seedAliasTable(db, "data/labmaus/species-alias-seed.json");
-
     const client = createLabmausClient({
       cacheDir: "data/cache/labmaus",
       cacheTtlMs: 24 * 60 * 60 * 1000,
@@ -268,13 +232,7 @@ export async function main(argv: string[]): Promise<number> {
       // in real-network mode and the tests don't exercise it.
       for (const s of summaries) {
         try {
-          const detail = await getTournament(
-            { id: s.id },
-            {
-              client,
-              speciesMap: { db, aliasRepo },
-            },
-          );
+          const detail = await getTournament({ id: s.id }, { client });
           tournaments.upsertTournament(db, detail);
           total.tournaments++;
           total.teams += detail.teams.length;
@@ -286,9 +244,9 @@ export async function main(argv: string[]): Promise<number> {
           await runCrossCheck(client, s.id, detail.tournament.id, db, total);
         } catch (e) {
           // Same propagation rule as the listing call: only swallow network
-          // errors in offline mode. Schema/unknown-species/DB errors fail loud.
+          // errors in offline mode. Schema/DB errors fail loud.
           if (parsed.noNetwork && e instanceof LabmausNetworkError) continue;
-          if (e instanceof LabmausSchemaError || e instanceof LabmausUnknownSpeciesError) throw e;
+          if (e instanceof LabmausSchemaError) throw e;
           throw e;
         }
       }

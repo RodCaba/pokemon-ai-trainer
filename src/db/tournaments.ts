@@ -53,7 +53,6 @@ interface SpeciesRow {
   team_id: string;
   slot: number;
   labmaus_id: string;
-  roster_id: string;
 }
 
 function rowToTournament(r: TournamentRow): TournamentResult {
@@ -101,7 +100,6 @@ function rowToSpecies(r: SpeciesRow): TournamentTeamSpecies {
     team_id: r.team_id,
     slot: r.slot,
     labmaus_id: r.labmaus_id,
-    roster_id: r.roster_id,
   };
 }
 
@@ -206,7 +204,7 @@ export function detail(db: Db, id: string): TournamentDetail | null {
       .all(id) as TeamRow[];
     const species = db.$client
       .prepare(
-        `SELECT s.team_id AS team_id, s.slot AS slot, s.labmaus_id AS labmaus_id, s.roster_id AS roster_id
+        `SELECT s.team_id AS team_id, s.slot AS slot, s.labmaus_id AS labmaus_id
            FROM tournament_team_species s
            JOIN tournament_teams t ON t.id = s.team_id
           WHERE t.tournament_id = ?
@@ -222,14 +220,20 @@ export function detail(db: Db, id: string): TournamentDetail | null {
 
 /**
  * Return teams that contain ALL of the given canonical roster ids
- * (set-intersection on `tournament_team_species.roster_id`).
+ * (set-intersection on `team_sets.species_roster_id`).
  *
  * **When to use it:** the lead planner's "show me recent teams that paired
  * Sneasler with Kingambit" query.
  *
+ * Canonical species attribution is owned by the parallel `pokepaste-sets`
+ * slice via `team_sets`. When `team_sets` has no rows for the matched window
+ * (pokepaste hasn't ingested yet, or every team's paste 404'd), this returns
+ * `[]` — same graceful-empty contract as `usage(kind="item"|"move")`.
+ *
  * @param db — Open Drizzle DB handle.
  * @param args — `species` (≥1, ≤6), optional `lookback_days`, `min_placement`.
  * @returns Array of {@link TournamentTeam}, ordered by placement (NULLS LAST).
+ *   Empty if `team_sets` has no rows for the window.
  * @throws {RosterDbError} On SQLite I/O failure.
  */
 export function teams_with(db: Db, args: TeamsWithArgs): TournamentTeam[] {
@@ -242,10 +246,10 @@ export function teams_with(db: Db, args: TeamsWithArgs): TournamentTeam[] {
         FROM tournament_teams t
         JOIN tournaments tn ON tn.id = t.tournament_id
        WHERE t.id IN (
-         SELECT team_id FROM tournament_team_species
-          WHERE roster_id IN (${placeholders})
-          GROUP BY team_id
-         HAVING COUNT(DISTINCT roster_id) = ?
+         SELECT tournament_team_id FROM team_sets
+          WHERE species_roster_id IN (${placeholders})
+          GROUP BY tournament_team_id
+         HAVING COUNT(DISTINCT species_roster_id) = ?
        )
          AND tn.format = ?`;
     if (args.lookback_days !== undefined) {
@@ -267,13 +271,18 @@ export function teams_with(db: Db, args: TeamsWithArgs): TournamentTeam[] {
 /**
  * Aggregate usage rows for a window: per-species, per-item, per-move, or per-core.
  *
- * **When to use it:** the meta-intelligence "what's hot" surface. Item/move
- * dimensions require the parallel pokepaste-sets slice's `team_sets` table
- * (not available in this slice — those kinds return an empty array).
+ * **When to use it:** the meta-intelligence "what's hot" surface. All four
+ * dimensions read from `team_sets` (owned by the parallel `pokepaste-sets`
+ * slice) — when `team_sets` is empty for the window (pokepaste hasn't
+ * ingested yet, or every paste 404'd), every kind returns `[]`. This is the
+ * uniform graceful-empty contract; callers cannot tell "no data ingested"
+ * from "nothing matches the filter" without inspecting `team_sets`/`tournament_teams`
+ * directly.
  *
  * @param db — Open Drizzle DB handle.
  * @param args — `format`, `lookback_days`, `weight_by`, `kind`.
- * @returns Array of {@link UsageRow}, sorted by `usage_percent DESC`.
+ * @returns Array of {@link UsageRow}, sorted by `usage_percent DESC`. Empty
+ *   when `team_sets` has no rows for the matched window.
  * @throws {RosterDbError} On SQLite I/O failure.
  */
 export function usage(db: Db, args: UsageArgs): UsageRow[] {
@@ -356,18 +365,20 @@ export function usage(db: Db, args: UsageArgs): UsageRow[] {
     if (args.kind === "core") {
       // TODO(stage6-deferred): plan §6 restricts to 2-mon; 3-/4-mon cores need a new flow doc
       // (see docs/reviews/labmaus-tournaments.md §9).
+      // Reads from team_sets — same graceful-empty contract as kind="item"|"move".
       const rows = db.$client
         .prepare(
-          `SELECT s1.roster_id AS a, s2.roster_id AS b, COUNT(*) AS n,
+          `SELECT s1.species_roster_id AS a, s2.species_roster_id AS b, COUNT(*) AS n,
                   GROUP_CONCAT(DISTINCT tn.id) AS tournament_ids
-             FROM tournament_team_species s1
-             JOIN tournament_team_species s2 ON s1.team_id = s2.team_id AND s1.roster_id < s2.roster_id
-             JOIN tournament_teams t ON t.id = s1.team_id
+             FROM team_sets s1
+             JOIN team_sets s2 ON s1.tournament_team_id = s2.tournament_team_id
+                              AND s1.species_roster_id < s2.species_roster_id
+             JOIN tournament_teams t ON t.id = s1.tournament_team_id
              JOIN tournaments tn ON tn.id = t.tournament_id
             WHERE tn.format = ?
               AND tn.date >= date('now', ?)
-            GROUP BY s1.roster_id, s2.roster_id
-            ORDER BY n DESC, s1.roster_id, s2.roster_id`,
+            GROUP BY s1.species_roster_id, s2.species_roster_id
+            ORDER BY n DESC, s1.species_roster_id, s2.species_roster_id`,
         )
         .all(args.format, `-${args.lookback_days} days`) as Array<{
           a: string;
@@ -386,18 +397,19 @@ export function usage(db: Db, args: UsageArgs): UsageRow[] {
       }));
     }
 
-    // species
+    // species — reads from team_sets (canonical pokepaste attribution).
+    // Empty team_sets → graceful empty result, mirroring kind="item"|"move".
     const rows = db.$client
       .prepare(
-        `SELECT s.roster_id AS roster_id, COUNT(*) AS n,
+        `SELECT ts.species_roster_id AS roster_id, COUNT(*) AS n,
                 GROUP_CONCAT(DISTINCT tn.id) AS tournament_ids
-           FROM tournament_team_species s
-           JOIN tournament_teams t ON t.id = s.team_id
+           FROM team_sets ts
+           JOIN tournament_teams t ON t.id = ts.tournament_team_id
            JOIN tournaments tn ON tn.id = t.tournament_id
           WHERE tn.format = ?
             AND tn.date >= date('now', ?)
-          GROUP BY s.roster_id
-          ORDER BY n DESC, s.roster_id`,
+          GROUP BY ts.species_roster_id
+          ORDER BY n DESC, ts.species_roster_id`,
       )
       .all(args.format, `-${args.lookback_days} days`) as Array<{
         roster_id: string;
@@ -498,7 +510,6 @@ export function upsertTournament(db: Db, t: TransformedTournament): void {
             teamId: sp.team_id,
             slot: sp.slot,
             labmausId: sp.labmaus_id,
-            rosterId: sp.roster_id,
           })
           .run();
       }
@@ -514,9 +525,16 @@ export function upsertTournament(db: Db, t: TransformedTournament): void {
  * **When to use it:** ingest-time cross-check against labmaus's own `pokemon[]`
  * aggregate. Returns the same shape as {@link usage} restricted to one tournament.
  *
+ * Reads from `team_sets` (owned by `pokepaste-sets`); when no sets are
+ * persisted yet for the tournament, returns `[]` — same graceful-empty
+ * contract as {@link usage}. Cross-check tolerance vs. labmaus's `pokemon[]`
+ * aggregate is unchanged (±0.05 abs / ±1% rel) and only meaningful once the
+ * pokepaste slice has populated `team_sets`.
+ *
  * @param db — Open Drizzle DB handle.
  * @param tournamentId — Namespaced id.
- * @returns Per-species usage rows for that tournament.
+ * @returns Per-species usage rows for that tournament. Empty if no `team_sets`
+ *   rows exist.
  * @throws {RosterDbError} On SQLite I/O failure.
  */
 export function recomputeAggregatesForTournament(db: Db, tournamentId: string): UsageRow[] {
@@ -527,12 +545,12 @@ export function recomputeAggregatesForTournament(db: Db, tournamentId: string): 
     const totalTeams = totalRow.n;
     const rows = db.$client
       .prepare(
-        `SELECT s.roster_id AS roster_id, COUNT(*) AS n
-           FROM tournament_team_species s
-           JOIN tournament_teams t ON t.id = s.team_id
+        `SELECT ts.species_roster_id AS roster_id, COUNT(*) AS n
+           FROM team_sets ts
+           JOIN tournament_teams t ON t.id = ts.tournament_team_id
           WHERE t.tournament_id = ?
-          GROUP BY s.roster_id
-          ORDER BY n DESC, s.roster_id`,
+          GROUP BY ts.species_roster_id
+          ORDER BY n DESC, ts.species_roster_id`,
       )
       .all(tournamentId) as Array<{ roster_id: string; n: number }>;
     return rows.map((r): UsageRow => ({

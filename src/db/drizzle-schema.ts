@@ -238,14 +238,10 @@ export const tournamentTeamSpecies = sqliteTable(
       .references(() => tournamentTeams.id, { onDelete: "cascade" }),
     slot: integer("slot").notNull(),
     labmausId: text("labmaus_id").notNull(),
-    rosterId: text("roster_id")
-      .notNull()
-      .references(() => species.id),
   },
   (t) => [
     primaryKey({ columns: [t.teamId, t.slot] }),
     check("tournament_team_species_slot_range", sql`${t.slot} BETWEEN 0 AND 5`),
-    index("idx_tournament_team_species_roster_id").on(t.rosterId),
   ],
 );
 
@@ -285,18 +281,6 @@ export const teamSets = sqliteTable(
     index("idx_team_sets_species").on(t.speciesRosterId),
     index("idx_team_sets_item").on(t.item),
   ],
-);
-
-export const speciesAliasLabmaus = sqliteTable(
-  "species_alias_labmaus",
-  {
-    id: text("id").primaryKey(), // labmaus dex-id ("038-a")
-    rosterId: text("roster_id")
-      .notNull()
-      .references(() => species.id),
-    sourceJson: text("source_json").notNull(),
-  },
-  (t) => [index("idx_species_alias_labmaus_roster_id").on(t.rosterId)],
 );
 
 export const moves = sqliteTable(

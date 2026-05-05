@@ -172,7 +172,6 @@ export const TournamentTeamSpeciesSchema = z
     team_id: z.string().regex(/^labmaus:\d+:\d+$/),
     slot: z.number().int().min(0).max(5),
     labmaus_id: z.string().min(1),
-    roster_id: z.string().regex(/^[a-z0-9-]+$/),
   })
   .strict();
 

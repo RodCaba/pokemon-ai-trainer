@@ -104,8 +104,13 @@ function team(
   };
 }
 
-function speciesRow(teamId: string, slot: number, rosterId: string): TournamentTeamSpecies {
-  return { team_id: teamId, slot, labmaus_id: "x", roster_id: rosterId };
+function speciesRow(teamId: string, slot: number, _rosterId: string): TournamentTeamSpecies {
+  // Post-simplification, tournament_team_species carries only labmaus dex ids.
+  // Tests still pass a `rosterId` arg so the call sites remain readable; we
+  // synthesize a labmaus id from it (any non-empty string suffices for the
+  // current schema). Tests that exercise `team_sets`-backed queries (usage,
+  // teams_with) seed `team_sets` rows directly via `seedTeamSet`.
+  return { team_id: teamId, slot, labmaus_id: `lbm:${_rosterId}` };
 }
 
 function transformed(t: TournamentResult, teams: TournamentTeam[], species: TournamentTeamSpecies[]): TransformedTournament {
@@ -160,26 +165,43 @@ describe("tournaments repo", () => {
     expect(masters.map((t) => t.external_id).sort()).toEqual([2, 3]);
   });
 
-  it("T32. teams_with(['sneasler','kingambit']) returns only teams containing both", () => {
+  it("T32. teams_with(['sneasler','kingambit']) returns only teams containing both (graceful empty without team_sets)", () => {
     const t = tournament(56757, "2026-05-04");
     const t1 = team(56757, 1, "A", 1);
     const t2 = team(56757, 2, "B", 2);
     const t3 = team(56757, 3, "C", 3);
     const sp = [
-      // T1: has both
       ...["sneasler", "kingambit", "charizard", "clefable", "garchomp", "aerodactyl"].map(
         (id, i) => speciesRow(t1.id, i, id),
       ),
-      // T2: only sneasler
       ...["sneasler", "incineroar", "charizard", "clefable", "garchomp", "aerodactyl"].map(
         (id, i) => speciesRow(t2.id, i, id),
       ),
-      // T3: neither
       ...["incineroar", "charizard", "clefable", "garchomp", "aerodactyl", "rotomwash"].map(
         (id, i) => speciesRow(t3.id, i, id),
       ),
     ];
     tournaments.upsertTournament(db, transformed(t, [t1, t2, t3], sp));
+
+    // Without team_sets seeded, teams_with returns []: canonical attribution
+    // lives on team_sets (post-simplification).
+    expect(
+      tournaments.teams_with(db, {
+        format: "RegM-A",
+        species: ["sneasler", "kingambit"],
+      }),
+    ).toEqual([]);
+
+    // Seed team_sets so the species filter has a keyspace to query.
+    const t1Roster = ["sneasler", "kingambit", "charizard", "clefable", "garchomp", "aerodactyl"];
+    const t2Roster = ["sneasler", "incineroar", "charizard", "clefable", "garchomp", "aerodactyl"];
+    const t3Roster = ["incineroar", "charizard", "clefable", "garchomp", "aerodactyl", "rotomwash"];
+    for (let i = 0; i < 6; i++) {
+      seedTeamSet(db, { teamId: t1.id, slot: i, rosterId: t1Roster[i]!, item: null, moves: ["tackle"] });
+      seedTeamSet(db, { teamId: t2.id, slot: i, rosterId: t2Roster[i]!, item: null, moves: ["tackle"] });
+      seedTeamSet(db, { teamId: t3.id, slot: i, rosterId: t3Roster[i]!, item: null, moves: ["tackle"] });
+    }
+
     const out = tournaments.teams_with(db, {
       format: "RegM-A",
       species: ["sneasler", "kingambit"],
@@ -200,6 +222,13 @@ describe("tournaments repo", () => {
       ),
     ];
     tournaments.upsertTournament(db, transformed(t, [t1, t2], sp));
+
+    const roster = ["sneasler", "kingambit", "charizard", "clefable", "garchomp", "aerodactyl"];
+    for (let i = 0; i < 6; i++) {
+      seedTeamSet(db, { teamId: t1.id, slot: i, rosterId: roster[i]!, item: null, moves: ["tackle"] });
+      seedTeamSet(db, { teamId: t2.id, slot: i, rosterId: roster[i]!, item: null, moves: ["tackle"] });
+    }
+
     const out = tournaments.teams_with(db, {
       format: "RegM-A",
       species: ["sneasler", "kingambit"],
@@ -209,7 +238,7 @@ describe("tournaments repo", () => {
     expect(out.map((t) => t.id)).toEqual([t1.id]);
   });
 
-  it("T34. usage(kind='species') returns species rows with correct usage_percent", () => {
+  it("T34. usage(kind='species') returns species rows with correct usage_percent (empty without team_sets)", () => {
     const t = tournament(56757, "2026-05-04");
     const t1 = team(56757, 1, "A", 1);
     const t2 = team(56757, 2, "B", 2);
@@ -222,6 +251,23 @@ describe("tournaments repo", () => {
       ),
     ];
     tournaments.upsertTournament(db, transformed(t, [t1, t2], sp));
+
+    // Empty team_sets → graceful empty result.
+    const empty = tournaments.usage(db, {
+      format: "RegM-A",
+      lookback_days: 365,
+      weight_by: "appearances",
+      kind: "species",
+    });
+    expect(empty).toEqual([]);
+
+    const t1Roster = ["sneasler", "kingambit", "charizard", "clefable", "garchomp", "aerodactyl"];
+    const t2Roster = ["sneasler", "incineroar", "charizard", "clefable", "garchomp", "aerodactyl"];
+    for (let i = 0; i < 6; i++) {
+      seedTeamSet(db, { teamId: t1.id, slot: i, rosterId: t1Roster[i]!, item: null, moves: ["tackle"] });
+      seedTeamSet(db, { teamId: t2.id, slot: i, rosterId: t2Roster[i]!, item: null, moves: ["tackle"] });
+    }
+
     const rows = tournaments.usage(db, {
       format: "RegM-A",
       lookback_days: 365,
@@ -264,9 +310,11 @@ describe("tournaments repo", () => {
     // T1: 3x choicescarf, 3x lifeorb. T2: 4x choicescarf, 2x lifeorb.
     const t1Items = ["choicescarf", "choicescarf", "choicescarf", "lifeorb", "lifeorb", "lifeorb"];
     const t2Items = ["choicescarf", "choicescarf", "choicescarf", "choicescarf", "lifeorb", "lifeorb"];
+    const t1Roster = ["sneasler", "kingambit", "charizard", "clefable", "garchomp", "aerodactyl"];
+    const t2Roster = ["sneasler", "kingambit", "incineroar", "clefable", "garchomp", "aerodactyl"];
     for (let i = 0; i < 6; i++) {
-      seedTeamSet(db, { teamId: t1.id, slot: i, rosterId: sp[i]!.roster_id, item: t1Items[i]!, moves: ["tackle"] });
-      seedTeamSet(db, { teamId: t2.id, slot: i, rosterId: sp[6 + i]!.roster_id, item: t2Items[i]!, moves: ["tackle"] });
+      seedTeamSet(db, { teamId: t1.id, slot: i, rosterId: t1Roster[i]!, item: t1Items[i]!, moves: ["tackle"] });
+      seedTeamSet(db, { teamId: t2.id, slot: i, rosterId: t2Roster[i]!, item: t2Items[i]!, moves: ["tackle"] });
     }
 
     const rows = tournaments.usage(db, {
@@ -312,11 +360,12 @@ describe("tournaments repo", () => {
       ["earthquake", "dragonclaw", "stoneedge", "firefang"],
       ["rockslide", "earthquake", "stoneedge", "tailwind"],
     ];
+    const moveRoster = ["sneasler", "kingambit", "charizard", "clefable", "garchomp", "aerodactyl"];
     for (let i = 0; i < 6; i++) {
       seedTeamSet(db, {
         teamId: t1.id,
         slot: i,
-        rosterId: sp[i]!.roster_id,
+        rosterId: moveRoster[i]!,
         item: null,
         moves: moveLists[i]!,
       });
@@ -336,7 +385,7 @@ describe("tournaments repo", () => {
     expect(rows[0]!.citations).toEqual(["labmaus:56757"]);
   });
 
-  it("T34c. usage(kind='core') returns 2-mon co-occurrences", () => {
+  it("T34c. usage(kind='core') returns 2-mon co-occurrences (empty without team_sets)", () => {
     const t = tournament(56757, "2026-05-04");
     const t1 = team(56757, 1, "A", 1);
     const t2 = team(56757, 2, "B", 2);
@@ -349,6 +398,24 @@ describe("tournaments repo", () => {
       ),
     ];
     tournaments.upsertTournament(db, transformed(t, [t1, t2], sp));
+
+    // Empty team_sets → graceful empty result, mirroring kind="item"|"move"|"species".
+    expect(
+      tournaments.usage(db, {
+        format: "RegM-A",
+        lookback_days: 365,
+        weight_by: "appearances",
+        kind: "core",
+      }),
+    ).toEqual([]);
+
+    const t1Roster = ["sneasler", "kingambit", "charizard", "clefable", "garchomp", "aerodactyl"];
+    const t2Roster = ["sneasler", "kingambit", "incineroar", "clefable", "garchomp", "aerodactyl"];
+    for (let i = 0; i < 6; i++) {
+      seedTeamSet(db, { teamId: t1.id, slot: i, rosterId: t1Roster[i]!, item: null, moves: ["tackle"] });
+      seedTeamSet(db, { teamId: t2.id, slot: i, rosterId: t2Roster[i]!, item: null, moves: ["tackle"] });
+    }
+
     const rows = tournaments.usage(db, {
       format: "RegM-A",
       lookback_days: 365,

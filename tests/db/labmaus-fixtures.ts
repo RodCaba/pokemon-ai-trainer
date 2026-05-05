@@ -1,21 +1,22 @@
 /**
- * Test helpers for labmaus DB tests. Builds an in-memory SQLite seeded with:
- * - the roster's species set covering every labmaus dex-id present in the
- *   committed fixtures (so FK targets exist for `tournament_team_species`)
- * - the matching `species_alias_labmaus` rows
+ * Test helpers for labmaus DB tests. Builds an in-memory SQLite seeded with
+ * the roster's species set covering every labmaus dex-id present in the
+ * committed fixtures (so FK targets exist when tests need to assert against
+ * canonical roster ids — e.g. via `team_sets.species_roster_id`).
  *
  * Mirrors the pattern of `tests/data/fixtures.ts`.
  *
- * Note: the seed is large (one row per unique fixture species, ~127 entries)
- * because the transform requires every labmaus id observed in fixture
- * `2026-05-04__tournament_56757.json` (and siblings) to resolve to a species
- * row. Per CLAUDE.md the seed is treated as read-only fixture data.
+ * Note: post the 2026-05-05 simplification, the labmaus slice no longer owns
+ * a species-alias table. Canonical roster attribution lives on
+ * `team_sets.species_roster_id` (owned by the parallel `pokepaste-sets`
+ * slice). This helper still seeds the species table so any test that wants
+ * to seed a `team_sets` row (with `species_roster_id` referencing roster
+ * member ids) has valid FK targets.
  */
 
 import { open, type Db } from "../../src/db/open";
 import {
   species,
-  speciesAliasLabmaus,
   speciesStats,
   speciesAbilities,
 } from "../../src/db/drizzle-schema";
@@ -26,10 +27,12 @@ const SRC_REF = JSON.stringify({
 });
 
 /**
- * Combined seed: one entry per unique labmaus id observed across the four
- * committed fixtures, with the canonical roster id derived from the fixture's
+ * One entry per unique labmaus id observed across the four committed
+ * fixtures, with the canonical roster id derived from the fixture's
  * `team_names` (gender symbols `♂`/`♀` collapse to `m`/`f`; everything else
- * is lowercased + alphanumeric-only).
+ * is lowercased + alphanumeric-only). The labmaus id is retained for tests
+ * that want to assert about it; the roster id is what gets seeded into the
+ * species table.
  */
 const COMBINED_SEED: Array<{ labmausId: string; rosterId: string; display: string }> = [
   { labmausId: "003", rosterId: "venusaur", display: "Venusaur" },
@@ -162,35 +165,15 @@ const COMBINED_SEED: Array<{ labmausId: string; rosterId: string; display: strin
 ];
 
 /**
- * Seed labmaus alias rows. Public list used by tests to compute "known
- * roster ids" sets.
+ * Build an in-memory SQLite handle with the species rows pre-populated. Tests
+ * that need `team_sets` rows seeded should insert them directly using
+ * `species_roster_id` values from this list.
  */
-export const ALIAS_SEED: Array<{ labmausId: string; rosterId: string }> = COMBINED_SEED.map(
-  (e) => ({ labmausId: e.labmausId, rosterId: e.rosterId }),
-);
-
-export interface SeedOpts {
-  /** If false, omit the alias seed (so unknown-id paths can be tested). */
-  seedAliases?: boolean;
-  /** If false, omit the species seed too — needed to test the displayName
-   * fallback miss path, since `labmausIdToRosterId` resolves via the species
-   * table when the alias is absent. Default true. */
-  seedSpecies?: boolean;
-  /** Subset of `ALIAS_SEED` to insert; default = all. */
-  aliasSubset?: Array<{ labmausId: string; rosterId: string }>;
-}
-
-/**
- * Build an in-memory SQLite handle with species + alias rows pre-populated.
- */
-export function seedLabmausDb(opts: SeedOpts = {}): Db {
+export function seedLabmausDb(): Db {
   const db = open(":memory:");
-  const seedAliases = opts.seedAliases ?? true;
-  const seedSpecies = opts.seedSpecies ?? true;
-  const aliasRows = opts.aliasSubset ?? ALIAS_SEED;
 
   db.$client.transaction(() => {
-    if (seedSpecies) for (const sp of COMBINED_SEED) {
+    for (const sp of COMBINED_SEED) {
       db.insert(species)
         .values({
           id: sp.rosterId,
@@ -219,13 +202,6 @@ export function seedLabmausDb(opts: SeedOpts = {}): Db {
       db.insert(speciesAbilities)
         .values({ speciesId: sp.rosterId, slot: "0", abilityName: "Pressure" })
         .run();
-    }
-    if (seedAliases) {
-      for (const a of aliasRows) {
-        db.insert(speciesAliasLabmaus)
-          .values({ id: a.labmausId, rosterId: a.rosterId, sourceJson: SRC_REF })
-          .run();
-      }
     }
   })();
 

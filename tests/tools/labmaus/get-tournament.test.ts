@@ -1,26 +1,20 @@
 /**
- * Tests T26–T27 for `getTournament`.
+ * Tests T26 for `getTournament`.
+ *
+ * Post the 2026-05-05 simplification, T27 (unknown-species error) is gone:
+ * `transformTournament` no longer maps to roster ids, so there's no error
+ * path to exercise.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getTournament } from "../../../src/tools/labmaus/get-tournament";
 import type { LabmausClient } from "../../../src/tools/labmaus/client";
-import type { SpeciesMapDeps } from "../../../src/tools/labmaus/species-map";
-import * as aliasRepo from "../../../src/db/species-alias-labmaus";
-import { LabmausUnknownSpeciesError } from "../../../src/schemas/errors";
-import type { Db } from "../../../src/db/open";
-import { ALIAS_SEED, closeIfOpen, seedLabmausDb } from "../../db/labmaus-fixtures";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIX = join(HERE, "..", "..", "..", "fixtures", "labmaus");
-
-let db: Db;
-afterEach(() => {
-  closeIfOpen(db);
-});
 
 function clientFromFixture(fileName: string): LabmausClient {
   const fx = JSON.parse(readFileSync(join(FIX, fileName), "utf8"));
@@ -35,36 +29,19 @@ function clientFromFixture(fileName: string): LabmausClient {
 }
 
 describe("getTournament", () => {
-  it("T26. returns full TournamentDetail with mapped species", async () => {
-    db = seedLabmausDb();
-    const speciesMap: SpeciesMapDeps = { db, aliasRepo };
+  it("T26. preserves slot order with labmaus dex ids", async () => {
     const out = await getTournament(
       { id: 56757 },
-      { client: clientFromFixture("2026-05-04__tournament_56757.json"), speciesMap },
+      { client: clientFromFixture("2026-05-04__tournament_56757.json") },
     );
     expect(out.tournament.id).toBe("labmaus:56757");
     expect(out.species.length).toBe(out.teams.length * 6);
-    // Every roster_id resolves through our seeded set
-    const known = new Set(ALIAS_SEED.map((a) => a.rosterId));
-    const seenSomeMapped = out.species.some((s) => known.has(s.roster_id));
-    expect(seenSomeMapped).toBe(true);
-  });
-
-  it("T27. throws LabmausUnknownSpeciesError when alias is missing", async () => {
-    // Both alias AND species rows omitted: with the displayName fallback (Stage 6
-    // refactor item 9), the species table is the second-chance lookup, so to
-    // exercise the unknown-species error path both must be empty.
-    db = seedLabmausDb({ seedAliases: false, seedSpecies: false });
-    const speciesMap: SpeciesMapDeps = { db, aliasRepo };
-    let thrown: unknown;
-    try {
-      await getTournament(
-        { id: 56757 },
-        { client: clientFromFixture("2026-05-04__tournament_56757.json"), speciesMap },
-      );
-    } catch (e) {
-      thrown = e;
+    // Every species row has a non-empty labmaus_id and slot 0..5 cycles per team.
+    for (const s of out.species) {
+      expect(typeof s.labmaus_id).toBe("string");
+      expect(s.labmaus_id.length).toBeGreaterThan(0);
+      expect(s.slot).toBeGreaterThanOrEqual(0);
+      expect(s.slot).toBeLessThanOrEqual(5);
     }
-    expect(thrown).toBeInstanceOf(LabmausUnknownSpeciesError);
   });
 });

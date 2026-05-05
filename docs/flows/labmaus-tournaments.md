@@ -185,17 +185,23 @@ tournaments         (id, external_id, tournament_code, name, organizer, format,
                      source_site, source_site_source, source_url, fetched_at)
 tournament_teams    (id, tournament_id FK, external_team_id, player, country,
                      placement, record, team_url, fetched_at)
-tournament_team_species (team_id FK, slot 0..5, labmaus_id, roster_id FK→species.id)
-species_alias_labmaus   (labmaus_id, roster_id, source notes)   -- read-only ref table
+tournament_team_species (team_id FK, slot 0..5, labmaus_id)
 ```
+
+> **Note (post-§18.5 simplification, 2026-05-05):** `tournament_team_species`
+> carries only labmaus dex ids per slot. Canonical roster attribution is
+> owned by the parallel `pokepaste-sets` slice via
+> `team_sets.species_roster_id` (see `docs/plans/pokepaste-sets.md`); the
+> labmaus-side `species_alias_labmaus` ref table from the original plan was
+> dropped because the pokepaste parser already produces canonical Showdown
+> species names that match our roster ids directly. The labmaus dex id and
+> the `team_names` CSV remain as a fallback for teams whose paste 404s.
 
 Indexes:
 - `tournaments(format, date)` — usage-window queries.
 - `tournament_teams(tournament_id, placement)` — top-cut queries.
-- `tournament_team_species(roster_id)` — "who used Sneasler?" queries.
+- "Who used Sneasler?" queries (`teams_with`) read from `team_sets.species_roster_id` (pokepaste-sets); see plan §6.1 for the indexes used there.
 - Unique on `(tournaments.source_site, tournaments.external_id)` — idempotent upsert.
-
-Per CLAUDE.md §10 the new ref table `species_alias_labmaus` uses `createSimpleRepo` from `src/db/simple-repo.ts`.
 
 ### 2.6 Ingest pipeline
 

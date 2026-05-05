@@ -807,3 +807,32 @@ Answer: Cap at 50, sorted by placement and completeness.
 
 **Flow-doc gap uncovered:** flow §2.5 specifies `completeness = "minimal"` requires `species + item + ability + moves`, but doesn't say what happens if `moves.length === 0` (a real edge case in the synthetic edge-cases fixture). Strict reading: "moves" is required → empty list fails. Plan as written: `moves.length === 0` drops the set below `minimal`, so the transform throws `PokepasteParseError` and the team is skipped. T17 asserts this. Calling out for explicit confirmation before Stage 5.
 Answer: Yes, `moves.length === 0` fails minimal completeness and causes a parse error. This is consistent with the intended semantics of "minimal" and is explicitly asserted by T17.
+
+---
+
+## 18. Cross-slice note (2026-05-05): single source of truth for species attribution
+
+The labmaus-tournaments slice originally maintained its own
+`species_alias_labmaus` ref table to translate labmaus dex ids (`"038-a"`,
+`"902"`, `"479-w"`) into canonical roster ids. After the labmaus slice's
+post-ship simplification (`docs/plans/labmaus-tournaments.md` §18.5), that
+table — and the entire labmaus-side species mapping — is gone. **Pokepaste
+is now the sole source of canonical species attribution.** The pokepaste
+parser yields Showdown species names that match our roster ids directly;
+`team_sets.species_roster_id` is the only authoritative roster-id column
+for tournament team composition.
+
+Implications for this slice:
+
+- The `species_roster_id` resolution path (parser → roster lookup) is
+  load-bearing for downstream queries (`tournaments.usage`,
+  `tournaments.teams_with`) — those queries now read from `team_sets`
+  exclusively for species data.
+- A pokepaste 404 (or any failed paste fetch) leaves a tournament team
+  with `tournament_team_species (slot, labmaus_id)` and a
+  `tournament_teams.team_url` but **no canonical roster_id**. That is the
+  acceptable failure mode the labmaus simplification took on; this slice
+  is responsible for shrinking that failure window over time (better
+  retry policy, alternate sources, etc.).
+- Reject-and-fail (§8.1) on a parser failure remains correct — silently
+  fabricating roster ids would corrupt the keyspace shared with `usage`.

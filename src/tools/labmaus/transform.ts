@@ -4,7 +4,6 @@ import type {
   TournamentTeam,
   TournamentTeamSpecies,
 } from "../../schemas/tournament";
-import { labmausIdToRosterIdOrThrow, type SpeciesMapDeps } from "./species-map";
 
 /**
  * Output of {@link transformTournament}: the canonical tournament row plus
@@ -28,19 +27,17 @@ export interface TransformedTournament {
  * - Generates `player_key = trim(lower(player))`.
  * - Generates ids: `tournament.id = "labmaus:<external_id>"`,
  *   `team.id = "labmaus:<tournament_external_id>:<team_external_id>"`.
- * - Maps each labmaus dex-id through {@link labmausIdToRosterIdOrThrow}.
+ * - Records labmaus dex ids per slot. Canonical roster attribution is owned
+ *   by the parallel `pokepaste-sets` slice via `team_sets.species_roster_id`.
  *
  * @param raw — Validated raw labmaus tournament payload.
  * @param fetchedAt — ISO-8601 UTC string injected by the caller (so tests are
  *   deterministic).
- * @param deps — Species-map dependencies (alias repo + db).
  * @returns A {@link TransformedTournament} with one tournament + N teams + 6N species rows.
- * @throws {LabmausUnknownSpeciesError} If any team's labmaus id has no mapping.
  */
 export function transformTournament(
   raw: LabmausRawTournament,
   fetchedAt: string,
-  deps: SpeciesMapDeps,
 ): TransformedTournament {
   const overview = raw.overview;
   const tournamentId = `labmaus:${overview.id}`;
@@ -71,10 +68,8 @@ export function transformTournament(
   const teams: TournamentTeam[] = [];
   const species: TournamentTeamSpecies[] = [];
 
-  // Build display-name lookup per team from the comma-separated team_names field.
   for (const rt of raw.teams) {
     const teamId = `${tournamentId}:${rt.id}`;
-    const displayNames = rt.team_names.split(",").map((s) => s.trim());
 
     teams.push({
       schema_version: 1,
@@ -92,13 +87,10 @@ export function transformTournament(
 
     for (let slot = 0; slot < 6; slot++) {
       const labmausId = rt.team[slot] as string;
-      const displayName = displayNames[slot] ?? null;
-      const rosterId = labmausIdToRosterIdOrThrow(labmausId, displayName, deps);
       species.push({
         team_id: teamId,
         slot,
         labmaus_id: labmausId,
-        roster_id: rosterId,
       });
     }
   }

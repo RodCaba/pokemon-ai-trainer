@@ -9,7 +9,6 @@ import {
 } from "../../schemas/tournament";
 import { LabmausInputError, LabmausSchemaError } from "../../schemas/errors";
 import type { LabmausClient } from "./client";
-import type { SpeciesMapDeps } from "./species-map";
 import { transformTournament } from "./transform";
 
 /**
@@ -19,16 +18,17 @@ import { transformTournament } from "./transform";
  * drill into.
  *
  * @param args — Validated by {@link LabmausGetArgsSchema}.
- * @param deps — Injected `LabmausClient` and `SpeciesMapDeps`.
- * @returns A {@link TournamentDetail} (tournament + teams + species rows).
+ * @param deps — Injected `LabmausClient`.
+ * @returns A {@link TournamentDetail} (tournament + teams + species rows
+ *   carrying labmaus dex ids only). Canonical roster attribution comes from
+ *   the parallel `pokepaste-sets` slice via `team_sets.species_roster_id`.
  * @throws {LabmausInputError} On bad input.
  * @throws {LabmausNetworkError} On HTTP exhaustion.
  * @throws {LabmausSchemaError} On upstream schema drift.
- * @throws {LabmausUnknownSpeciesError} On unmapped species id.
  */
 export async function getTournament(
   args: LabmausGetArgs,
-  deps: { client: LabmausClient; speciesMap: SpeciesMapDeps },
+  deps: { client: LabmausClient },
 ): Promise<TournamentDetail> {
   const parsedArgs = LabmausGetArgsSchema.safeParse(args);
   if (!parsedArgs.success) {
@@ -46,7 +46,7 @@ export async function getTournament(
     });
   }
   const fetchedAt = new Date().toISOString();
-  const out = transformTournament(rawParsed.data, fetchedAt, deps.speciesMap);
+  const out = transformTournament(rawParsed.data, fetchedAt);
   return out;
 }
 
@@ -54,7 +54,7 @@ export async function getTournament(
 export const getTournamentToolDefinition: Tool = {
   name: "labmaus_get_tournament",
   description:
-    "Fetch the full payload for a single labmaus tournament: overview, all registered teams with placements/records/countries/pokepaste URLs, and per-team species composition mapped to canonical roster ids. Strips the tera_types field unconditionally (Reg M-A has no Terastallization). Does NOT fetch pokepaste set details.",
+    "Fetch the full payload for a single labmaus tournament: overview, all registered teams with placements/records/countries/pokepaste URLs, and per-team species composition (labmaus dex ids per slot). Strips the tera_types field unconditionally (Reg M-A has no Terastallization). Does NOT fetch pokepaste set details — canonical roster attribution is owned by the pokepaste-sets slice.",
   input_schema: zodToJsonSchema(LabmausGetArgsSchema as unknown as z.ZodTypeAny, {
     $refStrategy: "none",
     target: "openApi3",
