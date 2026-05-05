@@ -28,7 +28,7 @@ Every change — feature, bugfix, or refactor — moves through these **six gate
 - Exit: explicit approval recorded in the doc (`Reviewed-by: …` line).
 
 ### Stage 3 — Tech plan (`docs/plans/<slug>.md`), authored by a Tech Lead agent
-- Spawn a **Tech Lead subagent** (`Plan` agent type, or `general-purpose` with a tech-lead brief) whose only job is to produce the implementation plan from the approved flow.
+- Spawn the **`tech-lead` subagent** (defined in `.claude/agents/tech-lead.md`) whose only job is to produce the implementation plan from the approved flow. The agent reads the flow + CLAUDE.md + the closest precedent plan, then writes `docs/plans/<slug>.md` directly. Do not use the generic `Plan` agent for Stage 3 — it is read-only and forces the parent to re-persist a 50KB inline blob.
 - Plan must cover: module boundaries, data schemas (zod), tool contracts, agent prompts touched, error model, test strategy (which unit/contract/golden/integration tests will exist), rollout/feature-flag, and the **architecture patterns** chosen with the *why* (e.g., repository pattern for storage, ports-and-adapters for tool layer, command/query split for agent calls).
 - Plan must call out reuse opportunities — do not invent a new abstraction if an existing one fits.
 - Exit: user approves the plan. Plan file is committed before any test code.
