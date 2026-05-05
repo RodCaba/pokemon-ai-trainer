@@ -173,6 +173,94 @@ export const abilities = sqliteTable(
   ],
 );
 
+// ---------------------------------------------------------------------------
+// labmaus-tournaments slice (Stage 4 stubs — additive)
+// ---------------------------------------------------------------------------
+
+export const tournaments = sqliteTable(
+  "tournaments",
+  {
+    id: text("id").primaryKey(), // "labmaus:56757"
+    externalId: integer("external_id").notNull(),
+    tournamentCode: text("tournament_code"),
+    name: text("name").notNull(),
+    organizer: text("organizer"),
+    format: text("format").notNull(),
+    division: text("division").notNull(),
+    status: text("status").notNull(),
+    date: text("date").notNull(),
+    numPlayers: integer("num_players").notNull(),
+    numPhase2: integer("num_phase_2"),
+    sourceSite: text("source_site").notNull(),
+    sourceSiteSource: text("source_site_source"),
+    sourceUrl: text("source_url").notNull(),
+    fetchedAt: text("fetched_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("tournaments_site_external_uq").on(t.sourceSite, t.externalId),
+    check("tournaments_format_regma", sql`${t.format} = 'RegM-A'`),
+    check("tournaments_division_valid", sql`${t.division} IN ('Masters','Seniors','Juniors')`),
+    check("tournaments_status_valid", sql`${t.status} IN ('official','unofficial')`),
+    index("idx_tournaments_format_date").on(t.format, t.date),
+  ],
+);
+
+export const tournamentTeams = sqliteTable(
+  "tournament_teams",
+  {
+    id: text("id").primaryKey(), // "labmaus:56757:244471"
+    tournamentId: text("tournament_id")
+      .notNull()
+      .references(() => tournaments.id, { onDelete: "cascade" }),
+    externalTeamId: integer("external_team_id").notNull(),
+    player: text("player").notNull(),
+    playerKey: text("player_key").notNull(),
+    country: text("country"),
+    placement: integer("placement"),
+    record: text("record").notNull(),
+    teamUrl: text("team_url").notNull(),
+    fetchedAt: text("fetched_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("tournament_teams_tournament_external_uq").on(t.tournamentId, t.externalTeamId),
+    index("idx_tournament_teams_tournament_placement").on(t.tournamentId, t.placement),
+    index("idx_tournament_teams_player_key").on(t.playerKey),
+    check("tournament_teams_country_iso2", sql`${t.country} IS NULL OR length(${t.country}) = 2`),
+    check("tournament_teams_placement_positive", sql`${t.placement} IS NULL OR ${t.placement} > 0`),
+  ],
+);
+
+export const tournamentTeamSpecies = sqliteTable(
+  "tournament_team_species",
+  {
+    teamId: text("team_id")
+      .notNull()
+      .references(() => tournamentTeams.id, { onDelete: "cascade" }),
+    slot: integer("slot").notNull(),
+    labmausId: text("labmaus_id").notNull(),
+    rosterId: text("roster_id")
+      .notNull()
+      .references(() => species.id),
+  },
+  (t) => [
+    primaryKey({ columns: [t.teamId, t.slot] }),
+    check("tournament_team_species_slot_range", sql`${t.slot} BETWEEN 0 AND 5`),
+    index("idx_tournament_team_species_roster_id").on(t.rosterId),
+  ],
+);
+
+export const speciesAliasLabmaus = sqliteTable(
+  "species_alias_labmaus",
+  {
+    id: text("id").primaryKey(), // labmaus dex-id ("038-a")
+    rosterId: text("roster_id")
+      .notNull()
+      .references(() => species.id),
+    sourceJson: text("source_json").notNull(),
+  },
+  (t) => [index("idx_species_alias_labmaus_roster_id").on(t.rosterId)],
+);
+
 export const moves = sqliteTable(
   "moves",
   {

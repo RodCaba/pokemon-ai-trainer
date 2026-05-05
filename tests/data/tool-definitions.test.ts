@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ROSTER_TOOL_DEFINITIONS, rosterGetTool, rosterSearchTool } from "../../src/db/tool-definitions";
 
-const NAME_PATTERN = /^(roster|items|abilities|moves)_(list|get|search|has|sets)$/;
+const NAME_PATTERN = /^(roster|items|abilities|moves|tournaments)_(list|get|search|has|sets|teams_with|usage)$/;
 
 describe("repo tool definitions (Anthropic SDK)", () => {
   it("1. each accessor exports a tool definition with name matching <repo>_<verb>", () => {

@@ -182,6 +182,74 @@ export const movesHasTool = tool(
   NameInput,
 );
 
+// ---- tournaments (labmaus-backed) ----
+
+const TournamentFilterInput = z
+  .object({
+    format: RegMAFormat,
+    date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    date_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    division: z.enum(["Masters", "Seniors", "Juniors"]).optional(),
+    status: z.enum(["official", "unofficial"]).optional(),
+  })
+  .strict();
+
+const TournamentGetInput = z
+  .object({
+    format: RegMAFormat,
+    id: z
+      .string()
+      .regex(/^labmaus:\d+$/)
+      .describe("Namespaced tournament id, e.g. 'labmaus:56757'."),
+  })
+  .strict();
+
+const TeamsWithInput = z
+  .object({
+    format: RegMAFormat,
+    species: z.array(z.string().min(1)).min(1).max(6),
+    lookback_days: z.number().int().positive().optional(),
+    min_placement: z.number().int().positive().optional(),
+  })
+  .strict();
+
+const UsageInput = z
+  .object({
+    format: RegMAFormat,
+    lookback_days: z.number().int().positive(),
+    weight_by: z.enum(["appearances", "wins", "tournament_weight"]).optional(),
+    kind: z.enum(["species", "item", "move", "core"]).optional(),
+  })
+  .strict();
+
+/** `tournaments_list` — recent tournaments matching a filter. */
+export const tournamentsListTool = tool(
+  "tournaments_list",
+  "List Reg M-A tournaments matching format + optional date window + division + status, ordered by date DESC. Use to enumerate the recent meta. For a single tournament use tournaments_get; for teams containing specific species use tournaments_teams_with.",
+  TournamentFilterInput,
+);
+
+/** `tournaments_get` — exact tournament lookup by namespaced id. */
+export const tournamentsGetTool = tool(
+  "tournaments_get",
+  "Look up one Reg M-A tournament by namespaced id (e.g. 'labmaus:56757'). Returns the TournamentResult metadata or null. For the joined teams + species view use the future tournaments_detail; for usage aggregates use tournaments_usage.",
+  TournamentGetInput,
+);
+
+/** `tournaments_teams_with` — set-intersection of teams containing all listed species. */
+export const tournamentsTeamsWithTool = tool(
+  "tournaments_teams_with",
+  "Return tournament teams whose 6-species roster contains ALL of the listed canonical roster ids. Use to find recent placing teams that share a core (lead-planner evidence). Filter by lookback_days and min_placement.",
+  TeamsWithInput,
+);
+
+/** `tournaments_usage` — aggregate usage rows. */
+export const tournamentsUsageTool = tool(
+  "tournaments_usage",
+  "Aggregate Reg M-A usage rows over a date window: per-species, per-item, per-move, or per-core (kind='core' returns 2-mon co-occurrences). Returns rows sorted by usage_percent DESC. Item/move kinds require the pokepaste-sets slice's team_sets table.",
+  UsageInput,
+);
+
 /**
  * The full catalog of repo tool definitions, ready to pass to the Anthropic SDK.
  *
@@ -203,4 +271,8 @@ export const ROSTER_TOOL_DEFINITIONS: readonly Tool[] = [
   movesListTool,
   movesGetTool,
   movesHasTool,
+  tournamentsListTool,
+  tournamentsGetTool,
+  tournamentsTeamsWithTool,
+  tournamentsUsageTool,
 ];

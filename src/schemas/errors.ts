@@ -91,6 +91,37 @@ export class RosterDbError extends RosterError {}
  *
  * `message` always starts with `"v1 stub:"` so callers and reviewers can grep for it.
  */
+/**
+ * Base class for every error thrown by the labmaus tool family
+ * (`labmaus.listTournaments`, `labmaus.getTournament`, species-map, transform).
+ *
+ * Carries `.cause` and `.query` like {@link RosterError}; storage-layer issues
+ * inside the labmaus repos still throw {@link RosterDbError}/{@link RosterDataError}.
+ *
+ * **When to use it:** as a `try { ... } catch (e) { if (e instanceof LabmausError) ... }`
+ * type guard for "anything went wrong with labmaus ingest." For specific cases catch the
+ * concrete subclass.
+ */
+export class LabmausError extends Error {
+  override readonly cause?: unknown;
+  readonly query?: unknown;
+  constructor(msg: string, opts?: { cause?: unknown; query?: unknown }) {
+    super(msg);
+    this.name = this.constructor.name;
+    this.cause = opts?.cause;
+    this.query = opts?.query;
+  }
+}
+
+/** Tool-input zod failure (bad date range, wrong regulation, etc.). */
+export class LabmausInputError extends LabmausError {}
+/** HTTP non-2xx after retries exhausted, DNS, timeout. */
+export class LabmausNetworkError extends LabmausError {}
+/** Raw labmaus response failed `LabmausRawTournamentSchema` (upstream drift). */
+export class LabmausSchemaError extends LabmausError {}
+/** A labmaus species id has no roster mapping. Carries the offending id in `.query`. */
+export class LabmausUnknownSpeciesError extends LabmausError {}
+
 export class NotImplementedError extends Error {
   constructor(method: string) {
     super(`v1 stub: ${method} is not yet implemented; vector tier lands in a later milestone`);
