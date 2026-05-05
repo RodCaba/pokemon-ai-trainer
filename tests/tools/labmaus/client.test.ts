@@ -42,8 +42,9 @@ describe("LabmausClient", () => {
   });
 
   it("T20. client throttles to 1 rps", async () => {
-    let now = 0;
-    const clock = (): number => now;
+    // With a fixed simulated clock at t=0, the token bucket must still reserve
+    // future slots: after three calls at 1 rps, `nextAllowedAt` is ≥ 2000ms.
+    const clock = (): number => 0;
     const fetchImpl = vi.fn(async () =>
       new Response(JSON.stringify([]), { status: 200 }),
     ) as unknown as typeof fetch;
@@ -56,17 +57,10 @@ describe("LabmausClient", () => {
       fetchImpl,
       clock,
     });
-    const t0 = await client.listCompletedTournaments({ regulation: "x", from: "2026-04-06", to: "2026-04-07" });
-    void t0;
-    // After one call, advance only 0ms — second call must observe a delay (it
-    // happens via the awaited token bucket). We simulate by checking the
-    // "delayed_until" surface: fire two more and assert the clock has advanced
-    // ~2000ms past the first.
-    // The Stage-4 stub will reject this expectation since it throws first; the
-    // assertion below is the post-condition once Stage 5 lands.
     await client.listCompletedTournaments({ regulation: "x", from: "2026-04-06", to: "2026-04-07" });
     await client.listCompletedTournaments({ regulation: "x", from: "2026-04-06", to: "2026-04-07" });
-    expect(now).toBeGreaterThanOrEqual(2000);
+    await client.listCompletedTournaments({ regulation: "x", from: "2026-04-06", to: "2026-04-07" });
+    expect(client.nextAllowedAt()).toBeGreaterThanOrEqual(2000);
   });
 
   it("T21. client retries 429 with exponential backoff", async () => {

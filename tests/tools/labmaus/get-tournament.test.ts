@@ -31,6 +31,9 @@ function clientFromFixture(fileName: string): LabmausClient {
     async getTournament(): Promise<unknown> {
       return fx;
     },
+    nextAllowedAt(): number {
+      return 0;
+    },
   };
 }
 

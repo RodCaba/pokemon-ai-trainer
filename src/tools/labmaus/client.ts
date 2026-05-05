@@ -71,6 +71,17 @@ export interface LabmausClient {
    * @throws {LabmausNetworkError} On HTTP exhaustion.
    */
   getTournament(args: { id: number; language?: "en" }): Promise<unknown>;
+
+  /**
+   * Internal throttle state — the next clock value at which a call may proceed.
+   *
+   * **When to use it:** test-only introspection of the token-bucket pacing.
+   * Production callers must not branch on this; use `await` semantics instead.
+   *
+   * @returns The simulated (or real) timestamp in ms after which the next
+   *   request would proceed without waiting. Equals `0` before the first call.
+   */
+  nextAllowedAt(): number;
 }
 
 interface CacheRecord {
@@ -223,6 +234,9 @@ export function createLabmausClient(opts: LabmausClientOptions): LabmausClient {
       const body = await fetchWithRetry(url);
       cacheSet(key, args, body);
       return body;
+    },
+    nextAllowedAt(): number {
+      return nextAllowedAt;
     },
   };
 }
