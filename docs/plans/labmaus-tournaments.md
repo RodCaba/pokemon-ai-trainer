@@ -813,10 +813,42 @@ async function main(argv: string[]): Promise<number> {
 1. **Item/move usage rows.** ~~Flow §5 success criteria mentions "per species + per item + per move + per core" usage. The pokepaste deferral makes items/moves unreachable in this slice. **Proposal:** ship `usage` returning species + cores only.~~ **RESOLVED 2026-05-04** — pokepaste-sets ships in parallel (`docs/plans/pokepaste-sets.md`); `usage` now ships with `species + items + moves + cores` on day one. §6 and §10 (T34a/b/c) updated accordingly. Items/moves dimensions read from `team_sets` (owned by the pokepaste slice).
 2. **`LabmausError` vs reusing `RosterError`.** Storage layer reuses `RosterDbError`/`RosterDataError`; tool layer creates a fresh `LabmausError` family. Reviewer confirms this split (alternative: one `IngestError` umbrella for all data-source tool errors).
 Answer: The split makes sense to me. `LabmausError` is specific to the labmaus slice and can evolve independently, while `RosterDbError`/`RosterDataError` are more general and already in use across the codebase. This way we keep a clear distinction between errors related to the data source and errors related to database operations.
-3. **`tournaments.get` return shape.** Plan as written returns just the `TournamentResult` (no joined teams); the agent reaches for teams via `teams_with`. Should `get` instead return `TournamentDetail` (tournament + teams + species)? Trade-off: matches `getTournament` tool output but pulls more data than most callers need. **Proposal:** keep slim `get` + a future `tournaments.detail(id)` if a caller materializes; user confirms.
-Answer: Add a `tournaments.detail(id)` method that returns the full `TournamentDetail` with teams and species. This way, `get` can remain lightweight for callers that only need the tournament summary, while still providing an option for those that need the full details without forcing all callers to pay the cost of joining the teams and species data.
+3. **`tournaments.get` return shape.** ~~Plan as written returns just the `TournamentResult` (no joined teams).~~ **RESOLVED 2026-05-04** — `tournaments.detail(id)` shipped as a third repo method returning full `TournamentDetail` (tournament + teams + species joined). `get` stays slim. §6 repo table updated.
 
 **Flow-doc gap uncovered:** §2.5 specifies `tournament_team_species (team_id FK, slot 0..5, labmaus_id, roster_id FK→species.id)` but the success criteria don't pin a per-team uniqueness rule on `slot`. This plan adds `PRIMARY KEY (team_id, slot)`, which is stricter than the flow doc requires. Calling out for explicit confirmation.
 Answer: The `PRIMARY KEY (team_id, slot)` constraint makes sense to enforce the intended data model where each team can have up to 6 species, each in a specific slot. This will help maintain data integrity and prevent issues with duplicate entries for the same team and slot. Let's go with this stricter constraint.
 
 ---
+
+## 18. Stage 6 outcomes (2026-05-05)
+
+### 18.1 Review
+
+Full review report at [`docs/reviews/labmaus-tournaments.md`](../reviews/labmaus-tournaments.md). Verdict: ship-after-blockers. Two blockers, ten suggested refactor items, five deferrals. The user approved applying all 10; deferrals annotated.
+
+### 18.2 Applied fixes (commit `refactor: apply review — labmaus-tournaments`)
+
+1. **`LabmausClient.nextAllowedAt()` removed** from the public interface. T20 rewritten to use `vi.useFakeTimers()` + `setTimeout` spy, asserting two real ≥1000ms throttle delays across three calls. The throttle now runs in real-clock mode in tests; `clockOverride` removed.
+2. **`usage(kind="item"|"move")` implemented** against a `team_sets` LEFT JOIN. Schema added to `src/db/drizzle-schema.ts` (`team_sets` table, owned by the parallel pokepaste-sets slice; this slice ships the table empty so labmaus's `usage` returns `[]` on items/moves until pokepaste populates it). Migration `0002_dry_tony_stark.sql` generated. T34a/T34b strengthened — non-vacuous when `team_sets` has rows.
+3. **Plan patched** (this file): §17-Q1 and §17-Q3 marked RESOLVED with strikethrough; this §18 added.
+4. **`tournaments.list` converted to Drizzle query builder** with `and(...clauses)` composition; raw-SQL fallback removed.
+5. **Orphan `void` imports deleted** from `scripts/data/ingest-labmaus.ts` (aliasRepo / speciesTable / sql).
+6. **`--no-network` mode** now propagates `LabmausSchemaError` and `LabmausUnknownSpeciesError`; only `LabmausNetworkError` is treated as cache-miss-skip.
+7. **Cross-check pass wired** into the ingest loop: `recomputeAggregatesForTournament` runs after each upsert, `compareWithinTolerance` (±0.05 absolute or ±1% relative) compares to labmaus's own `pokemon[]` aggregate, out-of-tolerance entries emit a JSON-line warning.
+8. **Cross-sync comments** added to `SpeciesAlias` (in `src/tools/labmaus/species-map.ts`) and `SpeciesAliasSchema` (in `src/db/species-alias-labmaus.ts`).
+9. **`labmausIdToRosterId` displayName fallback** implemented — when id-lookup misses, the function normalizes `displayName` (♂/♀ stripped, hyphenated, lowercased) and retries via the roster.
+10. **Tool-definitions wording corrected** — `tournamentsGetTool` description no longer claims `tournaments_detail` is "future."
+
+### 18.3 Deferrals (annotated as inline `// TODO(stage6-deferred):` comments)
+
+| # | Concern | Inline anchor | Belongs in |
+|---|---|---|---|
+| 1 | Extend `createSimpleRepo` to accept optional `displayNameColumn` (the current `idColumn === displayNameColumn` workaround prepares an extra statement per Db) | `src/db/species-alias-labmaus.ts:37` | Next ref-table consumer slice (natures? types?) |
+| 2 | Real fixture-cache-seeded `--no-network` integration test (current `fakeFetchEmpty` returns `[]` and makes T36/T37 partly vacuous) | `scripts/data/ingest-labmaus.ts:127` | pokepaste-sets sibling or ingest-hardening slice |
+| 3 | 3-mon and 4-mon cores in `usage(kind="core")` (flow §1.1 promised; plan §6 currently restricts to 2-mon) | `src/db/tournaments.ts:357` | New flow doc |
+| 4 | `--strict-offline` argv mode + date validation (`chunkDateRange` accepts NaN dates today) | `scripts/data/ingest-labmaus.ts:243` | argv-validation / ingest-hardening slice |
+| 5 | Live contract test polish — surface `parsed.error.issues` on schema drift for clearer diagnostics | tests/contract/labmaus-live.test.ts (NIT) | accept-or-defer; track if drift bites |
+
+### 18.4 §3 pure-data exemption disclosure (review finding 3)
+
+The Stage 4 "red" commit (`f0a5ca9`) shipped substantial scaffolding alongside the failing tests: `src/schemas/tournament.ts` (≈279 lines), the Drizzle schema additions (≈88 lines), and the migration are all final, not stubs. The schema file qualifies for CLAUDE.md §3's pure-data exemption (zod definitions, no behavior). The other items stretched the rule — module signatures were larger than "minimum to compile" and the disclosure CLAUDE.md §3 last paragraph requires was not written in the commit message. Recording it here for traceability; future slices should disclose pure-data batches in the Stage 4 commit message itself.

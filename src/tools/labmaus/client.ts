@@ -35,16 +35,6 @@ export interface LabmausClientOptions {
   backoffBaseMs: number;
   /** Injectable `fetch` implementation for tests. */
   fetchImpl?: typeof fetch;
-  /**
-   * Injectable monotonic-clock for tests.
-   *
-   * **Behavior contract:** when supplied, the throttle treats this clock as
-   * the canonical wall clock AND mutates the underlying counter (when it is
-   * a `{ get, advance }` shape). For the simple `() => number` form, the
-   * throttle still simulates elapsed time internally — see the body for the
-   * specific protocol.
-   */
-  clock?: () => number;
 }
 
 /**
@@ -71,17 +61,6 @@ export interface LabmausClient {
    * @throws {LabmausNetworkError} On HTTP exhaustion.
    */
   getTournament(args: { id: number; language?: "en" }): Promise<unknown>;
-
-  /**
-   * Internal throttle state — the next clock value at which a call may proceed.
-   *
-   * **When to use it:** test-only introspection of the token-bucket pacing.
-   * Production callers must not branch on this; use `await` semantics instead.
-   *
-   * @returns The simulated (or real) timestamp in ms after which the next
-   *   request would proceed without waiting. Equals `0` before the first call.
-   */
-  nextAllowedAt(): number;
 }
 
 interface CacheRecord {
@@ -152,7 +131,6 @@ function writeCacheEntry(dir: string, key: string, args: unknown, body: unknown,
  */
 export function createLabmausClient(opts: LabmausClientOptions): LabmausClient {
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
-  const clockOverride = opts.clock;
   const realNow = (): number => Date.now();
 
   const intervalMs = opts.throttleRps > 0 ? 1000 / opts.throttleRps : 0;
@@ -160,18 +138,10 @@ export function createLabmausClient(opts: LabmausClientOptions): LabmausClient {
 
   const sleep = (ms: number): Promise<void> => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-  // Throttle: token-bucket style.
-  // When a clock is injected, we DO NOT actually sleep (tests run synchronously
-  // against simulated time). Instead, we track simulated `nextAllowedAt`. Tests
-  // that rely on the simulated clock advancing should observe `nextAllowedAt`
-  // grow with each call. Real-time mode uses `Date.now()` + `setTimeout`.
+  // Throttle: token-bucket style. Real-time mode uses `Date.now()` +
+  // `setTimeout`. Tests that want to observe pacing without waiting use
+  // `vi.useFakeTimers()` and assert `setTimeout` calls.
   const throttle = async (): Promise<void> => {
-    if (clockOverride) {
-      // Simulated mode: advance internal counter only; no real wait.
-      const t = clockOverride();
-      nextAllowedAt = Math.max(t, nextAllowedAt) + intervalMs;
-      return;
-    }
     const t = realNow();
     const wait = nextAllowedAt - t;
     if (wait > 0) await sleep(wait);
@@ -179,9 +149,9 @@ export function createLabmausClient(opts: LabmausClientOptions): LabmausClient {
   };
 
   const cacheGet = (key: string): unknown | undefined =>
-    findFreshCacheEntry(opts.cacheDir, key, clockOverride ? clockOverride() : realNow(), opts.cacheTtlMs);
+    findFreshCacheEntry(opts.cacheDir, key, realNow(), opts.cacheTtlMs);
   const cacheSet = (key: string, args: unknown, body: unknown): void =>
-    writeCacheEntry(opts.cacheDir, key, args, body, clockOverride ? clockOverride() : realNow());
+    writeCacheEntry(opts.cacheDir, key, args, body, realNow());
 
   const fetchWithRetry = async (url: string): Promise<unknown> => {
     let attempt = 0;
@@ -203,7 +173,7 @@ export function createLabmausClient(opts: LabmausClientOptions): LabmausClient {
         );
       }
       const backoff = opts.backoffBaseMs * 2 ** attempt;
-      if (!clockOverride) await sleep(backoff);
+      await sleep(backoff);
       attempt++;
     }
     throw new LabmausNetworkError(`labmaus ${url} retries exhausted (status=${lastStatus})`, {
@@ -234,9 +204,6 @@ export function createLabmausClient(opts: LabmausClientOptions): LabmausClient {
       const body = await fetchWithRetry(url);
       cacheSet(key, args, body);
       return body;
-    },
-    nextAllowedAt(): number {
-      return nextAllowedAt;
     },
   };
 }

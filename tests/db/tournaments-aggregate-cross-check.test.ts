@@ -12,6 +12,7 @@ import { LabmausRawTournamentSchema } from "../../src/schemas/tournament";
 import * as aliasRepo from "../../src/db/species-alias-labmaus";
 import type { Db } from "../../src/db/open";
 import { closeIfOpen, seedLabmausDb } from "./labmaus-fixtures";
+import { compareWithinTolerance } from "../../scripts/data/ingest-labmaus";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIX = join(HERE, "..", "..", "fixtures", "labmaus");
@@ -46,6 +47,21 @@ describe("tournaments-aggregate-cross-check", () => {
       expect(r.kind).toBe("species");
       expect(typeof r.usage_percent).toBe("number");
     }
+  });
+
+  it("T38a. compareWithinTolerance returns empty when all keys are within tolerance", () => {
+    const ours = [{ key: "sneasler", usage_percent: 50.0 }, { key: "kingambit", usage_percent: 25.0 }];
+    const theirs = [{ key: "sneasler", usage_percent: 50.04 }, { key: "kingambit", usage_percent: 25.0 }];
+    expect(compareWithinTolerance(ours, theirs)).toEqual([]);
+  });
+
+  it("T39a. compareWithinTolerance flags out-of-tolerance diffs", () => {
+    const ours = [{ key: "sneasler", usage_percent: 50.0 }];
+    const theirs = [{ key: "sneasler", usage_percent: 60.0 }];
+    const diffs = compareWithinTolerance(ours, theirs);
+    expect(diffs.length).toBe(1);
+    expect(diffs[0]?.key).toBe("sneasler");
+    expect(diffs[0]?.delta).toBeGreaterThan(0.05);
   });
 
   it("T39. cross-check warns but does not throw on out-of-tolerance diff", () => {

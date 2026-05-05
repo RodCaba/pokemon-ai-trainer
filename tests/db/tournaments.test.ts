@@ -10,7 +10,39 @@ import * as tournaments from "../../src/db/tournaments";
 import type { TransformedTournament } from "../../src/tools/labmaus/transform";
 import type { TournamentResult, TournamentTeam, TournamentTeamSpecies } from "../../src/schemas/tournament";
 import type { Db } from "../../src/db/open";
+import { teamSets } from "../../src/db/drizzle-schema";
 import { closeIfOpen, seedLabmausDb } from "./labmaus-fixtures";
+
+function seedTeamSet(
+  db: Db,
+  args: {
+    teamId: string;
+    slot: number;
+    rosterId: string;
+    item: string | null;
+    moves: string[];
+  },
+): void {
+  db.insert(teamSets)
+    .values({
+      tournamentTeamId: args.teamId,
+      slot: args.slot,
+      speciesRosterId: args.rosterId,
+      item: args.item,
+      ability: null,
+      level: 50,
+      movesJson: JSON.stringify(args.moves),
+      spsJson: null,
+      ivsJson: null,
+      nature: null,
+      completeness: "full",
+      sourceSite: "pokepaste",
+      sourcePasteId: "abc",
+      sourceUrl: "https://pokepast.es/abc",
+      fetchedAt: "2026-05-04T19:32:11Z",
+    })
+    .run();
+}
 
 const FETCHED_AT = "2026-05-04T19:32:11Z";
 
@@ -206,28 +238,102 @@ describe("tournaments repo", () => {
   });
 
   it("T34a. usage(kind='item') returns item rows joined through team_sets", () => {
-    // Pokepaste-sets slice ships in parallel; this Stage-4 test asserts the
-    // contract, not the wiring. It will fail with "not implemented" today.
+    // Empty team_sets → graceful empty result.
+    const empty = tournaments.usage(db, {
+      format: "RegM-A",
+      lookback_days: 365,
+      weight_by: "appearances",
+      kind: "item",
+    });
+    expect(empty).toEqual([]);
+
+    // Seed a tournament + 2 teams + 12 team_sets rows with a known item mix.
+    const t = tournament(56757, "2026-05-04");
+    const t1 = team(56757, 1, "A", 1);
+    const t2 = team(56757, 2, "B", 2);
+    const sp = [
+      ...["sneasler", "kingambit", "charizard", "clefable", "garchomp", "aerodactyl"].map(
+        (id, i) => speciesRow(t1.id, i, id),
+      ),
+      ...["sneasler", "kingambit", "incineroar", "clefable", "garchomp", "aerodactyl"].map(
+        (id, i) => speciesRow(t2.id, i, id),
+      ),
+    ];
+    tournaments.upsertTournament(db, transformed(t, [t1, t2], sp));
+
+    // T1: 3x choicescarf, 3x lifeorb. T2: 4x choicescarf, 2x lifeorb.
+    const t1Items = ["choicescarf", "choicescarf", "choicescarf", "lifeorb", "lifeorb", "lifeorb"];
+    const t2Items = ["choicescarf", "choicescarf", "choicescarf", "choicescarf", "lifeorb", "lifeorb"];
+    for (let i = 0; i < 6; i++) {
+      seedTeamSet(db, { teamId: t1.id, slot: i, rosterId: sp[i]!.roster_id, item: t1Items[i]!, moves: ["tackle"] });
+      seedTeamSet(db, { teamId: t2.id, slot: i, rosterId: sp[6 + i]!.roster_id, item: t2Items[i]!, moves: ["tackle"] });
+    }
+
     const rows = tournaments.usage(db, {
       format: "RegM-A",
       lookback_days: 365,
       weight_by: "appearances",
       kind: "item",
     });
-    // After Stage 5 + pokepaste-sets, this should return rows with kind === 'item'
-    expect(Array.isArray(rows)).toBe(true);
+    expect(rows.length).toBe(2);
     for (const r of rows) expect(r.kind).toBe("item");
+    // Sorted by appearances DESC: choicescarf (7) > lifeorb (5)
+    expect(rows[0]!.key).toBe("choicescarf");
+    expect(rows[0]!.appearances).toBe(7);
+    expect(rows[1]!.key).toBe("lifeorb");
+    expect(rows[1]!.appearances).toBe(5);
+    // Citations include the contributing tournament id.
+    expect(rows[0]!.citations).toEqual(["labmaus:56757"]);
   });
 
   it("T34b. usage(kind='move') expands moves_json correctly", () => {
+    // Empty team_sets → graceful empty result.
+    const empty = tournaments.usage(db, {
+      format: "RegM-A",
+      lookback_days: 365,
+      weight_by: "appearances",
+      kind: "move",
+    });
+    expect(empty).toEqual([]);
+
+    const t = tournament(56757, "2026-05-04");
+    const t1 = team(56757, 1, "A", 1);
+    const sp = ["sneasler", "kingambit", "charizard", "clefable", "garchomp", "aerodactyl"].map(
+      (id, i) => speciesRow(t1.id, i, id),
+    );
+    tournaments.upsertTournament(db, transformed(t, [t1], sp));
+
+    // 6 slots: each carries different moves; protect appears 4x, swordsdance 2x, fakeout 1x.
+    const moveLists = [
+      ["protect", "swordsdance", "closecombat", "icefang"],
+      ["protect", "swordsdance", "kowtowcleave", "suckerpunch"],
+      ["protect", "fakeout", "flamethrower", "airslash"],
+      ["protect", "moonblast", "calmmind", "softboiled"],
+      ["earthquake", "dragonclaw", "stoneedge", "firefang"],
+      ["rockslide", "earthquake", "stoneedge", "tailwind"],
+    ];
+    for (let i = 0; i < 6; i++) {
+      seedTeamSet(db, {
+        teamId: t1.id,
+        slot: i,
+        rosterId: sp[i]!.roster_id,
+        item: null,
+        moves: moveLists[i]!,
+      });
+    }
+
     const rows = tournaments.usage(db, {
       format: "RegM-A",
       lookback_days: 365,
       weight_by: "appearances",
       kind: "move",
     });
-    expect(Array.isArray(rows)).toBe(true);
     for (const r of rows) expect(r.kind).toBe("move");
+    const protectRow = rows.find((r) => r.key === "protect");
+    expect(protectRow?.appearances).toBe(4);
+    const sdRow = rows.find((r) => r.key === "swordsdance");
+    expect(sdRow?.appearances).toBe(2);
+    expect(rows[0]!.citations).toEqual(["labmaus:56757"]);
   });
 
   it("T34c. usage(kind='core') returns 2-mon co-occurrences", () => {

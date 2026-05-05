@@ -172,6 +172,10 @@ export const ALIAS_SEED: Array<{ labmausId: string; rosterId: string }> = COMBIN
 export interface SeedOpts {
   /** If false, omit the alias seed (so unknown-id paths can be tested). */
   seedAliases?: boolean;
+  /** If false, omit the species seed too — needed to test the displayName
+   * fallback miss path, since `labmausIdToRosterId` resolves via the species
+   * table when the alias is absent. Default true. */
+  seedSpecies?: boolean;
   /** Subset of `ALIAS_SEED` to insert; default = all. */
   aliasSubset?: Array<{ labmausId: string; rosterId: string }>;
 }
@@ -182,10 +186,11 @@ export interface SeedOpts {
 export function seedLabmausDb(opts: SeedOpts = {}): Db {
   const db = open(":memory:");
   const seedAliases = opts.seedAliases ?? true;
+  const seedSpecies = opts.seedSpecies ?? true;
   const aliasRows = opts.aliasSubset ?? ALIAS_SEED;
 
   db.$client.transaction(() => {
-    for (const sp of COMBINED_SEED) {
+    if (seedSpecies) for (const sp of COMBINED_SEED) {
       db.insert(species)
         .values({
           id: sp.rosterId,

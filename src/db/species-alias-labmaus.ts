@@ -13,6 +13,10 @@ interface Row {
  * Domain shape of one labmaus → roster alias row.
  *
  * Per CLAUDE.md §10 ref-table convention this entity is intentionally tiny.
+ *
+ * **Keep in sync with** `src/tools/labmaus/species-map.ts` — `SpeciesAlias` interface.
+ * The species-map module duplicates this shape locally to avoid a circular import;
+ * any field added/removed here must be mirrored there.
  */
 export const SpeciesAliasSchema = z
   .object({
@@ -30,6 +34,7 @@ const repo = createSimpleRepo<Row, SpeciesAlias>({
   // No display-name column on this ref table — labmaus_id is the only key.
   // Per plan §6.2 we pass the same column for both branches; the byDisplayName
   // path is harmless dead code on miss (factory returns null).
+  // TODO(stage6-deferred): see docs/reviews/labmaus-tournaments.md §9 — extend createSimpleRepo with optional displayNameColumn.
   displayNameColumn: table.id,
   rowToEntity: (r): SpeciesAlias =>
     parseOrThrow(

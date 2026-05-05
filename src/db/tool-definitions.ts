@@ -232,7 +232,7 @@ export const tournamentsListTool = tool(
 /** `tournaments_get` — exact tournament lookup by namespaced id. */
 export const tournamentsGetTool = tool(
   "tournaments_get",
-  "Look up one Reg M-A tournament by namespaced id (e.g. 'labmaus:56757'). Returns the TournamentResult metadata or null. For the joined teams + species view use the future tournaments_detail; for usage aggregates use tournaments_usage.",
+  "Look up one Reg M-A tournament by namespaced id (e.g. 'labmaus:56757'). Returns the TournamentResult metadata or null. For the joined teams + species view use the tournaments.detail repo function; for usage aggregates use tournaments_usage.",
   TournamentGetInput,
 );
 

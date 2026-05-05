@@ -3,7 +3,7 @@
  * because every client method throws "not implemented (Stage 5)".
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +15,10 @@ function tmpCacheDir(): string {
 }
 
 describe("LabmausClient", () => {
+  afterEach(() => {
+    // Defensive: in case a test leaves fake timers installed.
+    vi.useRealTimers();
+  });
   it("T19. listCompletedTournaments URL-encodes regulation correctly", async () => {
     const fetchImpl = vi.fn(async () =>
       new Response(JSON.stringify([]), { status: 200 }),
@@ -42,25 +46,42 @@ describe("LabmausClient", () => {
   });
 
   it("T20. client throttles to 1 rps", async () => {
-    // With a fixed simulated clock at t=0, the token bucket must still reserve
-    // future slots: after three calls at 1 rps, `nextAllowedAt` is ≥ 2000ms.
-    const clock = (): number => 0;
-    const fetchImpl = vi.fn(async () =>
-      new Response(JSON.stringify([]), { status: 200 }),
-    ) as unknown as typeof fetch;
-    const client = createLabmausClient({
-      cacheDir: tmpCacheDir(),
-      cacheTtlMs: 0,
-      throttleRps: 1,
-      maxRetries: 0,
-      backoffBaseMs: 1,
-      fetchImpl,
-      clock,
-    });
-    await client.listCompletedTournaments({ regulation: "x", from: "2026-04-06", to: "2026-04-07" });
-    await client.listCompletedTournaments({ regulation: "x", from: "2026-04-06", to: "2026-04-07" });
-    await client.listCompletedTournaments({ regulation: "x", from: "2026-04-06", to: "2026-04-07" });
-    expect(client.nextAllowedAt()).toBeGreaterThanOrEqual(2000);
+    // After three back-to-back calls at 1 rps, the throttle must schedule at
+    // least two real `setTimeout` waits (one for the 2nd call, one for the
+    // 3rd) each ≈1000ms. We use fake timers so the test runs synchronously,
+    // and spy on `setTimeout` to observe the requested delays.
+    vi.useFakeTimers();
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    try {
+      const fetchImpl = vi.fn(async () =>
+        new Response(JSON.stringify([]), { status: 200 }),
+      ) as unknown as typeof fetch;
+      const client = createLabmausClient({
+        cacheDir: tmpCacheDir(),
+        cacheTtlMs: 0,
+        throttleRps: 1,
+        maxRetries: 0,
+        backoffBaseMs: 1,
+        fetchImpl,
+      });
+      const promise = (async (): Promise<void> => {
+        await client.listCompletedTournaments({ regulation: "x", from: "2026-04-06", to: "2026-04-07" });
+        await client.listCompletedTournaments({ regulation: "x", from: "2026-04-06", to: "2026-04-07" });
+        await client.listCompletedTournaments({ regulation: "x", from: "2026-04-06", to: "2026-04-07" });
+      })();
+      // Drain any scheduled timers (the throttle's setTimeout calls).
+      await vi.runAllTimersAsync();
+      await promise;
+
+      // The throttle must have scheduled at least two waits ≥ ~1000ms.
+      const throttleDelays = setTimeoutSpy.mock.calls
+        .map((c) => Number(c[1] ?? 0))
+        .filter((ms) => ms >= 900);
+      expect(throttleDelays.length).toBeGreaterThanOrEqual(2);
+    } finally {
+      setTimeoutSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("T21. client retries 429 with exponential backoff", async () => {

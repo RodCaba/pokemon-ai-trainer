@@ -31,9 +31,6 @@ function clientFromFixture(fileName: string): LabmausClient {
     async getTournament(): Promise<unknown> {
       return fx;
     },
-    nextAllowedAt(): number {
-      return 0;
-    },
   };
 }
 
@@ -54,7 +51,10 @@ describe("getTournament", () => {
   });
 
   it("T27. throws LabmausUnknownSpeciesError when alias is missing", async () => {
-    db = seedLabmausDb({ seedAliases: false });
+    // Both alias AND species rows omitted: with the displayName fallback (Stage 6
+    // refactor item 9), the species table is the second-chance lookup, so to
+    // exercise the unknown-species error path both must be empty.
+    db = seedLabmausDb({ seedAliases: false, seedSpecies: false });
     const speciesMap: SpeciesMapDeps = { db, aliasRepo };
     let thrown: unknown;
     try {

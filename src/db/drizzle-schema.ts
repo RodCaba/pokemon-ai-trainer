@@ -249,6 +249,44 @@ export const tournamentTeamSpecies = sqliteTable(
   ],
 );
 
+/**
+ * `team_sets` is owned by the parallel `pokepaste-sets` slice (see
+ * `docs/plans/pokepaste-sets.md` §5). Declared here so the labmaus slice's
+ * `usage(kind="item"|"move")` query can LEFT JOIN against the columns it
+ * needs (tournament_team_id, slot, species_roster_id, item, moves_json).
+ *
+ * The pokepaste slice will land additional CHECK constraints (level range,
+ * SPS totals, etc.); when that migration ships it should `ALTER TABLE` to
+ * add those constraints rather than recreating the table. The minimal column
+ * set here is intentionally a strict subset of the planned final shape.
+ */
+export const teamSets = sqliteTable(
+  "team_sets",
+  {
+    tournamentTeamId: text("tournament_team_id").notNull(),
+    slot: integer("slot").notNull(),
+    speciesRosterId: text("species_roster_id").notNull(),
+    item: text("item"),
+    ability: text("ability"),
+    level: integer("level"),
+    movesJson: text("moves_json").notNull(),
+    spsJson: text("sps_json"),
+    ivsJson: text("ivs_json"),
+    nature: text("nature"),
+    completeness: text("completeness").notNull(),
+    sourceSite: text("source_site").notNull(),
+    sourcePasteId: text("source_paste_id").notNull(),
+    sourceUrl: text("source_url").notNull(),
+    fetchedAt: text("fetched_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tournamentTeamId, t.slot] }),
+    check("team_sets_slot_range", sql`${t.slot} BETWEEN 0 AND 5`),
+    index("idx_team_sets_species").on(t.speciesRosterId),
+    index("idx_team_sets_item").on(t.item),
+  ],
+);
+
 export const speciesAliasLabmaus = sqliteTable(
   "species_alias_labmaus",
   {

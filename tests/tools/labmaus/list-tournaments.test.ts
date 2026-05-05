@@ -24,9 +24,6 @@ describe("listTournaments", () => {
       async getTournament(): Promise<unknown> {
         throw new Error("unused");
       },
-      nextAllowedAt(): number {
-        return 0;
-      },
     };
     const out = await listTournaments(
       {

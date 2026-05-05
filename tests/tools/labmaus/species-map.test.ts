@@ -76,4 +76,12 @@ describe("species-map", () => {
     db = seedLabmausDb();
     expect(labmausIdToRosterId("902", "Basculegion ♂", deps(db))).toBe("basculegionm");
   });
+
+  it("T13a. displayName fallback resolves when alias-id lookup misses", () => {
+    // Seed roster but skip aliases. Display-name path should still resolve via roster.get.
+    db = seedLabmausDb({ seedAliases: false });
+    // Garchomp has roster_id "garchomp" and display "Garchomp" in the seed.
+    const out = labmausIdToRosterId("zzz-unknown", "Garchomp", deps(db));
+    expect(out).toBe("garchomp");
+  });
 });

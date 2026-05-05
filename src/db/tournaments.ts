@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte, type SQL } from "drizzle-orm";
 import type { Db } from "./open";
 import {
   tournaments as tournamentsTable,
@@ -118,34 +118,40 @@ function rowToSpecies(r: SpeciesRow): TournamentTeamSpecies {
  */
 export function list(db: Db, filter: TournamentFilter): TournamentResult[] {
   try {
-    const clauses = [eq(tournamentsTable.format, filter.format)];
-    if (filter.date_from !== undefined) clauses.push(sql`${tournamentsTable.date} >= ${filter.date_from}`);
-    if (filter.date_to !== undefined) clauses.push(sql`${tournamentsTable.date} <= ${filter.date_to}`);
+    const clauses: SQL[] = [eq(tournamentsTable.format, filter.format)];
+    if (filter.date_from !== undefined) clauses.push(gte(tournamentsTable.date, filter.date_from));
+    if (filter.date_to !== undefined) clauses.push(lte(tournamentsTable.date, filter.date_to));
     if (filter.division !== undefined) clauses.push(eq(tournamentsTable.division, filter.division));
     if (filter.status !== undefined) clauses.push(eq(tournamentsTable.status, filter.status));
-    const rows = db.$client
-      .prepare(
-        `SELECT id, external_id, tournament_code, name, organizer, format, division, status, date,
-                num_players, num_phase_2, source_site, source_site_source, source_url, fetched_at
-           FROM tournaments
-          WHERE format = ?
-            ${filter.date_from !== undefined ? "AND date >= ?" : ""}
-            ${filter.date_to !== undefined ? "AND date <= ?" : ""}
-            ${filter.division !== undefined ? "AND division = ?" : ""}
-            ${filter.status !== undefined ? "AND status = ?" : ""}
-          ORDER BY date DESC, id ASC`,
-      )
-      .all(
-        ...[
-          filter.format,
-          ...(filter.date_from !== undefined ? [filter.date_from] : []),
-          ...(filter.date_to !== undefined ? [filter.date_to] : []),
-          ...(filter.division !== undefined ? [filter.division] : []),
-          ...(filter.status !== undefined ? [filter.status] : []),
-        ],
-      ) as TournamentRow[];
-    void clauses;
-    return rows.map(rowToTournament);
+
+    // Note: ordering by `id ASC` is lexical on `"labmaus:N"`, so for ties on
+    // `date` the secondary sort is string-compared. Acceptable for the v1
+    // surface (no test pins this); revisit if a date-tie test appears.
+    const rows = db
+      .select()
+      .from(tournamentsTable)
+      .where(and(...clauses))
+      .orderBy(desc(tournamentsTable.date), asc(tournamentsTable.id))
+      .all();
+    return rows.map((r) =>
+      rowToTournament({
+        id: r.id,
+        external_id: r.externalId,
+        tournament_code: r.tournamentCode,
+        name: r.name,
+        organizer: r.organizer,
+        format: r.format,
+        division: r.division,
+        status: r.status,
+        date: r.date,
+        num_players: r.numPlayers,
+        num_phase_2: r.numPhase2,
+        source_site: r.sourceSite,
+        source_site_source: r.sourceSiteSource,
+        source_url: r.sourceUrl,
+        fetched_at: r.fetchedAt,
+      }),
+    );
   } catch (e) {
     if (e instanceof RosterDbError) throw e;
     throw new RosterDbError("tournaments.list failed", { cause: e, query: filter });
@@ -272,11 +278,6 @@ export function teams_with(db: Db, args: TeamsWithArgs): TournamentTeam[] {
  */
 export function usage(db: Db, args: UsageArgs): UsageRow[] {
   try {
-    if (args.kind === "item" || args.kind === "move") {
-      // The pokepaste-sets slice's `team_sets` table is the source for these
-      // dimensions; this slice does not own that table. Return an empty array.
-      return [];
-    }
     const totalRow = db.$client
       .prepare(
         `SELECT COUNT(*) AS n
@@ -288,10 +289,77 @@ export function usage(db: Db, args: UsageArgs): UsageRow[] {
       .get(args.format, `-${args.lookback_days} days`) as { n: number };
     const totalTeams = totalRow.n;
 
-    if (args.kind === "core") {
+    if (args.kind === "item") {
+      // LEFT JOIN through team_sets (owned by the pokepaste-sets slice). When
+      // team_sets is empty (pokepaste hasn't ingested yet), this returns [].
       const rows = db.$client
         .prepare(
-          `SELECT s1.roster_id AS a, s2.roster_id AS b, COUNT(*) AS n
+          `SELECT ts.item AS item, COUNT(*) AS n,
+                  GROUP_CONCAT(DISTINCT tn.id) AS tournament_ids
+             FROM team_sets ts
+             JOIN tournament_teams t ON t.id = ts.tournament_team_id
+             JOIN tournaments tn ON tn.id = t.tournament_id
+            WHERE tn.format = ?
+              AND tn.date >= date('now', ?)
+              AND ts.item IS NOT NULL
+            GROUP BY ts.item
+            ORDER BY n DESC, ts.item`,
+        )
+        .all(args.format, `-${args.lookback_days} days`) as Array<{
+          item: string;
+          n: number;
+          tournament_ids: string | null;
+        }>;
+      return rows.map((r): UsageRow => ({
+        kind: "item",
+        key: r.item,
+        display_label: r.item,
+        appearances: r.n,
+        total_teams: totalTeams,
+        usage_percent: totalTeams > 0 ? (100 * r.n) / totalTeams : 0,
+        citations: r.tournament_ids ? r.tournament_ids.split(",") : [],
+      }));
+    }
+
+    if (args.kind === "move") {
+      // Expand moves_json via json_each so each move gets its own row. Same
+      // graceful-empty contract as kind="item".
+      const rows = db.$client
+        .prepare(
+          `SELECT j.value AS move, COUNT(*) AS n,
+                  GROUP_CONCAT(DISTINCT tn.id) AS tournament_ids
+             FROM team_sets ts
+             JOIN tournament_teams t ON t.id = ts.tournament_team_id
+             JOIN tournaments tn ON tn.id = t.tournament_id,
+                  json_each(ts.moves_json) j
+            WHERE tn.format = ?
+              AND tn.date >= date('now', ?)
+            GROUP BY j.value
+            ORDER BY n DESC, j.value`,
+        )
+        .all(args.format, `-${args.lookback_days} days`) as Array<{
+          move: string;
+          n: number;
+          tournament_ids: string | null;
+        }>;
+      return rows.map((r): UsageRow => ({
+        kind: "move",
+        key: r.move,
+        display_label: r.move,
+        appearances: r.n,
+        total_teams: totalTeams,
+        usage_percent: totalTeams > 0 ? (100 * r.n) / totalTeams : 0,
+        citations: r.tournament_ids ? r.tournament_ids.split(",") : [],
+      }));
+    }
+
+    if (args.kind === "core") {
+      // TODO(stage6-deferred): plan §6 restricts to 2-mon; 3-/4-mon cores need a new flow doc
+      // (see docs/reviews/labmaus-tournaments.md §9).
+      const rows = db.$client
+        .prepare(
+          `SELECT s1.roster_id AS a, s2.roster_id AS b, COUNT(*) AS n,
+                  GROUP_CONCAT(DISTINCT tn.id) AS tournament_ids
              FROM tournament_team_species s1
              JOIN tournament_team_species s2 ON s1.team_id = s2.team_id AND s1.roster_id < s2.roster_id
              JOIN tournament_teams t ON t.id = s1.team_id
@@ -301,7 +369,12 @@ export function usage(db: Db, args: UsageArgs): UsageRow[] {
             GROUP BY s1.roster_id, s2.roster_id
             ORDER BY n DESC, s1.roster_id, s2.roster_id`,
         )
-        .all(args.format, `-${args.lookback_days} days`) as Array<{ a: string; b: string; n: number }>;
+        .all(args.format, `-${args.lookback_days} days`) as Array<{
+          a: string;
+          b: string;
+          n: number;
+          tournament_ids: string | null;
+        }>;
       return rows.map((r): UsageRow => ({
         kind: "core",
         key: `${r.a}+${r.b}`,
@@ -309,14 +382,15 @@ export function usage(db: Db, args: UsageArgs): UsageRow[] {
         appearances: r.n,
         total_teams: totalTeams,
         usage_percent: totalTeams > 0 ? (100 * r.n) / totalTeams : 0,
-        citations: [],
+        citations: r.tournament_ids ? r.tournament_ids.split(",") : [],
       }));
     }
 
     // species
     const rows = db.$client
       .prepare(
-        `SELECT s.roster_id AS roster_id, COUNT(*) AS n
+        `SELECT s.roster_id AS roster_id, COUNT(*) AS n,
+                GROUP_CONCAT(DISTINCT tn.id) AS tournament_ids
            FROM tournament_team_species s
            JOIN tournament_teams t ON t.id = s.team_id
            JOIN tournaments tn ON tn.id = t.tournament_id
@@ -325,7 +399,11 @@ export function usage(db: Db, args: UsageArgs): UsageRow[] {
           GROUP BY s.roster_id
           ORDER BY n DESC, s.roster_id`,
       )
-      .all(args.format, `-${args.lookback_days} days`) as Array<{ roster_id: string; n: number }>;
+      .all(args.format, `-${args.lookback_days} days`) as Array<{
+        roster_id: string;
+        n: number;
+        tournament_ids: string | null;
+      }>;
     return rows.map((r): UsageRow => ({
       kind: "species",
       key: r.roster_id,
@@ -333,7 +411,7 @@ export function usage(db: Db, args: UsageArgs): UsageRow[] {
       appearances: r.n,
       total_teams: totalTeams,
       usage_percent: totalTeams > 0 ? (100 * r.n) / totalTeams : 0,
-      citations: [],
+      citations: r.tournament_ids ? r.tournament_ids.split(",") : [],
     }));
   } catch (e) {
     throw new RosterDbError("tournaments.usage failed", { cause: e, query: args });
@@ -474,5 +552,3 @@ export function recomputeAggregatesForTournament(db: Db, tournamentId: string): 
   }
 }
 
-// `and` is unused but kept available for future extensions of the filter clause.
-void and;
