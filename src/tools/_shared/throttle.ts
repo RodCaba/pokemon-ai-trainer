@@ -1,12 +1,16 @@
 /**
- * Per-host token-bucket throttle primitive. Stage 4 stub — full
- * implementation lands in Stage 5 (sibling-extracted from
- * `src/tools/labmaus/client.ts` per `docs/plans/pokepaste-sets.md` §9).
+ * Per-host token-bucket throttle primitive. Sibling-extracted from the
+ * original labmaus client per `docs/plans/pokepaste-sets.md` §9 / §12.
+ *
+ * Each consumer constructs its own bucket so per-host rate limits are
+ * independent. Built on `Date.now()` + `setTimeout` so vitest fake timers
+ * can observe pacing without real waits.
  */
 
 /** Configuration for {@link createTokenBucket}. */
 export interface TokenBucketOpts {
-  /** Burst capacity in tokens. */
+  /** Burst capacity in tokens. Currently unused (token bucket is implicit
+   *  in the "next allowed at" timestamp); kept for future bursty modes. */
   capacity: number;
   /** Sustained refill rate in tokens per second. */
   refillPerSec: number;
@@ -19,8 +23,11 @@ export interface TokenBucket {
   acquire(): Promise<void>;
 }
 
+const sleep = (ms: number): Promise<void> =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 /**
- * Build a {@link TokenBucket}. Stub — throws "not implemented (Stage 5)".
+ * Build a {@link TokenBucket}.
  *
  * **When to use it:** as the throttle dep in any tool client (labmaus,
  * pokepaste). Each client constructs its own bucket so per-host limits
@@ -28,8 +35,18 @@ export interface TokenBucket {
  *
  * @param opts — see {@link TokenBucketOpts}.
  * @returns A {@link TokenBucket}.
- * @throws Always (Stage 4 stub).
  */
-export function createTokenBucket(_opts: TokenBucketOpts): TokenBucket {
-  throw new Error("not implemented (Stage 5)");
+export function createTokenBucket(opts: TokenBucketOpts): TokenBucket {
+  const clock = opts.clock ?? ((): number => Date.now());
+  const intervalMs = opts.refillPerSec > 0 ? 1000 / opts.refillPerSec : 0;
+  let nextAllowedAt = 0;
+
+  return {
+    async acquire(): Promise<void> {
+      const t = clock();
+      const wait = nextAllowedAt - t;
+      if (wait > 0) await sleep(wait);
+      nextAllowedAt = Math.max(t, nextAllowedAt) + intervalMs;
+    },
+  };
 }

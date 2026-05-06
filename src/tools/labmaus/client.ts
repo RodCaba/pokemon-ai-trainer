@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { LabmausNetworkError } from "../../schemas/errors";
+import { createTokenBucket } from "../_shared/throttle";
 
 const BASE_URL = "https://labmaus.net";
 const DEFAULT_HEADERS: Record<string, string> = {
@@ -133,20 +134,15 @@ export function createLabmausClient(opts: LabmausClientOptions): LabmausClient {
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
   const realNow = (): number => Date.now();
 
-  const intervalMs = opts.throttleRps > 0 ? 1000 / opts.throttleRps : 0;
-  let nextAllowedAt = 0;
-
   const sleep = (ms: number): Promise<void> => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-  // Throttle: token-bucket style. Real-time mode uses `Date.now()` +
-  // `setTimeout`. Tests that want to observe pacing without waiting use
-  // `vi.useFakeTimers()` and assert `setTimeout` calls.
-  const throttle = async (): Promise<void> => {
-    const t = realNow();
-    const wait = nextAllowedAt - t;
-    if (wait > 0) await sleep(wait);
-    nextAllowedAt = Math.max(t, nextAllowedAt) + intervalMs;
-  };
+  // Throttle: shared token-bucket from src/tools/_shared/throttle.ts (each
+  // client constructs its own bucket so per-host limits are independent).
+  const bucket = createTokenBucket({
+    capacity: 1,
+    refillPerSec: opts.throttleRps,
+  });
+  const throttle = (): Promise<void> => bucket.acquire();
 
   const cacheGet = (key: string): unknown | undefined =>
     findFreshCacheEntry(opts.cacheDir, key, realNow(), opts.cacheTtlMs);

@@ -1,7 +1,21 @@
 /**
- * HTTP client for `pokepast.es/<paste_id>/raw`. Stage 4 stub — every
- * method throws "not implemented (Stage 5)".
+ * HTTP client for `pokepast.es/<paste_id>/raw`. Throttled at 2 rps (per-host
+ * bucket independent from labmaus's 1 rps), retries 429/5xx with exponential
+ * backoff, and caches 200 responses to disk forever (URLs are content-hashed
+ * → bodies are immutable). 404 responses are NOT cached.
  */
+
+import {
+  PokepasteNetworkError,
+  PokepasteNotFoundError,
+} from "../../schemas/errors";
+import { createTokenBucket } from "../_shared/throttle";
+import { createFileCache } from "../_shared/file-cache";
+
+const BASE_URL = "https://pokepast.es";
+const DEFAULT_HEADERS: Record<string, string> = {
+  "User-Agent": "pokemon-ai-trainer/0.1 (pokepaste client)",
+};
 
 /** Configuration for {@link createPokepasteClient}. */
 export interface PokepasteClientOptions {
@@ -35,8 +49,11 @@ export interface PokepasteClient {
   fetchRaw(paste_id: string): Promise<string>;
 }
 
+const sleep = (ms: number): Promise<void> =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 /**
- * Build a {@link PokepasteClient}. Stub — throws "not implemented (Stage 5)".
+ * Build a {@link PokepasteClient}.
  *
  * **When to use it:** as the dep injected into `fetchPaste` and the
  * labmaus ingest hook. Tests inject `fetchImpl` + `clock` to avoid real
@@ -44,8 +61,51 @@ export interface PokepasteClient {
  *
  * @param opts — see {@link PokepasteClientOptions}.
  * @returns A {@link PokepasteClient}.
- * @throws Always (Stage 4 stub).
  */
-export function createPokepasteClient(_opts: PokepasteClientOptions): PokepasteClient {
-  throw new Error("not implemented (Stage 5)");
+export function createPokepasteClient(opts: PokepasteClientOptions): PokepasteClient {
+  const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
+  const bucket = createTokenBucket({
+    capacity: 1,
+    refillPerSec: opts.throttleRps,
+    clock: opts.clock,
+  });
+  const cache = createFileCache({ dir: opts.cacheDir });
+
+  return {
+    async fetchRaw(paste_id: string): Promise<string> {
+      const cached = cache.read(paste_id);
+      if (cached !== undefined) return cached;
+
+      const url = `${BASE_URL}/${paste_id}/raw`;
+      let attempt = 0;
+      let lastStatus = 0;
+      while (attempt <= opts.maxRetries) {
+        await bucket.acquire();
+        const res = await fetchImpl(url, { headers: DEFAULT_HEADERS });
+        lastStatus = res.status;
+        if (res.ok) {
+          const body = await res.text();
+          cache.write(paste_id, body);
+          return body;
+        }
+        if (res.status === 404) {
+          throw new PokepasteNotFoundError(`pokepaste 404: ${paste_id}`, { paste_id });
+        }
+        const retryable = res.status === 429 || (res.status >= 500 && res.status < 600);
+        if (!retryable || attempt === opts.maxRetries) {
+          throw new PokepasteNetworkError(
+            `pokepaste ${url} failed: HTTP ${lastStatus}`,
+            { paste_id, status: lastStatus },
+          );
+        }
+        const backoff = opts.backoffBaseMs * 2 ** attempt;
+        await sleep(backoff);
+        attempt++;
+      }
+      throw new PokepasteNetworkError(
+        `pokepaste ${url} retries exhausted (status=${lastStatus})`,
+        { paste_id, status: lastStatus },
+      );
+    },
+  };
 }

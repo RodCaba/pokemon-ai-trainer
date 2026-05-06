@@ -1,11 +1,21 @@
 /**
- * The agent-callable `pokepaste.fetchPaste` tool. Stage 4 stub.
+ * The agent-callable `pokepaste.fetchPaste` tool — validates input,
+ * fetches the raw paste body via the injected client, and hands it to
+ * the transform layer. All errors propagate verbatim so callers (the
+ * ingest hook) can dispatch on the concrete subclass.
  */
 
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
-import type { PasteFetchResult, PokepastePasteArgs } from "../../schemas/team-set";
+import { zodToJsonSchema } from "zod-to-json-schema";
+import {
+  PasteFetchResultSchema,
+  PokepastePasteArgsSchema,
+  type PasteFetchResult,
+  type PokepastePasteArgs,
+} from "../../schemas/team-set";
+import { PokepasteInputError } from "../../schemas/errors";
 import type { PokepasteClient } from "./client";
-import type { TransformDeps } from "./transform";
+import { transformPaste, type TransformDeps } from "./transform";
 
 /** Deps for {@link fetchPaste}. */
 export interface FetchPasteDeps {
@@ -16,7 +26,7 @@ export interface FetchPasteDeps {
 }
 
 /**
- * Fetch + transform one pokepaste. Stub — throws "not implemented (Stage 5)".
+ * Fetch + transform one pokepaste.
  *
  * **When to use it:** the labmaus ingest hook (per-team) calls this
  * after persisting a `tournament_teams` row to ingest the paste behind
@@ -34,21 +44,48 @@ export interface FetchPasteDeps {
  * @throws {PokepasteUnknownSpeciesError} On unknown species.
  */
 export async function fetchPaste(
-  _args: PokepastePasteArgs,
-  _deps: FetchPasteDeps,
+  args: PokepastePasteArgs,
+  deps: FetchPasteDeps,
 ): Promise<PasteFetchResult> {
-  throw new Error("not implemented (Stage 5)");
+  const parsed = PokepastePasteArgsSchema.safeParse(args);
+  if (!parsed.success) {
+    throw new PokepasteInputError("invalid pokepaste args", {
+      cause: parsed.error,
+    });
+  }
+  const fetched_at = new Date().toISOString();
+  const raw_text = await deps.client.fetchRaw(parsed.data.paste_id);
+  return transformPaste(
+    {
+      paste_id: parsed.data.paste_id,
+      raw_text,
+      fetched_at,
+      tournament_team_id: deps.tournament_team_id,
+    },
+    deps.transform,
+  );
 }
 
 /**
- * Anthropic SDK tool definition for `pokepaste_fetch_paste`. Stage 4
- * placeholder — the real definition lands in Stage 5 alongside
- * `src/db/tool-definitions.ts` updates. Reading this property at module
- * load time throws (rather than at call time) so the import remains
- * valid for tests that import the function alone.
+ * Anthropic SDK tool definition for `pokepaste_fetch_paste`. The agent
+ * surface input is just `{ paste_id }`; persistence is performed by the
+ * ingest hook (which supplies `tournament_team_id` as a dep, not an arg).
  */
-export const fetchPasteToolDefinition: Tool = new Proxy({} as Tool, {
-  get(): never {
-    throw new Error("not implemented (Stage 5)");
-  },
-});
+export const fetchPasteToolDefinition: Tool = {
+  name: "pokepaste_fetch_paste",
+  description:
+    "Fetch and parse a single pokepast.es Showdown export by paste id (hex hash from the URL). " +
+    "Returns up to six per-Pokemon sets normalized to our domain shape — species, item, ability, " +
+    "level, moves, optionally SPS/IVs/nature — plus a `completeness` tag (`minimal | partial | full`). " +
+    "Strips the `Tera Type:` line unconditionally (Reg M-A has no Terastallization). Validates " +
+    "item/ability/move against the Champions reference tables; throws PokepasteRefValidationError " +
+    "on unknown values.",
+  input_schema: zodToJsonSchema(PokepastePasteArgsSchema, {
+    target: "openApi3",
+    $refStrategy: "none",
+  }) as Tool["input_schema"],
+};
+
+// Re-export the schema for callers that want to validate output payloads
+// independently (e.g. tests, downstream tools).
+export { PasteFetchResultSchema };
