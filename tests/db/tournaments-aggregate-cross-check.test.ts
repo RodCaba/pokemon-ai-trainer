@@ -71,7 +71,7 @@ function seedTeamSetsFromRaw(
           spsJson: null,
           ivsJson: null,
           nature: null,
-          completeness: "skeleton",
+          completeness: "minimal",
           sourceSite: "pokepaste",
           sourcePasteId: "fixture",
           sourceUrl: "https://pokepast.es/fixture",

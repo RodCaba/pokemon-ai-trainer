@@ -6,3 +6,4 @@ dist/
 coverage/
 *.log
 data/cache/labmaus/
+data/cache/pokepaste/

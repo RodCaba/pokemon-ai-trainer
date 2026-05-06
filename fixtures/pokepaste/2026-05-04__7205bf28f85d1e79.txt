@@ -1,0 +1,53 @@
+Charizard @ Charizardite Y
+Ability: Blaze
+Level: 50
+Tera Type: None
+- Heat Wave
+- Weather Ball
+- Solar Beam
+- Protect
+
+Clefable @ Sitrus Berry
+Ability: Unaware
+Level: 50
+Tera Type: None
+- Moonblast
+- Icy Wind
+- Follow Me
+- Protect
+
+Kingambit @ Black Glasses
+Ability: Defiant
+Level: 50
+Tera Type: None
+- Sucker Punch
+- Kowtow Cleave
+- Swords Dance
+- Protect
+
+Sneasler @ White Herb
+Ability: Unburden
+Level: 50
+Tera Type: None
+- Fake Out
+- Close Combat
+- Gunk Shot
+- Protect
+
+Garchomp @ Choice Scarf
+Ability: Rough Skin
+Level: 50
+Tera Type: None
+- Earthquake
+- Stomping Tantrum
+- Dragon Claw
+- Rock Slide
+
+Aerodactyl @ Focus Sash
+Ability: Unnerve
+Level: 50
+Tera Type: None
+- Rock Slide
+- Tailwind
+- Wide Guard
+- Protect

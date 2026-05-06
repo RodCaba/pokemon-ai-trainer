@@ -246,28 +246,28 @@ export const tournamentTeamSpecies = sqliteTable(
 );
 
 /**
- * `team_sets` is owned by the parallel `pokepaste-sets` slice (see
- * `docs/plans/pokepaste-sets.md` §5). Declared here so the labmaus slice's
- * `usage(kind="item"|"move")` query can LEFT JOIN against the columns it
- * needs (tournament_team_id, slot, species_roster_id, item, moves_json).
- *
- * The pokepaste slice will land additional CHECK constraints (level range,
- * SPS totals, etc.); when that migration ships it should `ALTER TABLE` to
- * add those constraints rather than recreating the table. The minimal column
- * set here is intentionally a strict subset of the planned final shape.
+ * `team_sets` — owned by the `pokepaste-sets` slice (see
+ * `docs/plans/pokepaste-sets.md` §5). One row per (tournament_team, slot)
+ * with the parsed Showdown export from the team's pokepaste link. Adds
+ * full CHECK constraints, FKs, and additional indexes on top of the
+ * labmaus-side stub from migration 0003.
  */
 export const teamSets = sqliteTable(
   "team_sets",
   {
-    tournamentTeamId: text("tournament_team_id").notNull(),
+    tournamentTeamId: text("tournament_team_id")
+      .notNull()
+      .references(() => tournamentTeams.id, { onDelete: "cascade" }),
     slot: integer("slot").notNull(),
-    speciesRosterId: text("species_roster_id").notNull(),
+    speciesRosterId: text("species_roster_id")
+      .notNull()
+      .references(() => species.id),
     item: text("item"),
     ability: text("ability"),
     level: integer("level"),
-    movesJson: text("moves_json").notNull(),
-    spsJson: text("sps_json"),
-    ivsJson: text("ivs_json"),
+    movesJson: text("moves_json").notNull(), // JSON array (≤4 moves)
+    spsJson: text("sps_json"), // JSON object {hp,atk,...} or NULL
+    ivsJson: text("ivs_json"), // JSON object or NULL
     nature: text("nature"),
     completeness: text("completeness").notNull(),
     sourceSite: text("source_site").notNull(),
@@ -278,8 +278,44 @@ export const teamSets = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.tournamentTeamId, t.slot] }),
     check("team_sets_slot_range", sql`${t.slot} BETWEEN 0 AND 5`),
+    check(
+      "team_sets_completeness_valid",
+      sql`${t.completeness} IN ('minimal','partial','full')`,
+    ),
+    check(
+      "team_sets_source_site_pokepaste",
+      sql`${t.sourceSite} = 'pokepaste'`,
+    ),
+    check(
+      "team_sets_level_range",
+      sql`${t.level} IS NULL OR (${t.level} BETWEEN 1 AND 100)`,
+    ),
+    check(
+      "team_sets_moves_len",
+      sql`json_array_length(${t.movesJson}) BETWEEN 0 AND 4`,
+    ),
+    check(
+      "team_sets_sps_total_le_66",
+      sql`${t.spsJson} IS NULL OR
+          (json_extract(${t.spsJson},'$.hp')+json_extract(${t.spsJson},'$.atk')
+          +json_extract(${t.spsJson},'$.def')+json_extract(${t.spsJson},'$.spa')
+          +json_extract(${t.spsJson},'$.spd')+json_extract(${t.spsJson},'$.spe')) <= 66`,
+    ),
+    check(
+      "team_sets_sps_per_stat_le_32",
+      sql`${t.spsJson} IS NULL OR (
+        json_extract(${t.spsJson},'$.hp')  <= 32 AND
+        json_extract(${t.spsJson},'$.atk') <= 32 AND
+        json_extract(${t.spsJson},'$.def') <= 32 AND
+        json_extract(${t.spsJson},'$.spa') <= 32 AND
+        json_extract(${t.spsJson},'$.spd') <= 32 AND
+        json_extract(${t.spsJson},'$.spe') <= 32
+      )`,
+    ),
     index("idx_team_sets_species").on(t.speciesRosterId),
     index("idx_team_sets_item").on(t.item),
+    index("idx_team_sets_ability").on(t.ability),
+    index("idx_team_sets_paste_id").on(t.sourcePasteId),
   ],
 );
 
