@@ -16,7 +16,7 @@
  * Plus T42b — `--no-pokepaste` skips the pokepaste step (no `team_sets`).
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -210,6 +210,9 @@ describe("ingest-labmaus pokepaste wiring", () => {
     tmpDir = mkdtempSync(join(tmpdir(), "ingest-labmaus-wired-"));
     labmausCacheDir = join(tmpDir, "data", "cache", "labmaus");
     pokepasteCacheDir = join(tmpDir, "data", "cache", "pokepaste");
+    // Cache paths are env-driven; stub for the duration of each test.
+    vi.stubEnv("LABMAUS_CACHE_DIR", labmausCacheDir);
+    vi.stubEnv("POKEPASTE_CACHE_DIR", pokepasteCacheDir);
 
     // Seed labmaus list cache (one tournament: 56757).
     const summary = [
@@ -248,6 +251,7 @@ describe("ingest-labmaus pokepaste wiring", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -268,10 +272,6 @@ describe("ingest-labmaus pokepaste wiring", () => {
         "2026-05-04",
         "--db",
         dbPath,
-        "--labmaus-cache-dir",
-        labmausCacheDir,
-        "--pokepaste-cache-dir",
-        pokepasteCacheDir,
       ]);
     } finally {
       console.log = origLog;
@@ -320,10 +320,6 @@ describe("ingest-labmaus pokepaste wiring", () => {
         "2026-05-04",
         "--db",
         dbPath,
-        "--labmaus-cache-dir",
-        labmausCacheDir,
-        "--pokepaste-cache-dir",
-        pokepasteCacheDir,
       ]);
     } finally {
       console.log = origLog;

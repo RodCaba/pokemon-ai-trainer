@@ -10,6 +10,10 @@
  *   --no-pokepaste          skip the per-team pokepaste fetch step
  *   --concurrency <n>       parallel getTournament fan-out (default 4)
  *
+ * Env vars:
+ *   LABMAUS_CACHE_DIR    override labmaus disk-cache path (default data/cache/labmaus)
+ *   POKEPASTE_CACHE_DIR  override pokepaste disk-cache path (default data/cache/pokepaste)
+ *
  * Exit codes:
  *   0  success (including bounded cross-check warnings; no-network on empty cache also returns 0)
  *   1  schema drift, unknown species, DB error, network exhaustion
@@ -44,8 +48,6 @@ interface ParsedArgs {
   noNetwork: boolean;
   noPokepaste: boolean;
   concurrency: number;
-  labmausCacheDir: string;
-  pokepasteCacheDir: string;
 }
 
 function parseArgs(argv: string[]): ParsedArgs | { error: string } {
@@ -57,8 +59,6 @@ function parseArgs(argv: string[]): ParsedArgs | { error: string } {
     noNetwork: false,
     noPokepaste: false,
     concurrency: 4,
-    labmausCacheDir: "data/cache/labmaus",
-    pokepasteCacheDir: "data/cache/pokepaste",
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -86,14 +86,6 @@ function parseArgs(argv: string[]): ParsedArgs | { error: string } {
         break;
       case "--concurrency":
         out.concurrency = Number.parseInt(argv[++i] ?? "4", 10);
-        break;
-      // Test-only overrides — let the wiring test pre-seed caches in a tmp
-      // dir without process.chdir (vitest workers forbid chdir).
-      case "--labmaus-cache-dir":
-        out.labmausCacheDir = argv[++i] ?? "";
-        break;
-      case "--pokepaste-cache-dir":
-        out.pokepasteCacheDir = argv[++i] ?? "";
         break;
       default:
         return { error: `unknown argv ${a}` };
@@ -249,10 +241,17 @@ export async function main(argv: string[]): Promise<number> {
     return 2;
   }
 
+  // Cache directories are operator-tunable via env vars. Defaults match the
+  // repo layout. Tests use these to point at tmp dirs without process.chdir
+  // (vitest workers forbid chdir).
+  const labmausCacheDir = process.env.LABMAUS_CACHE_DIR ?? "data/cache/labmaus";
+  const pokepasteCacheDir =
+    process.env.POKEPASTE_CACHE_DIR ?? "data/cache/pokepaste";
+
   const db = open(parsed.dbPath);
   try {
     const client = createLabmausClient({
-      cacheDir: parsed.labmausCacheDir,
+      cacheDir: labmausCacheDir,
       cacheTtlMs: 24 * 60 * 60 * 1000,
       throttleRps: 1,
       maxRetries: 3,
@@ -273,7 +272,7 @@ export async function main(argv: string[]): Promise<number> {
     const pokepasteEnabled = !parsed.noPokepaste;
     const pokepasteClient = pokepasteEnabled
       ? createPokepasteClient({
-          cacheDir: parsed.pokepasteCacheDir,
+          cacheDir: pokepasteCacheDir,
           // Throttle exists to be polite to the live host. In --no-network
           // mode there's no live host — bump to a high rate so 404s for
           // unseeded teams don't serialize the cache-only run.
