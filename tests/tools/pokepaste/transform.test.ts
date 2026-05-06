@@ -101,11 +101,13 @@ describe("transformPaste", () => {
   });
 
   it("T17. transform rejects empty-moves set (drops below minimal completeness)", async () => {
-    // The synthetic-edge-cases fixture's slot-4 Kingambit has zero `- <move>`
-    // lines, which drops below `minimal`. Per plan §3 Q4 + flow §6 open Q,
-    // the transform throws PokepasteParseError (not just any error).
+    // The synthetic-empty-moves fixture is a single Kingambit set with zero
+    // `- <move>` lines, which drops below `minimal`. Per plan §3 Q4 + flow §6
+    // open Q, the transform throws PokepasteParseError (not just any error).
+    // (Split out from synthetic-edge-cases.txt during Stage 5 — that fixture's
+    // empty-moves slot collided with T15's success path on the same fixture.)
     const { PokepasteParseError } = await import("../../../src/schemas/errors");
-    const raw = loadRaw("2026-05-04__synthetic-edge-cases.txt");
+    const raw = loadRaw("2026-05-04__synthetic-empty-moves.txt");
     let thrown: unknown;
     try {
       transformPaste(

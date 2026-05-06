@@ -33,11 +33,6 @@ Tera Type: None
 - Fake Out
 - Protect
 
-Kingambit @ Black Glasses
-Ability: Defiant
-Level: 50
-Tera Type: Fire
-
 Aerodactyl @ White Herb
 Ability: Unnerve
 Level: 50

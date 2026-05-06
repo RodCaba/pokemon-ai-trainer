@@ -38,17 +38,24 @@ Files are immutable; filenames carry the capture date.
 - IVs absent everywhere (the calc layer fills 31s per Reg M-A stat rules).
 
 ### `2026-05-04__synthetic-edge-cases.txt`
-- Purpose: parser edge-case coverage required by plan §11.
+- Purpose: parser edge-case coverage required by plan §11 — covers paths that
+  the transform must HANDLE (not reject). Empty-moves rejection lives in its
+  own fixture (see below) so T15's success path and T17's reject path don't
+  collide on the same file.
   - **Mega Stone item:** `Charizardite Y` (slot 0).
   - **Regional form:** `Ninetales-Alola` (slot 1).
   - **Gender symbol:** `Basculegion ♂` (slot 2).
-  - **Empty moves block:** `Kingambit` (slot 4) — has no `- <move>` lines at
-    all. Drops below `minimal` completeness, which the transform rejects.
-  - **Missing `Ability:` line:** `Aerodactyl` (slot 5).
-  - **Mixed Tera presence:** most entries include `Tera Type: None`; the
-    Kingambit entry includes `Tera Type: Fire` to exercise the strip on a
-    non-`None` value. Aerodactyl omits the line entirely (no Tera line at all)
-    so the strip's "field absent" branch is also covered.
+  - **Missing `Ability:` line:** `Sneasler` (slot 3) — minimal completeness
+    in this slice does NOT require ability (matches real-world labmaus pastes
+    that omit it; flagged for plan §2.5 reconciliation in Stage 6).
+  - **Missing Tera line entirely:** `Aerodactyl` (slot 4) — strip's "field
+    absent" branch.
+
+### `2026-05-04__synthetic-empty-moves.txt`
+- Purpose: focused fixture for T17 (`transform rejects empty-moves set`).
+  Single Kingambit entry with zero `- <move>` lines, drops below `minimal`,
+  must throw `PokepasteParseError`. Split out from the original kitchen-sink
+  edge-cases fixture during Stage 5 to remove the T15/T17 collision.
 
 ## Tera lines summary (for T7 — `transform strips Tera Type unconditionally`)
 
@@ -58,4 +65,5 @@ Files are immutable; filenames carry the capture date.
 | `2026-05-04__a5f32930d39e424e.txt` | 6 × `Tera Type: None` |
 | `2026-05-04__synthetic-full-spread.txt` | 6 × `Tera Type: None` |
 | `2026-05-04__synthetic-partial.txt` | 6 × `Tera Type: None` |
-| `2026-05-04__synthetic-edge-cases.txt` | 4 × `Tera Type: None`, 1 × `Tera Type: Fire`, 1 × absent |
+| `2026-05-04__synthetic-edge-cases.txt` | 4 × `Tera Type: None`, 1 × absent |
+| `2026-05-04__synthetic-empty-moves.txt` | 1 × `Tera Type: None` |
