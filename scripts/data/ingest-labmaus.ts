@@ -7,6 +7,7 @@
  *   --mode full|incremental default full
  *   --db   <path>           SQLite path (default ./data/db.sqlite)
  *   --no-network            cache-only replay (tests, dry runs)
+ *   --no-pokepaste          skip the per-team pokepaste fetch step
  *   --concurrency <n>       parallel getTournament fan-out (default 4)
  *
  * Exit codes:
@@ -17,13 +18,23 @@
 
 import { open } from "../../src/db/open";
 import { createLabmausClient } from "../../src/tools/labmaus/client";
+import { createPokepasteClient } from "../../src/tools/pokepaste/client";
 import { listTournaments } from "../../src/tools/labmaus/list-tournaments";
 import { getTournament } from "../../src/tools/labmaus/get-tournament";
 import * as tournaments from "../../src/db/tournaments";
+import * as roster from "../../src/db/roster";
+import * as items from "../../src/db/items";
+import * as abilities from "../../src/db/abilities";
+import * as moves from "../../src/db/moves";
 import {
   LabmausNetworkError,
   LabmausSchemaError,
 } from "../../src/schemas/errors";
+import {
+  processTeamPokepaste,
+  type PokepasteRunSummary,
+} from "./pokepaste-hook";
+import type { TransformDeps } from "../../src/tools/pokepaste/transform";
 
 interface ParsedArgs {
   from: string;
@@ -31,7 +42,10 @@ interface ParsedArgs {
   mode: "full" | "incremental";
   dbPath: string;
   noNetwork: boolean;
+  noPokepaste: boolean;
   concurrency: number;
+  labmausCacheDir: string;
+  pokepasteCacheDir: string;
 }
 
 function parseArgs(argv: string[]): ParsedArgs | { error: string } {
@@ -41,7 +55,10 @@ function parseArgs(argv: string[]): ParsedArgs | { error: string } {
     mode: "full",
     dbPath: "./data/db.sqlite",
     noNetwork: false,
+    noPokepaste: false,
     concurrency: 4,
+    labmausCacheDir: "data/cache/labmaus",
+    pokepasteCacheDir: "data/cache/pokepaste",
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -64,8 +81,19 @@ function parseArgs(argv: string[]): ParsedArgs | { error: string } {
       case "--no-network":
         out.noNetwork = true;
         break;
+      case "--no-pokepaste":
+        out.noPokepaste = true;
+        break;
       case "--concurrency":
         out.concurrency = Number.parseInt(argv[++i] ?? "4", 10);
+        break;
+      // Test-only overrides — let the wiring test pre-seed caches in a tmp
+      // dir without process.chdir (vitest workers forbid chdir).
+      case "--labmaus-cache-dir":
+        out.labmausCacheDir = argv[++i] ?? "";
+        break;
+      case "--pokepaste-cache-dir":
+        out.pokepasteCacheDir = argv[++i] ?? "";
         break;
       default:
         return { error: `unknown argv ${a}` };
@@ -97,6 +125,36 @@ function chunkDateRange(from: string, to: string, days: number): Array<{ from: s
 // (see docs/reviews/labmaus-tournaments.md §9).
 async function fakeFetchEmpty(): Promise<Response> {
   return new Response(JSON.stringify([]), { status: 200 });
+}
+
+// In `--no-network` mode the pokepaste client must never reach the wire. The
+// disk cache is the only source — a cache miss surfaces as a 404 and the hook
+// records it as a `pokepaste_404`. This mirrors fakeFetchEmpty's intent for
+// labmaus (empty payload → empty ingest) for pokepaste's content-addressed
+// `/raw` endpoint.
+async function fakeFetch404(): Promise<Response> {
+  return new Response("not found", { status: 404 });
+}
+
+/**
+ * Build {@link TransformDeps} from the open DB handle. The transform layer
+ * needs `has`/`get` on the roster, items, abilities, and moves repos; we
+ * adapt them to the per-format signatures the transform expects.
+ */
+function buildTransformDeps(db: ReturnType<typeof open>): TransformDeps {
+  return {
+    db,
+    rosterRepo: {
+      has: (d, name): boolean => roster.has(d, name, "RegM-A"),
+      get: (d, name): { id: string } | null => {
+        const p = roster.get(d, name, "RegM-A");
+        return p ? { id: p.id } : null;
+      },
+    },
+    itemsRepo: { has: (d, name): boolean => items.has(d, name, "RegM-A") },
+    abilitiesRepo: { has: (d, name): boolean => abilities.has(d, name, "RegM-A") },
+    movesRepo: { has: (d, name): boolean => moves.has(d, name, "RegM-A") },
+  };
 }
 
 /**
@@ -194,7 +252,7 @@ export async function main(argv: string[]): Promise<number> {
   const db = open(parsed.dbPath);
   try {
     const client = createLabmausClient({
-      cacheDir: "data/cache/labmaus",
+      cacheDir: parsed.labmausCacheDir,
       cacheTtlMs: 24 * 60 * 60 * 1000,
       throttleRps: 1,
       maxRetries: 3,
@@ -208,6 +266,30 @@ export async function main(argv: string[]): Promise<number> {
     // malformed-date validation (see docs/reviews/labmaus-tournaments.md §9).
     const chunks = chunkDateRange(parsed.from, parsed.to, 30);
     let total = { tournaments: 0, teams: 0, species: 0, warnings: 0 };
+
+    // Pokepaste wiring — per plan §13 the labmaus ingest fans out to the
+    // pokepaste hook per team. Skipped under `--no-pokepaste` (operator
+    // opt-out / labmaus-only test path).
+    const pokepasteEnabled = !parsed.noPokepaste;
+    const pokepasteClient = pokepasteEnabled
+      ? createPokepasteClient({
+          cacheDir: parsed.pokepasteCacheDir,
+          // Throttle exists to be polite to the live host. In --no-network
+          // mode there's no live host — bump to a high rate so 404s for
+          // unseeded teams don't serialize the cache-only run.
+          throttleRps: parsed.noNetwork ? 1000 : 2,
+          maxRetries: 3,
+          backoffBaseMs: 1000,
+          fetchImpl: parsed.noNetwork ? (fakeFetch404 as unknown as typeof fetch) : undefined,
+        })
+      : null;
+    const pokepasteDeps = pokepasteEnabled ? buildTransformDeps(db) : null;
+    const pokepasteSummary: PokepasteRunSummary = {
+      team_sets: 0,
+      pokepaste_404s: [],
+      pokepaste_failures: [],
+      ref_validation_failures: [],
+    };
 
     for (const chunk of chunks) {
       let summaries: Awaited<ReturnType<typeof listTournaments>> = [];
@@ -242,6 +324,23 @@ export async function main(argv: string[]): Promise<number> {
           // against labmaus's own pokemon[] aggregate (when present in the
           // cached raw payload). Out-of-tolerance diffs become warnings.
           await runCrossCheck(client, s.id, detail.tournament.id, db, total);
+
+          // Pokepaste fan-out — sequential per team. The pokepaste client's
+          // own throttle handles pacing; concurrency on this loop just
+          // serializes the ref-table work too. PokepasteUnknownSpeciesError
+          // propagates out of main() (fail-loud, exits 1).
+          if (pokepasteEnabled && pokepasteClient && pokepasteDeps) {
+            for (const tm of detail.teams) {
+              await processTeamPokepaste({
+                db,
+                client: pokepasteClient,
+                transform: pokepasteDeps,
+                team_id: tm.id,
+                team_url: tm.team_url,
+                summary: pokepasteSummary,
+              });
+            }
+          }
         } catch (e) {
           // Same propagation rule as the listing call: only swallow network
           // errors in offline mode. Schema/DB errors fail loud.
@@ -252,7 +351,7 @@ export async function main(argv: string[]): Promise<number> {
       }
     }
 
-    console.log(JSON.stringify({ ok: true, ...total }));
+    console.log(JSON.stringify({ ok: true, ...total, pokepaste: pokepasteSummary }));
     return 0;
   } catch (e) {
     console.error(e);
