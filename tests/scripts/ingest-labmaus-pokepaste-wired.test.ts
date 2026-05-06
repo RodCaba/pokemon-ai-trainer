@@ -20,7 +20,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -161,35 +160,44 @@ function seedRefTables(db: Db): void {
 }
 
 /**
- * Pre-seed a labmaus cache record. Mirrors the format from
- * `src/tools/labmaus/client.ts`'s `CacheRecord`. The client scans the dir
- * for any record whose `key` matches, so the filename is opaque.
+ * Sanitize an opaque cache key the same way `src/tools/_shared/file-cache.ts`
+ * does — replace any char outside `[a-zA-Z0-9._-]` with `_`.
  */
-function writeLabmausCache(dir: string, name: string, key: string, body: unknown): void {
+function sanitizeKey(key: string): string {
+  return key.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+/**
+ * Pre-seed a cache record under the shared file-cache envelope:
+ * `<dir>/<sanitized-key>.json` containing `{ fetchedAt, body }` where `body`
+ * is a string. For labmaus, callers pass JSON-structured bodies; we stringify
+ * them inside the envelope to match what the client writes.
+ */
+function writeLabmausCache(dir: string, key: string, body: unknown): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  // Use the same path scheme as the client (sha1 of key, first 16 hex) so a
-  // direct lookup hits without needing the dir scan.
-  const hash = createHash("sha1").update(key).digest("hex").slice(0, 16);
-  const path = join(dir, `${hash}.json`);
+  const path = join(dir, `${sanitizeKey(key)}.json`);
   writeFileSync(
     path,
     JSON.stringify({
-      key,
-      args: {},
+      fetchedAt: new Date().toISOString(),
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+/**
+ * Pre-seed a pokepaste cache file under the shared file-cache envelope:
+ * `<dir>/<paste_id>.json` containing `{ fetchedAt, body }`.
+ */
+function writePokepasteCache(dir: string, paste_id: string, body: string): void {
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, `${sanitizeKey(paste_id)}.json`),
+    JSON.stringify({
       fetchedAt: new Date().toISOString(),
       body,
     }),
   );
-  void name;
-}
-
-/**
- * Pre-seed a pokepaste cache file. Format is plain text under `<paste_id>.txt`
- * (see `src/tools/_shared/file-cache.ts`).
- */
-function writePokepasteCache(dir: string, paste_id: string, body: string): void {
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, `${paste_id}.txt`), body);
 }
 
 describe("ingest-labmaus pokepaste wiring", () => {
@@ -217,7 +225,6 @@ describe("ingest-labmaus pokepaste wiring", () => {
     ];
     writeLabmausCache(
       labmausCacheDir,
-      "list",
       "list/Regulation Set M-A/2026-05-04_2026-05-04",
       summary,
     );
@@ -225,7 +232,7 @@ describe("ingest-labmaus pokepaste wiring", () => {
     const detail = JSON.parse(
       readFileSync(join(FIX_LAB, "2026-05-04__tournament_56757.json"), "utf8"),
     ) as unknown;
-    writeLabmausCache(labmausCacheDir, "tournament/56757", "tournament/56757", detail);
+    writeLabmausCache(labmausCacheDir, "tournament/56757", detail);
     // Seed pokepaste cache for the 1st-place team's paste id.
     const paste = readFileSync(join(FIX_PASTE, "2026-05-04__7205bf28f85d1e79.txt"), "utf8");
     writePokepasteCache(pokepasteCacheDir, "7205bf28f85d1e79", paste);

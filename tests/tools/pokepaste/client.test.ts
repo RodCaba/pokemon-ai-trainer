@@ -137,8 +137,16 @@ describe("PokepasteClient", () => {
   it("T23. client reads from disk cache when present (no expiry)", async () => {
     const dir = tmpCacheDir();
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    // Pre-seed using the canonical content-addressed filename `<paste_id>.txt`.
-    writeFileSync(join(dir, "7205bf28f85d1e79.txt"), "PRESEEDED PASTE BODY");
+    // Pre-seed using the shared file-cache envelope: `<sanitized-key>.json`
+    // with `{ fetchedAt, body }`. Pokepaste paste ids are hex so they pass
+    // through sanitizeKey unchanged.
+    writeFileSync(
+      join(dir, "7205bf28f85d1e79.json"),
+      JSON.stringify({
+        fetchedAt: new Date().toISOString(),
+        body: "PRESEEDED PASTE BODY",
+      }),
+    );
     const fetchImpl = vi.fn() as unknown as typeof fetch;
     const client = createPokepasteClient({
       cacheDir: dir,

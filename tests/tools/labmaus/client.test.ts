@@ -130,13 +130,13 @@ describe("LabmausClient", () => {
     // a Stage-5 implementation detail; the test asserts behavior: when a fresh
     // cache hit exists, fetch must NOT be called.
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    // The shared file-cache sanitizes keys: `tournament/56757` →
+    // `tournament_56757.json`. Body is JSON-stringified inside the envelope.
     writeFileSync(
-      join(dir, "preseed.json"),
+      join(dir, "tournament_56757.json"),
       JSON.stringify({
-        key: "tournament/56757",
-        args: { id: 56757 },
         fetchedAt: new Date().toISOString(),
-        body: { overview: { id: 56757 } },
+        body: JSON.stringify({ overview: { id: 56757 } }),
       }),
     );
     const fetchImpl = vi.fn() as unknown as typeof fetch;

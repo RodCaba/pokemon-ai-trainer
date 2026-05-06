@@ -4,13 +4,12 @@
  * Implements:
  *   - per-host token-bucket throttle (1 rps default, injectable clock)
  *   - retry with exponential backoff on 429 / 5xx
- *   - read-through disk cache (file per cache key, TTL-gated)
+ *   - read-through disk cache via the shared {@link createFileCache}
+ *     primitive (TTL-gated; labmaus payloads are not immutable).
  */
 
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { LabmausNetworkError } from "../../schemas/errors";
+import { createFileCache, type FileCache } from "../_shared/file-cache";
 import { createTokenBucket } from "../_shared/throttle";
 
 const BASE_URL = "https://labmaus.net";
@@ -64,62 +63,6 @@ export interface LabmausClient {
   getTournament(args: { id: number; language?: "en" }): Promise<unknown>;
 }
 
-interface CacheRecord {
-  key: string;
-  args: unknown;
-  fetchedAt: string;
-  body: unknown;
-}
-
-function cacheFileFor(dir: string, key: string): string {
-  const hash = createHash("sha1").update(key).digest("hex").slice(0, 16);
-  return join(dir, `${hash}.json`);
-}
-
-function findFreshCacheEntry(dir: string, key: string, now: number, ttlMs: number): unknown | undefined {
-  const direct = cacheFileFor(dir, key);
-  if (existsSync(direct)) {
-    try {
-      const rec = JSON.parse(readFileSync(direct, "utf8")) as CacheRecord;
-      if (rec.key === key) {
-        const age = now - new Date(rec.fetchedAt).getTime();
-        if (age < ttlMs) return rec.body;
-      }
-    } catch {
-      // fall through to directory scan
-    }
-  }
-  // Tests pre-seed cache files under arbitrary names; scan the dir for any
-  // record whose `key` matches.
-  if (!existsSync(dir)) return undefined;
-  for (const f of readdirSync(dir)) {
-    if (!f.endsWith(".json")) continue;
-    try {
-      const rec = JSON.parse(readFileSync(join(dir, f), "utf8")) as CacheRecord;
-      if (rec.key !== key) continue;
-      const age = now - new Date(rec.fetchedAt).getTime();
-      if (age < ttlMs) return rec.body;
-    } catch {
-      // ignore malformed file
-    }
-  }
-  return undefined;
-}
-
-function writeCacheEntry(dir: string, key: string, args: unknown, body: unknown, now: number): void {
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const rec: CacheRecord = {
-    key,
-    args,
-    fetchedAt: new Date(now).toISOString(),
-    body,
-  };
-  const path = cacheFileFor(dir, key);
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, JSON.stringify(rec));
-  renameSync(tmp, path);
-}
-
 /**
  * Build a {@link LabmausClient}.
  *
@@ -132,7 +75,6 @@ function writeCacheEntry(dir: string, key: string, args: unknown, body: unknown,
  */
 export function createLabmausClient(opts: LabmausClientOptions): LabmausClient {
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
-  const realNow = (): number => Date.now();
 
   const sleep = (ms: number): Promise<void> => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -144,10 +86,23 @@ export function createLabmausClient(opts: LabmausClientOptions): LabmausClient {
   });
   const throttle = (): Promise<void> => bucket.acquire();
 
-  const cacheGet = (key: string): unknown | undefined =>
-    findFreshCacheEntry(opts.cacheDir, key, realNow(), opts.cacheTtlMs);
-  const cacheSet = (key: string, args: unknown, body: unknown): void =>
-    writeCacheEntry(opts.cacheDir, key, args, body, realNow());
+  const cache: FileCache = createFileCache({
+    dir: opts.cacheDir,
+    ttlMs: opts.cacheTtlMs,
+  });
+
+  const cacheGet = (key: string): unknown | undefined => {
+    const raw = cache.read(key);
+    if (raw === undefined) return undefined;
+    try {
+      return JSON.parse(raw) as unknown;
+    } catch {
+      return undefined;
+    }
+  };
+  const cacheSet = (key: string, body: unknown): void => {
+    cache.write(key, JSON.stringify(body));
+  };
 
   const fetchWithRetry = async (url: string): Promise<unknown> => {
     let attempt = 0;
@@ -188,7 +143,7 @@ export function createLabmausClient(opts: LabmausClientOptions): LabmausClient {
       if (cached !== undefined) return cached;
       const url = `${BASE_URL}/api/completed_tournaments?${params.toString()}`;
       const body = await fetchWithRetry(url);
-      cacheSet(key, args, body);
+      cacheSet(key, body);
       return body;
     },
     async getTournament(args): Promise<unknown> {
@@ -198,7 +153,7 @@ export function createLabmausClient(opts: LabmausClientOptions): LabmausClient {
       if (cached !== undefined) return cached;
       const url = `${BASE_URL}/api/tournament?tournament=${args.id}&language=${lang}`;
       const body = await fetchWithRetry(url);
-      cacheSet(key, args, body);
+      cacheSet(key, body);
       return body;
     },
   };

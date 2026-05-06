@@ -69,7 +69,10 @@ export function createPokepasteClient(opts: PokepasteClientOptions): PokepasteCl
     refillPerSec: opts.throttleRps,
     clock: opts.clock,
   });
-  const cache = createFileCache({ dir: opts.cacheDir });
+  const cache = createFileCache({
+    dir: opts.cacheDir,
+    ttlMs: Number.POSITIVE_INFINITY,
+  });
 
   return {
     async fetchRaw(paste_id: string): Promise<string> {
