@@ -39,15 +39,15 @@ Files are immutable; filenames carry the capture date.
 
 ### `2026-05-04__synthetic-edge-cases.txt`
 - Purpose: parser edge-case coverage required by plan §11 — covers paths that
-  the transform must HANDLE (not reject). Empty-moves rejection lives in its
-  own fixture (see below) so T15's success path and T17's reject path don't
-  collide on the same file.
+  the transform must HANDLE (not reject). Reject-paths (empty moves, no
+  ability) live in their own focused fixtures (see below) so T15's success
+  path and the reject tests don't collide on the same file.
   - **Mega Stone item:** `Charizardite Y` (slot 0).
   - **Regional form:** `Ninetales-Alola` (slot 1).
   - **Gender symbol:** `Basculegion ♂` (slot 2).
-  - **Missing `Ability:` line:** `Sneasler` (slot 3) — minimal completeness
-    in this slice does NOT require ability (matches real-world labmaus pastes
-    that omit it; flagged for plan §2.5 reconciliation in Stage 6).
+  - **All slots have `Ability:`** — per plan §2.5 / flow §2.5, `minimal`
+    completeness requires species + item + ability + ≥1 move; this fixture
+    is parse-success on every slot (Sneasler carries `Ability: Unburden`).
   - **Missing Tera line entirely:** `Aerodactyl` (slot 4) — strip's "field
     absent" branch.
 
@@ -56,6 +56,13 @@ Files are immutable; filenames carry the capture date.
   Single Kingambit entry with zero `- <move>` lines, drops below `minimal`,
   must throw `PokepasteParseError`. Split out from the original kitchen-sink
   edge-cases fixture during Stage 5 to remove the T15/T17 collision.
+
+### `2026-05-04__synthetic-no-ability.txt`
+- Purpose: focused fixture for T17b (`transform rejects no-ability set`).
+  Single Kingambit entry with an item + 4 moves but no `Ability:` line,
+  drops below `minimal`, must throw `PokepasteParseError`. Regression-guard
+  for the contract `minimal = species + item + ability + ≥1 move` (plan §2.5
+  / flow §2.5).
 
 ## Tera lines summary (for T7 — `transform strips Tera Type unconditionally`)
 
@@ -67,3 +74,4 @@ Files are immutable; filenames carry the capture date.
 | `2026-05-04__synthetic-partial.txt` | 6 × `Tera Type: None` |
 | `2026-05-04__synthetic-edge-cases.txt` | 4 × `Tera Type: None`, 1 × absent |
 | `2026-05-04__synthetic-empty-moves.txt` | 1 × `Tera Type: None` |
+| `2026-05-04__synthetic-no-ability.txt` | 1 × `Tera Type: None` |

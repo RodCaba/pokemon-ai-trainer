@@ -26,6 +26,7 @@ Tera Type: None
 - Aqua Jet
 
 Sneasler @ Focus Sash
+Ability: Unburden
 Level: 50
 Tera Type: None
 - Close Combat

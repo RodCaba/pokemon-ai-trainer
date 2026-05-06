@@ -124,4 +124,28 @@ describe("transformPaste", () => {
     }
     expect(thrown).toBeInstanceOf(PokepasteParseError);
   });
+
+  it("T17b. transform rejects no-ability set (drops below minimal completeness)", async () => {
+    // Per plan §2.5 + flow §2.5, `minimal = species + item + ability + ≥1
+    // move`. A set without an Ability: line drops below minimal and the
+    // transform must throw PokepasteParseError. Regression-guard for the
+    // Stage 5 silent relaxation that dropped ability from the contract.
+    const { PokepasteParseError } = await import("../../../src/schemas/errors");
+    const raw = loadRaw("2026-05-04__synthetic-no-ability.txt");
+    let thrown: unknown;
+    try {
+      transformPaste(
+        {
+          paste_id: "0000000000000004",
+          raw_text: raw,
+          fetched_at: FETCHED_AT,
+          tournament_team_id: "labmaus:56757:244473",
+        },
+        permissiveDeps(db),
+      );
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(PokepasteParseError);
+  });
 });

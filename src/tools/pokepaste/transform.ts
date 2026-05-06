@@ -65,9 +65,7 @@ function nonEmpty(s: string | undefined | null): s is string {
 /**
  * Compute the completeness tag for a parsed set.
  *
- * - `minimal`: species + item + ≥1 move (ability is recommended but not
- *   load-bearing — fixtures observed in the wild include Sneasler/Aerodactyl
- *   sets with the `Ability:` line omitted).
+ * - `minimal`: species + item + ability + ≥1 move (per plan §2.5 / flow §2.5).
  * - `partial`: minimal + (sps OR nature).
  * - `full`: minimal + sps + nature.
  *
@@ -76,11 +74,12 @@ function nonEmpty(s: string | undefined | null): s is string {
 function classifyCompleteness(args: {
   hasSpecies: boolean;
   hasItem: boolean;
+  hasAbility: boolean;
   moveCount: number;
   hasSps: boolean;
   hasNature: boolean;
 }): Completeness | null {
-  if (!args.hasSpecies || !args.hasItem || args.moveCount < 1) {
+  if (!args.hasSpecies || !args.hasItem || !args.hasAbility || args.moveCount < 1) {
     return null;
   }
   if (args.hasSps && args.hasNature) return "full";
@@ -166,6 +165,7 @@ export function transformPaste(input: TransformInput, deps: TransformDeps): Past
     const completeness = classifyCompleteness({
       hasSpecies: speciesDisplay.length > 0,
       hasItem: itemDisplay !== null,
+      hasAbility: abilityDisplay !== null,
       moveCount: moves.length,
       hasSps,
       hasNature,
@@ -202,8 +202,8 @@ export function transformPaste(input: TransformInput, deps: TransformDeps): Past
         { paste_id: input.paste_id, kind: "item", value: itemValue, slot },
       );
     }
-    const abilityValue = abilityDisplay;
-    if (abilityValue !== null && !deps.abilitiesRepo.has(deps.db, abilityValue, "RegM-A")) {
+    const abilityValue = abilityDisplay as string;
+    if (!deps.abilitiesRepo.has(deps.db, abilityValue, "RegM-A")) {
       throw new PokepasteRefValidationError(
         `unknown ability: ${abilityValue}`,
         { paste_id: input.paste_id, kind: "ability", value: abilityValue, slot },
