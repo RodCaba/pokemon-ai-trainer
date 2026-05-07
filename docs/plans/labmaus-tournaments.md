@@ -890,3 +890,20 @@ Final test totals after this refactor: 259 passed, 3 skipped (down from 268 + 3)
 **Failure-mode trade-off.** With the alias table gone, when pokepaste 404s on a team's paste, that team has only `tournament_team_species (team_id, slot, labmaus_id)` and `tournament_teams.team_url` — no canonical `roster_id`. The labmaus dex id and the labmaus `team_names` CSV remain as fallbacks for human or downstream attribution. Acceptable: the failure mode is contained per-team rather than blocking ingest, and the cure (re-fetch the paste, or extend pokepaste's parser) is owned by the pokepaste slice. The previous failure mode — "alias table not populated → ingest blows up wholesale" — is gone.
 
 **Pokepaste-sets is now the single source of truth for species attribution.** Cross-referenced in `docs/plans/pokepaste-sets.md`.
+
+---
+
+## 19. Architectural changes after first live run (2026-05-04)
+
+Two design calls the user made once `data/reg-m-a/db.sqlite` started accruing real labmaus rows from the live demo. Both intentionally invert earlier decisions; recording here so future agents don't restore the old behavior.
+
+### 19.1 The DB is now production state, not a build artifact
+
+Originally `scripts/data/build-reg-m-a.ts` did `unlink + write tmp + atomic rename`, treating `db.sqlite` as a fully-derived artifact. That assumption broke once the labmaus ingest started writing tournaments / teams / team_sets to the same file: the next `pnpm data:build:reg-m-a` would silently destroy the labmaus rows.
+
+**Refactor:** the build is now non-destructive. It opens `dbPath` in place (migrations apply idempotently), and inside one `db.$client.transaction(...)` it rewrites only the **category A** tables — `species`, `species_stats`, `species_abilities`, `items`, `abilities`, `moves`, `sample_sets`, `roster_membership`. Strategy:
+
+- Items / abilities / moves / sample_sets / species_stats / species_abilities / roster_membership: `DELETE FROM <t>; INSERT …` (no incoming FKs from labmaus, safe to wipe).
+- `species`: **UPSERT** (`ON CONFLICT(id) DO UPDATE`). `team_sets.species_roster_id` references it, so a DELETE would either cascade-block or strand production data. Stale species rows (a name no longer in Champions) stay in place — removing one is a manual op that warrants review.
+
+`PRAGMA journal_mode=DELETE; VACUUM;` still runs at the end. The from-scratch determinism guarantee survives at the byte level (existing `tests/data/determinism.test.ts` cases 1–4 use fresh tmp paths). When labmaus rows are present, page-layout interleaving means raw bytes can shift between rebuilds; the new test cases 5–6 cover the post-refactor contract: labmaus rows survive, and category A row content is logically identical across rebuilds.

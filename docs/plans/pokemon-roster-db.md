@@ -122,7 +122,7 @@ We **split per entity** (one file each) rather than one consolidated file. Reaso
 ### Build / fetch scripts (`scripts/data/`)
 
 #### `scripts/data/build-reg-m-a.ts`
-- **Responsibility:** entry point for `pnpm data:build:reg-m-a`. Reads pinned `@smogon/calc`, reads `data/reg-m-a/raw-sets.smogon.json`, writes to `data/reg-m-a/db.sqlite.tmp`, fsyncs, atomic-renames over `db.sqlite`. Pure function except for the final rename.
+- **Responsibility:** entry point for `pnpm data:build:reg-m-a`. Reads pinned `@smogon/calc`, reads `data/reg-m-a/raw-sets.smogon.json`, opens `data/reg-m-a/db.sqlite` **in place** (non-destructive, see `docs/plans/labmaus-tournaments.md` §19), and rewrites only the category A reference tables (Champions roster + items/abilities/moves + sample sets) inside one transaction. Labmaus tables (`tournaments`, `tournament_teams`, `tournament_team_species`, `team_sets`) are never touched.
 - **Exports:** `buildRegMA(opts: { snapshotPath: string; outPath: string }): Promise<BuildReport>`, `main()`.
 - **Depends on:** `@smogon/calc`, `./fetchers/smogon-champions-data`, `./fetchers/smogon-champions-sets`, `../../src/db/open`, `node:fs`, `node:crypto`.
 
@@ -926,10 +926,12 @@ Each: `list` returns sorted; `get` case-insensitive; `get` returns `null` on mis
 3. mapping a `SampleSet.sps` through the existing `damage-calc/mapping.ts` path produces engine `evs` with identical values (round-trip identity).
 
 ### `tests/data/determinism.test.ts`
-1. `buildRegMA` run twice with the same inputs produces byte-identical `db.sqlite`.
+1. `buildRegMA` run twice **into fresh empty paths** with the same inputs produces byte-identical `db.sqlite` (the from-scratch contract).
 2. SHA-256 of the file matches across runs.
 3. file size is identical across runs.
 4. `schema_migrations.applied_at` value is the literal `'1970-01-01T00:00:00Z'`.
+5. Labmaus rows seeded after a first build survive a second `buildRegMA` call against the same path (non-destructive contract — see `docs/plans/labmaus-tournaments.md` §19).
+6. Category A row content (every column of `species` / `species_stats` / `species_abilities` / `items` / `abilities` / `moves` / `sample_sets` / `roster_membership`) is logically identical across consecutive in-place rebuilds. Note: when labmaus rows are present, raw-byte page layout can shift between rebuilds; the contract is byte-identical *over category A row content*, not at the page level.
 
 ### `tests/data/tool-definitions.test.ts`
 1. each accessor exports a tool definition with `name` matching `roster_*` / `items_*` / `abilities_*` / `moves_*`.
