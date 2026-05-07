@@ -7,3 +7,11 @@ coverage/
 *.log
 data/cache/labmaus/
 data/cache/pokepaste/
+data/cache/pikalytics/
+
+# Production runtime DB — accumulates captured tournament/team/team_set rows
+# from labmaus + pokepaste + pikalytics ingest. Build script regenerates the
+# category-A roster portion non-destructively. NEVER track this file in git;
+# `git checkout` would silently wipe production state. See memory
+# `single_db_non_destructive_build.md` (2026-05-06 incident).
+data/reg-m-a/db.sqlite
