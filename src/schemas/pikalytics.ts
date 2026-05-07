@@ -26,6 +26,7 @@ const Percent = z.number().min(0).max(100);
  * **When to use it:** as the element type of `PikalyticsSnapshot.teammates` and
  * the return type of `pikalytics.teammates(...)`.
  */
+// TODO(stage6-deferred): meta-merger slice should enforce or validate cross-source roster_id integrity
 export const TeammateEntrySchema = z
   .object({
     roster_id: RosterId,

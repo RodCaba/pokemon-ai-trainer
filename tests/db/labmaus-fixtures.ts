@@ -1,3 +1,4 @@
+// TODO(stage6-deferred): rename to db-test-fixtures.ts when a fourth consumer arrives
 /**
  * Test helpers for labmaus DB tests. Builds an in-memory SQLite seeded with
  * the roster's species set covering every labmaus dex-id present in the

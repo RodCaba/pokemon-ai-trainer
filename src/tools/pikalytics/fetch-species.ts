@@ -9,8 +9,6 @@
  * diagnostics without re-deriving them.
  */
 
-import type { Tool } from "@anthropic-ai/sdk/resources/messages";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import {
   PikalyticsFetchSpeciesArgsSchema,
   type PikalyticsFetchSpeciesArgs,
@@ -69,9 +67,20 @@ export async function fetchSpecies(
     parsed.data.format,
   );
   if (!rosterEntry) {
+    // Per Stage 6 review item 9 / minor 8: carry a structured cause so
+    // debuggers stepping through the stack see the failed lookup context
+    // (format + species_roster_id), not a bare message. The lookup itself
+    // doesn't throw, so we synthesize the cause here.
     throw new PikalyticsInputError(
       `unknown roster id: ${parsed.data.species_roster_id}`,
-      { species_roster_id: parsed.data.species_roster_id },
+      {
+        species_roster_id: parsed.data.species_roster_id,
+        cause: {
+          kind: "roster_lookup_miss",
+          format: parsed.data.format,
+          species_roster_id: parsed.data.species_roster_id,
+        },
+      },
     );
   }
 
@@ -91,6 +100,7 @@ export async function fetchSpecies(
       raw_markdown: fetched.body,
       source_url: fetched.source_url,
       ai_url: fetched.ai_url,
+      // TODO(stage6-deferred): track upstream fetched_at in cache envelope; alongside pokepaste's same defer (memory: labmaus_pokepaste_deferred_todos.md)
       fetched_at: new Date().toISOString(),
     },
     deps.transform,
@@ -98,18 +108,7 @@ export async function fetchSpecies(
   return result;
 }
 
-/** Anthropic SDK tool definition for `pikalytics_fetch_species`. */
-export const pikalyticsFetchSpeciesToolDefinition: Tool = {
-  name: "pikalytics_fetch_species",
-  description:
-    "Fetch and parse the current Pikalytics aggregate-usage snapshot for one Reg M-A species. " +
-    "Returns the species's overall usage % (nullable), top teammates with co-occurrence %, and " +
-    "frequency breakdowns of items / abilities / moves, all keyed to Pikalytics's own `as_of` " +
-    "publication date. Strips any Tera-shaped field unconditionally (Reg M-A has no Terastallization). " +
-    "Use this when you need to see a single species's current ladder behavior end-to-end; for ranked " +
-    "subsets prefer pikalytics_teammates or pikalytics_usage.",
-  input_schema: zodToJsonSchema(PikalyticsFetchSpeciesArgsSchema, {
-    target: "openApi3",
-    $refStrategy: "none",
-  }) as Tool["input_schema"],
-};
+// Note: the Anthropic SDK tool definition for `pikalytics_fetch_species`
+// lives canonically in `src/db/tool-definitions.ts` (alongside every other
+// agent-callable tool). The orphan re-export that previously lived here
+// was removed per Stage 6 review item 7.

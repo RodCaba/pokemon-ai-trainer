@@ -56,15 +56,11 @@ export interface PikalyticsClient {
    * GET `https://www.pikalytics.com/ai/pokedex/gen9championsvgc2026regma/<slug>`.
    *
    * @param species_slug — Showdown-style hyphenated lowercase id.
-   * @param as_of_hint — Optional upstream `as_of` (extends the cache key).
    * @returns The raw markdown body + both URL forms.
    * @throws {PikalyticsNetworkError} On HTTP exhaustion.
    * @throws {PikalyticsNotFoundError} On HTTP 404.
    */
-  fetchSpeciesMarkdown(
-    species_slug: string,
-    as_of_hint?: string,
-  ): Promise<PikalyticsRawFetch>;
+  fetchSpeciesMarkdown(species_slug: string): Promise<PikalyticsRawFetch>;
 }
 
 const sleep = (ms: number): Promise<void> =>
@@ -98,12 +94,9 @@ export function createPikalyticsClient(opts: PikalyticsClientOptions): Pikalytic
   });
 
   return {
-    async fetchSpeciesMarkdown(
-      species_slug: string,
-      as_of_hint?: string,
-    ): Promise<PikalyticsRawFetch> {
+    async fetchSpeciesMarkdown(species_slug: string): Promise<PikalyticsRawFetch> {
       const { ai, human } = urls(species_slug);
-      const cacheKey = as_of_hint ? `${species_slug}__${as_of_hint}` : species_slug;
+      const cacheKey = species_slug;
       const cached = cache.read(cacheKey);
       if (cached !== undefined) {
         return { body: cached, source_url: human, ai_url: ai };

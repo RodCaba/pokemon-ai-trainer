@@ -107,6 +107,7 @@ export function teammates(
   args: PikalyticsTeammatesArgs,
 ): TeammateEntry[] {
   const limit = args.limit ?? 10;
+  // TODO(stage6-deferred): cache validated snapshots per (species, as_of) to avoid re-running schema parse per query
   const snap = get(db, { species_roster_id: args.species });
   if (!snap) return [];
   // Source-of-truth ranking is the persisted teammates_json itself; we copy +
@@ -135,11 +136,19 @@ export function usage(db: Db, args: PikalyticsUsageArgs): PikalyticsUsageRow[] {
   const limit = args.limit ?? 50;
   if (args.dimension === "species") {
     try {
+      // Latest-per-species: a species with two persisted `as_of` rows must
+      // appear at most once (per plan §6.1 row 3). Correlated subquery picks
+      // MAX(as_of) per species, then we filter on usage_percent + rank.
       const rows = db.$client
         .prepare(
           `SELECT species_roster_id, usage_percent, source_url, as_of
            FROM pikalytics_snapshots
-           WHERE usage_percent IS NOT NULL
+           WHERE (species_roster_id, as_of) IN (
+             SELECT species_roster_id, MAX(as_of)
+             FROM pikalytics_snapshots
+             GROUP BY species_roster_id
+           )
+             AND usage_percent IS NOT NULL
            ORDER BY usage_percent DESC
            LIMIT ?`,
         )
@@ -167,6 +176,7 @@ export function usage(db: Db, args: PikalyticsUsageArgs): PikalyticsUsageRow[] {
   if (!args.species) {
     return [];
   }
+  // TODO(stage6-deferred): cache validated snapshots per (species, as_of) to avoid re-running schema parse per query
   const snap = get(db, { species_roster_id: args.species });
   if (!snap) return [];
   const source_url = snap.source.source_url;

@@ -275,7 +275,7 @@ export const PikalyticsSnapshotSchema = z.object({
   format_slug:       FormatSlug,
   species_roster_id: RosterId,
   as_of:             ISODate,
-  usage_percent:     Percent,
+  usage_percent:     Percent.nullable(),     // STAGE-6 deviation (a) — live AI-markdown lacks `## Usage` (verified 2026-05-07; see §19)
   teammates:         z.array(TeammateEntrySchema).max(50),
   items:             z.array(FrequencyEntrySchema).max(50),
   abilities:         z.array(FrequencyEntrySchema).max(20),
@@ -342,11 +342,11 @@ async function fetchSpecies(
 
 > `pikalytics_fetch_species` — fetch and parse the current Pikalytics aggregate-usage snapshot for one Reg-M-A species. Returns the species's overall usage %, top teammates with co-occurrence %, and frequency breakdowns of items / abilities / moves, all keyed to Pikalytics's own `as_of` publication date. Strips any Tera-shaped field unconditionally (Reg M-A has no Terastallization). Use this when you need to see a single species's current ladder behavior end-to-end; for ranked subsets prefer `pikalytics_teammates` or `pikalytics_usage`.
 
-**Pre-conditions:** `args.species_roster_id` resolves through `roster.has`. `args.format === "RegM-A"`.
+**Pre-conditions:** `args.species_roster_id` resolves through `roster.has`. `args.format === "RegM-A"`. The species *slug* used in the URL is `roster.get(...).display_name.toLowerCase()` — STAGE-6 deviation (c) — NOT the no-hyphen `species_roster_id`. Discovered via PIKA-T29b regression guard for Mega/regional/form variants (`charizardmegay → charizard-mega-y`). See §19.
 
-**Post-conditions:** `result.species_roster_id === args.species_roster_id`; `result.as_of` matches `^\d{4}-\d{2}-\d{2}$`; no field name on the snapshot or any nested entry contains `tera`.
+**Post-conditions:** `result.species_roster_id === args.species_roster_id`; `result.as_of` matches `^\d{4}-\d{2}-\d{2}$`; no field name on the snapshot or any nested entry contains `tera`. `usage_percent` is nullable per deviation (a).
 
-**Cache key:** `<species_slug>__<as_of>` (the slug is content-stable for a given roster id; `as_of` is the upstream publication date — same body for same `as_of`). Cache TTL = `Number.POSITIVE_INFINITY` per `_shared/file-cache.ts` content-stable mode.
+**Cache key:** `<species_slug>` (STAGE-6 deviation (g) — the `as_of_hint`/`<slug>__<as_of>` shape was dead code; `client.ts` no longer accepts the hint. The calendar-week skip-existing pre-check makes a per-`as_of` cache key unnecessary; revisit if the heuristic moves to true `as_of` skip-check.). Cache TTL = `Number.POSITIVE_INFINITY` per `_shared/file-cache.ts` content-stable mode.
 
 **Throttle:** 1 rps via the client's bucket (per-host, instance-owned, hostless primitive — see §12).
 
@@ -448,7 +448,7 @@ Same pattern as `roster.ts` / `tournaments.ts` / `sets.ts`: `WeakMap<Db, Prepare
 |---|---|---|
 | `get(db, {species_roster_id})` | `SELECT * FROM pikalytics_snapshots WHERE species_roster_id = ? ORDER BY as_of DESC LIMIT 1`. Decode via `parseOrThrow(PikalyticsSnapshotSchema, …)`. | `idx_pikalytics_species_as_of_desc`. |
 | `teammates(db, {species_roster_id, limit})` | Reads `get`-equivalent row, parses `teammates_json`, slices to `limit` (default 10). Could also be `SELECT json_extract(teammates_json, '$') FROM …`, but we already round-trip the snapshot for citation provenance. | `idx_pikalytics_species_as_of_desc`. |
-| `usage(db, args)` | Branches on `dimension`. For `species`: `SELECT species_roster_id, usage_percent, source_url, as_of FROM pikalytics_snapshots WHERE (species, as_of) = latest-per-species ORDER BY usage_percent DESC LIMIT ?`. For `teammate / item / ability / move`: load the species's latest snapshot, expand the relevant JSON column via `json_each(<col>_json)` (or in TS post-load — the JSON arrays are bounded ≤50), rank by `value->>'$.percent'` descending. | `idx_pikalytics_species_as_of_desc` for the load; for `dimension="species"` a windowed query (`MAX(as_of)` per species) — fine at 286 rows. |
+| `usage(db, args)` | Branches on `dimension`. For `species`: `SELECT … WHERE (species_roster_id, as_of) IN (SELECT species_roster_id, MAX(as_of) FROM pikalytics_snapshots GROUP BY species_roster_id) AND usage_percent IS NOT NULL ORDER BY usage_percent DESC LIMIT ?` — STAGE-6 deviation (h), implements latest-per-species (regression guard: PIKA-T39b). For `teammate / item / ability / move`: load the species's latest snapshot, expand the relevant JSON column via `json_each(<col>_json)` (or in TS post-load — the JSON arrays are bounded ≤50), rank by `value->>'$.percent'` descending. | `idx_pikalytics_species_as_of_desc` for the load; for `dimension="species"` a `(species, MAX(as_of))` correlated subquery — fine at 286 rows. |
 | `upsertSnapshot(db, snapshot)` | `INSERT … ON CONFLICT(species_roster_id, as_of) DO NOTHING`. Returns `{ inserted: bool }` from `result.changes`. Per memory `single_db_non_destructive_build.md` and the labmaus + pokepaste precedent, skip-existing wins under (species, as_of). | `uq_pikalytics_species_as_of`. |
 | `exists(db, species, as_of)` | `SELECT 1 FROM pikalytics_snapshots WHERE species_roster_id = ? AND as_of = ? LIMIT 1`. Used by the ingest's pre-fetch skip-existing check (cheap; avoids a network call when we already have the latest). | `uq_pikalytics_species_as_of`. |
 
@@ -725,21 +725,20 @@ async function main(argv: string[]): Promise<number> {
     parse_failures: [] as Array<{ species: string; message: string }>,
     network_failures: [] as Array<{ species: string; status?: number; message: string }>,
     unknown_teammate_names: [] as Array<{ species: string; teammate: string }>,
+    input_errors: [] as string[],     // STAGE-6 deviation (j) — PikalyticsInputError no longer mis-routed to species_404s. See §19.
   };
 
+  // STAGE-6 deviation (e): the implementation skips on `fetched_at >= weekStart`,
+  // not on `latest.as_of`, since `as_of` is upstream-controlled and only known
+  // post-fetch. Trade is documented in §19 — at worst 6 days late on a republish
+  // with the same as_of value.
   for (const species_id of speciesIds) {            // serial: 1 rps throttle is the bottleneck
     try {
-      // Skip-existing pre-check: if we already have a snapshot for this species
-      // at the *upstream*'s current as_of, we'd refetch only to ON CONFLICT DO NOTHING.
-      // But we don't know upstream's as_of without fetching. Instead: if any
-      // snapshot exists today for this species, peek the latest in DB and compare
-      // against an ingest-time `today_iso` heuristic — if our latest as_of is within
-      // the last 7 days, skip (per flow §6 Q2 "weekly cron, monthly upstream cadence").
-      //
-      // Simpler heuristic for v1: skip iff DB has any snapshot from this calendar
-      // week (Mon–Sun); summary captures `skipped_existing`.
-      const latest = pikalytics.get(db, { species_roster_id: species_id });
-      if (latest && isWithinCurrentIngestWeek(latest.as_of)) {
+      const weekStart = isoWeekStart(new Date());
+      const recent = db.$client.prepare(
+        "SELECT 1 FROM pikalytics_snapshots WHERE species_roster_id = ? AND fetched_at >= ? LIMIT 1",
+      ).get(species_id, weekStart);
+      if (recent !== undefined) {
         summary.skipped_existing += 1;
         continue;
       }
@@ -877,3 +876,35 @@ Answer: Register all three tools in `ROSTER_TOOL_DEFINITIONS`. The clear JSON sc
 
 **Flow-doc gap uncovered:** flow §2.7 says "Skip-existing semantics match the labmaus + pokepaste pattern" — but pokepaste's skip is on `(tournament_team_id, slot)` (input keys we know up front) while pikalytics's `as_of` is upstream-controlled and **only known after the fetch**. The flow doc doesn't explicitly resolve "do we refetch every week to discover whether `as_of` advanced, or do we skip if a recent enough row exists in DB?" The plan picks the latter (§13, "current calendar week" heuristic) to keep weekly refresh under the 60-second budget from flow §1 acceptance, but this is a subtle deviation from the strict labmaus/pokepaste pattern and deserves explicit confirmation. Calling out for Stage 2.5 review before Stage 5 lands.
 Answer: The plan's approach to skip-existing semantics for pikalytics is a pragmatic solution to the challenge of the `as_of` value being controlled by the upstream and only known after fetching. By using a heuristic based on the current calendar week, we can avoid unnecessary fetches while still ensuring that we capture new data in a timely manner.
+
+---
+
+## 19. Stage 6 outcomes (2026-05-06)
+
+### 19.1 Review summary
+
+Full review report at [`docs/reviews/pikalytics.md`](../reviews/pikalytics.md). Verdict: ship-after-fixes (no blockers — tool registration was preempted on day one). Seven majors, four minors/nits surfaced as worth fixing in the Stage 6 batch, five deferrals. Eleven plan-vs-impl deviations (a–k) are reconciled inline at their natural sections (§3 schema, §4.1 fetchSpecies surface, §6.1 repo, §13 ingest); deferrals annotated inline with `// TODO(stage6-deferred):` and tabulated below in 19.3.
+
+### 19.2 Applied fixes (commit `refactor: apply review — pikalytics`)
+
+1. **`_tera_leak_marker_` sentinel removed from `scripts/data/ingest-pikalytics.ts`.** Replaced with proper dependency injection: `main(argv, deps)` accepts a `fetchSpecies` injection slot. PIKA-T48 rewritten to inject a transform-mock `fetchSpecies` that throws `PikalyticsTeraLeakError`, exercising the same propagation path the production tera-leak would hit. No magic strings in production.
+2. **`usage(dimension="species")` returns latest-per-species.** SQL now filters via `(species_roster_id, as_of) IN (SELECT species_roster_id, MAX(as_of) ... GROUP BY species_roster_id)` per §6.1 row 3. Regression guard PIKA-T39b seeds two `as_of` rows for `garchomp` and asserts only the latest appears.
+3. **`summary.input_errors[]` added to `RunSummary`.** `PikalyticsInputError` (unknown roster id / structurally-invalid input) routes to the new bucket instead of being mis-routed to `species_404s`. The ingest run summary now distinguishes "site doesn't cover this species yet" from "we asked for an id we don't recognize."
+4. **Dead `as_of_hint` parameter removed from `client.ts`.** Per review item 4: the parameter was never threaded from `fetchSpecies` and the calendar-week skip-existing heuristic doesn't need a per-`as_of` cache key today. Cache key simplified to `<species_slug>`. (Re-introduce if the heuristic moves to true `as_of` skip-check.)
+5. **Plan §19 added** (this section); deviations a–k patched into their natural sections (§3 schema `usage_percent` nullable, §4.1 cache-key + slug derivation, §6.1 row 3 SQL, §13 input_errors + skip-existing heuristic).
+6. **`SPEC.md` authored** per plan §4.4 nine sections — Tools registered, Endpoint, Inputs, Outputs, Edge cases, Citation rules, Error matrix, Reg M-A hygiene, Cache + throttle, Out-of-scope, plus the Parser contract that was already in place.
+7. **Orphan `pikalyticsFetchSpeciesToolDefinition` removed** from `src/tools/pikalytics/fetch-species.ts`. The Anthropic SDK tool definition lives canonically in `src/db/tool-definitions.ts` (alongside every other agent-callable tool), mirroring the labmaus + pokepaste convention.
+8. **`extractSection` regex fixed.** Old form used `\Z` (Perl/Python end-of-string) which JavaScript's `RegExp` does NOT support — the section body extraction relied on the next `##` heading or fall-through to "match until next ##." Now uses `(?=^##\s|$(?![\s\S]))` with the `m` flag. Regression guard PIKA-T12b asserts a synthetic fixture with bullets in a trailing `## Random Notes` section does NOT pollute `## Common Moves`.
+9. **Cause chain on the second `PikalyticsInputError` site.** `fetch-species.ts` now passes a structured cause `{ kind: "roster_lookup_miss", format, species_roster_id }` so debugging stack traces carry context for the lookup-miss path, not just a bare message.
+10. **`--no-network` cache-miss fails loud.** Pre-flight check on `main()`: if `--no-network` and the cache directory is empty/missing, exit 1 with a clear "no cache to replay" message rather than silently 404ing every species. Test fixtures pre-seed a tmp cache placeholder so existing tests still pass.
+
+### 19.3 Deferrals (annotated as inline `// TODO(stage6-deferred):` comments)
+
+| # | Concern | Inline anchor | Belongs in |
+|---|---|---|---|
+| 1 | Cache envelope `fetchedAt` flow-through (today the timestamp is freshly minted at `fetchSpecies` time even on cache hits — same defer as pokepaste) | `src/tools/pikalytics/fetch-species.ts` (the `fetched_at:` line in the `source` block) | Cache-hardening slice when the next `_shared/file-cache.ts` consumer arrives (memory: `labmaus_pokepaste_deferred_todos.md`) |
+| 2 | Validate-on-read overhead in `teammates` / `usage` (the agent loop pays a full `PikalyticsSnapshotSchema.parse` per call even when the caller only needs `teammates_json`) | `src/db/pikalytics.ts` `teammates(...)` and `usage(...)` non-species branch (the `get(db, ...)` calls) | When the agent loop's hot path actually exercises this; revisit alongside pokepaste's `rowToTeamSet` finding |
+| 3 | Real fixture-driven `--no-network` integration test (today's PIKA-T44/T46/T47/T49 short-circuit on the unseeded `:memory:` roster) | `scripts/data/ingest-pikalytics.ts` near the no-network branch (`fakeFetch404`) | Cross-cutting `ingest-fixture-replay` slice (same bucket as labmaus + pokepaste reviewers' equivalent) |
+| 4 | `labmaus-fixtures.ts` rename to `db-test-fixtures.ts` (file now seeds for three slices) | `tests/db/labmaus-fixtures.ts:1` | When a fourth consumer arrives or a test-fixture-hygiene slice |
+| 5 | FK enforcement on `teammates_json[*].roster_id` (today validated by `roster.has` at transform time but not by the DB schema) | `src/schemas/pikalytics.ts` `TeammateEntrySchema` | `meta-merger` slice when cross-source roster_id integrity becomes load-bearing |
+

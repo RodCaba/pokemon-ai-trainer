@@ -61,4 +61,29 @@ describe("parsePikalyticsMarkdown (PIKA-T7–PIKA-T12)", () => {
     const sneasler = out.teammates.find((t) => t.display_name === "Sneasler");
     expect(sneasler?.percent).toBeCloseTo(46.767, 3);
   });
+
+  it("PIKA-T12b. extractSection stops at the next `##` (regression: non-last section)", () => {
+    // Stage 6 review item 8: the previous regex used `\Z` (unsupported in JS)
+    // and was masked by every fixture having `## Common Moves` last. If a
+    // future fixture trails `## Random Notes` after `## Common Moves`, the
+    // bullets in the trailing section must NOT be sucked into `moves`.
+    const synth = [
+      "| **Data Date** | 2026-04 |",
+      "",
+      "## Common Moves",
+      "- **Earthquake**: 91.473%",
+      "- **Protect**: 71.0%",
+      "",
+      "## Random Notes",
+      "- **NotAMove**: 99.9%",
+      "- **AnotherNote**: 50.0%",
+      "",
+    ].join("\n");
+    const out = parsePikalyticsMarkdown(synth);
+    const moveNames = out.moves.map((m) => m.name);
+    expect(moveNames).toContain("Earthquake");
+    expect(moveNames).toContain("Protect");
+    expect(moveNames).not.toContain("NotAMove");
+    expect(moveNames).not.toContain("AnotherNote");
+  });
 });

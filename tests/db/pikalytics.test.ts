@@ -152,6 +152,31 @@ describe("pikalytics repo (PIKA-T33–PIKA-T42)", () => {
     });
   });
 
+  it("PIKA-T39b. usage(dimension='species') returns latest-per-species (no duplicates across as_of values)", () => {
+    // Stage 6 review item 2: regression guard for `latest-per-species`. Two
+    // `as_of` rows for the same species must collapse to the latest one
+    // only; the older row must NOT appear in the ranking.
+    withDb((db) => {
+      pikalytics.upsertSnapshot(
+        db,
+        snap({ species: "garchomp", as_of: "2026-03-01", usage: 50.0 }),
+      );
+      pikalytics.upsertSnapshot(
+        db,
+        snap({ species: "garchomp", as_of: "2026-04-01", usage: 40.13 }),
+      );
+      pikalytics.upsertSnapshot(
+        db,
+        snap({ species: "sneasler", as_of: "2026-04-01", usage: 35.0 }),
+      );
+      const out = pikalytics.usage(db, { format: "RegM-A", dimension: "species" });
+      const garchompRows = out.filter((r) => r.key === "garchomp");
+      expect(garchompRows.length).toBe(1);
+      expect(garchompRows[0]?.as_of).toBe("2026-04-01");
+      expect(garchompRows[0]?.usage_percent).toBe(40.13);
+    });
+  });
+
   it("PIKA-T40. usage(dimension='item', species='garchomp') ranks items + carries source_url + as_of", () => {
     withDb((db) => {
       pikalytics.upsertSnapshot(

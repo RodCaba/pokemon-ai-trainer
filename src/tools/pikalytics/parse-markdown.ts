@@ -58,9 +58,13 @@ const SECTION_HEADERS: Record<string, "teammates" | "items" | "abilities" | "mov
 /**
  * Locate a section by its level-2 heading and return only its body (lines
  * between the heading and the next `##` heading or EOF).
+ *
+ * JS regex doesn't support `\Z` (Perl/Python end-of-string) — use a lookahead
+ * that matches either the next `##` heading at line-start or true end-of-input
+ * (`$` in the multiline + dotAll-equivalent form). Per Stage 6 review item 8.
  */
 function extractSection(raw: string, header: string): string | null {
-  const re = new RegExp(`^##\\s+${header}\\s*\\n([\\s\\S]*?)(?=^##\\s|\\Z)`, "m");
+  const re = new RegExp(`^##\\s+${header}\\s*\\n([\\s\\S]*?)(?=^##\\s|$(?![\\s\\S]))`, "m");
   const m = re.exec(raw);
   return m ? (m[1] ?? "") : null;
 }

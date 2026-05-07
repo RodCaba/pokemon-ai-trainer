@@ -1,12 +1,38 @@
 /**
  * PIKA-T50 — running ingest twice produces zero pikalytics_snapshots deltas.
- * Stage 4: fails because `main(...)` throws "not implemented".
+ *
+ * Post-Stage-6: pre-seeds a tmp cache dir to satisfy the new `--no-network`
+ * empty-cache preflight (review item 10).
  */
 
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { main } from "../../scripts/data/ingest-pikalytics";
 
+function seedCacheDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "pika-ingest-idem-"));
+  writeFileSync(join(dir, "preflight.placeholder"), "");
+  return dir;
+}
+
 describe("ingest-pikalytics idempotency (PIKA-T50)", () => {
+  let prevCacheDir: string | undefined;
+
+  beforeEach(() => {
+    prevCacheDir = process.env.PIKALYTICS_CACHE_DIR;
+    process.env.PIKALYTICS_CACHE_DIR = seedCacheDir();
+  });
+
+  afterEach(() => {
+    if (prevCacheDir === undefined) {
+      delete process.env.PIKALYTICS_CACHE_DIR;
+    } else {
+      process.env.PIKALYTICS_CACHE_DIR = prevCacheDir;
+    }
+  });
+
   it("PIKA-T50. running ingest twice produces zero pikalytics_snapshots deltas", async () => {
     const exit1 = await main([
       "--no-network",
