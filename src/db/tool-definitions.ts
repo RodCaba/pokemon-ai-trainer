@@ -336,6 +336,82 @@ export const setsUsageTool = tool(
   SetsUsageToolInput,
 );
 
+// ---- pikalytics (HTTP tool + repo tools) ----
+
+const PikalyticsFetchSpeciesInput = z
+  .object({
+    format: RegMAFormat,
+    species_roster_id: z
+      .string()
+      .regex(/^[a-z0-9-]+$/)
+      .describe("Canonical Showdown roster id, e.g. 'garchomp'."),
+  })
+  .strict();
+
+const PikalyticsTeammatesInput = z
+  .object({
+    format: RegMAFormat,
+    species: z
+      .string()
+      .regex(/^[a-z0-9-]+$/)
+      .describe("Canonical roster id of the species to get teammates for."),
+    limit: z.number().int().min(1).max(50).optional(),
+  })
+  .strict();
+
+const PikalyticsUsageToolInput = z
+  .object({
+    format: RegMAFormat,
+    dimension: z.enum(["species", "item", "ability", "move", "teammate"]),
+    species: z
+      .string()
+      .regex(/^[a-z0-9-]+$/)
+      .optional()
+      .describe("Required when dimension is item|ability|move|teammate."),
+    limit: z.number().int().min(1).max(100).optional(),
+  })
+  .strict();
+
+/**
+ * `pikalytics_fetch_species` — agent-callable single-species snapshot fetch.
+ */
+export const pikalyticsFetchSpeciesTool = tool(
+  "pikalytics_fetch_species",
+  "Fetch and parse the current Pikalytics aggregate-usage snapshot for one Reg M-A species. " +
+    "Returns the species's overall usage % (nullable), top teammates with co-occurrence %, and " +
+    "frequency breakdowns of items / abilities / moves, all keyed to Pikalytics's own `as_of` " +
+    "publication date. Strips any Tera-shaped field unconditionally (Reg M-A has no Terastallization). " +
+    "Use this when you need to see one species's current ladder behavior end-to-end. For ranked " +
+    "subsets prefer pikalytics_teammates or pikalytics_usage.",
+  PikalyticsFetchSpeciesInput,
+);
+
+/**
+ * `pikalytics_teammates` — top-N most-common teammates for a species.
+ */
+export const pikalyticsTeammatesTool = tool(
+  "pikalytics_teammates",
+  "Return the top-N most-common teammates (by Showdown-ladder co-occurrence %) for a Reg M-A species, " +
+    "ranked by `percent` descending, sourced from the persisted Pikalytics snapshot. Each entry carries " +
+    "the teammate's roster id and the co-occurrence %. Use this to answer 'what pairs well with X?' or to " +
+    "seed core-finding heuristics. For the full snapshot (incl. items/abilities/moves) use " +
+    "pikalytics_fetch_species; for usage rankings on dimensions other than teammates use pikalytics_usage.",
+  PikalyticsTeammatesInput,
+);
+
+/**
+ * `pikalytics_usage` — multi-dimension usage rankings with citations.
+ */
+export const pikalyticsUsageTool = tool(
+  "pikalytics_usage",
+  "Rank items / abilities / moves / teammates / overall species by Pikalytics ladder usage %. The " +
+    "`dimension` parameter selects the ranking axis. For dimension='species', returns top species across " +
+    "the meta (no `species` arg required). For item|ability|move|teammate, returns the top-ranked entries " +
+    "observed on a given species's snapshot — `species` is required. Strictly Pikalytics-sourced; " +
+    "cross-source merging (with labmaus / pokepaste) lives in a future slice.",
+  PikalyticsUsageToolInput,
+);
+
 /**
  * The full catalog of repo tool definitions, ready to pass to the Anthropic SDK.
  *
@@ -365,4 +441,7 @@ export const ROSTER_TOOL_DEFINITIONS: readonly Tool[] = [
   setsListTool,
   setsGetTool,
   setsUsageTool,
+  pikalyticsFetchSpeciesTool,
+  pikalyticsTeammatesTool,
+  pikalyticsUsageTool,
 ];

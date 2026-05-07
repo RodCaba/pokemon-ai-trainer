@@ -319,6 +319,51 @@ export const teamSets = sqliteTable(
   ],
 );
 
+// ---------------------------------------------------------------------------
+// pikalytics slice (Stage 4 — additive)
+// ---------------------------------------------------------------------------
+
+/**
+ * `pikalytics_snapshots` — owned by the `pikalytics` slice (see
+ * `docs/plans/pikalytics.md` §5). One row per `(species_roster_id, as_of)`
+ * pair. JSON columns hold bounded arrays of teammates/items/abilities/moves;
+ * cross-species queries use `json_each`. The unique index is the skip-existing
+ * key for the ingest script.
+ */
+export const pikalyticsSnapshots = sqliteTable(
+  "pikalytics_snapshots",
+  {
+    id: text("id").primaryKey(),
+    format: text("format").notNull(),
+    formatSlug: text("format_slug").notNull(),
+    speciesRosterId: text("species_roster_id")
+      .notNull()
+      .references(() => species.id),
+    asOf: text("as_of").notNull(),
+    usagePercent: real("usage_percent"),
+    teammatesJson: text("teammates_json").notNull(),
+    itemsJson: text("items_json").notNull(),
+    abilitiesJson: text("abilities_json").notNull(),
+    movesJson: text("moves_json").notNull(),
+    sampleSize: integer("sample_size"),
+    sourceUrl: text("source_url").notNull(),
+    aiUrl: text("ai_url").notNull(),
+    fetchedAt: text("fetched_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("uq_pikalytics_species_as_of").on(t.speciesRosterId, t.asOf),
+    index("idx_pikalytics_species_as_of_desc").on(t.speciesRosterId, t.asOf),
+    index("idx_pikalytics_as_of").on(t.asOf),
+    check("pikalytics_format_regma", sql`${t.format} = 'RegM-A'`),
+    check("pikalytics_format_slug_value", sql`${t.formatSlug} = 'gen9championsvgc2026regma'`),
+    check(
+      "pikalytics_usage_pct_range",
+      sql`${t.usagePercent} IS NULL OR (${t.usagePercent} BETWEEN 0 AND 100)`,
+    ),
+    check("pikalytics_as_of_iso", sql`${t.asOf} GLOB '____-__-__'`),
+  ],
+);
+
 export const moves = sqliteTable(
   "moves",
   {
