@@ -65,7 +65,6 @@ const sleep = (ms: number): Promise<void> =>
 export function createPokepasteClient(opts: PokepasteClientOptions): PokepasteClient {
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
   const bucket = createTokenBucket({
-    capacity: 1,
     refillPerSec: opts.throttleRps,
     clock: opts.clock,
   });

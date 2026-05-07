@@ -15,6 +15,7 @@ import {
   type TeamSet,
 } from "../schemas/team-set";
 import { RosterDbError } from "../schemas/errors";
+import { parseOrThrow } from "./simple-repo";
 
 interface TeamSetRow {
   tournament_team_id: string;
@@ -53,14 +54,13 @@ function rowToTeamSet(r: TeamSetRow): TeamSet {
     nature: r.nature,
     completeness: r.completeness,
     source: {
-      schema_version: 1 as const,
       site: "pokepaste" as const,
       paste_id: r.source_paste_id,
       source_url: r.source_url,
       fetched_at: r.fetched_at,
     },
   };
-  return TeamSetSchema.parse(candidate);
+  return parseOrThrow(TeamSetSchema, candidate, "sets", `${r.tournament_team_id}:${r.slot}`);
 }
 
 /**
@@ -91,6 +91,7 @@ export function list(db: Db, filter: SetsListFilter): TeamSet[] {
       params.push(filter.tournament_team_id);
     }
     if (filter.species_roster_id !== undefined) {
+      // TODO(stage6-deferred): SetsListFilter.species_roster_id can be array for lead-planner queries; see docs/reviews/pokepaste-sets.md §9
       where.push("ts.species_roster_id = ?");
       params.push(filter.species_roster_id);
     }
@@ -180,6 +181,7 @@ export function usage(db: Db, args: SetsUsageArgs): SetsUsageRow[] {
       groupCol = "je.value";
     }
 
+    // TODO(stage6-deferred): convert raw SQL to Drizzle query builder when usage signature stabilizes; see docs/reviews/pokepaste-sets.md §9
     const sql = `
       WITH scoped AS (
         SELECT ts.tournament_team_id, ts.slot, ts.item, ts.ability, ts.nature,
@@ -212,6 +214,7 @@ export function usage(db: Db, args: SetsUsageArgs): SetsUsageRow[] {
       return {
         dimension: args.dimension,
         key: r.key,
+        // TODO(stage6-deferred): join through canonical-id moves repo for display_label; see docs/reviews/pokepaste-sets.md §9
         display_label: r.key,
         appearances: r.appearances,
         total_sets: totalSets,
@@ -234,9 +237,9 @@ export function usage(db: Db, args: SetsUsageArgs): SetsUsageRow[] {
  * Pokepaste URLs are content-addressed (the paste id is a hex hash) — the
  * same paste id always produces the same Showdown export. A conflict on
  * `(tournament_team_id, slot)` therefore means we already have the right
- * rows; no point in overwriting them. The hook in `pokepaste-hook.ts` also
- * guards with a `sets.list(...).length > 0` check before fetching, so the
- * conflict path is belt-and-braces.
+ * rows; no point in overwriting them. This is the sole idempotency layer
+ * for the per-team write path (the labmaus-level `tournaments.exists`
+ * short-circuits the parent loop in the common case; see ca91e03).
  *
  * Previously this function used `ON CONFLICT DO UPDATE` for every column,
  * which would happily clobber a finalized row's parsed fields with a

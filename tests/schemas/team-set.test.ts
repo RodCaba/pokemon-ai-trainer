@@ -14,7 +14,6 @@ import {
 } from "../../src/schemas/team-set";
 
 const SOURCE = {
-  schema_version: 1 as const,
   site: "pokepaste" as const,
   paste_id: "7205bf28f85d1e79",
   source_url: "https://pokepast.es/7205bf28f85d1e79",

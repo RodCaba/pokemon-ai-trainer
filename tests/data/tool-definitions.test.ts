@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ROSTER_TOOL_DEFINITIONS, rosterGetTool, rosterSearchTool } from "../../src/db/tool-definitions";
 
-const NAME_PATTERN = /^(roster|items|abilities|moves|tournaments)_(list|get|search|has|sets|teams_with|usage)$/;
+const NAME_PATTERN = /^(roster|items|abilities|moves|tournaments|sets|pokepaste)_(list|get|search|has|sets|teams_with|usage|fetch_paste)$/;
 
 describe("repo tool definitions (Anthropic SDK)", () => {
   it("1. each accessor exports a tool definition with name matching <repo>_<verb>", () => {
@@ -16,6 +16,8 @@ describe("repo tool definitions (Anthropic SDK)", () => {
       "items_list", "items_get", "items_has",
       "abilities_list", "abilities_get", "abilities_has",
       "moves_list", "moves_get", "moves_has",
+      "pokepaste_fetch_paste",
+      "sets_list", "sets_get", "sets_usage",
     ]) {
       expect(names).toContain(expected);
     }

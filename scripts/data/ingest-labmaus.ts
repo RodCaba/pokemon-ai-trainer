@@ -124,6 +124,7 @@ async function fakeFetchEmpty(): Promise<Response> {
 // records it as a `pokepaste_404`. This mirrors fakeFetchEmpty's intent for
 // labmaus (empty payload → empty ingest) for pokepaste's content-addressed
 // `/raw` endpoint.
+// TODO(stage6-deferred): replace fakeFetch404 with real cache-driven replay; ingest-hardening slice — see docs/reviews/pokepaste-sets.md §9
 async function fakeFetch404(): Promise<Response> {
   return new Response("not found", { status: 404 });
 }
@@ -348,8 +349,12 @@ export async function main(argv: string[]): Promise<number> {
 
           // Pokepaste fan-out — sequential per team. The pokepaste client's
           // own throttle handles pacing; concurrency on this loop just
-          // serializes the ref-table work too. PokepasteUnknownSpeciesError
-          // propagates out of main() (fail-loud, exits 1).
+          // serializes the ref-table work too. Per b9a8d98 / `pokepaste-hook.ts`,
+          // every known pokepaste error class (404, parse, network, ref
+          // validation, unknown species) is recorded in the run summary's
+          // `unknown_species` / `pokepaste_failures` / `pokepaste_404s` /
+          // `ref_validation_failures` arrays; the parent loop only re-raises
+          // programmer-bug exceptions.
           if (pokepasteEnabled && pokepasteClient && pokepasteDeps) {
             for (const tm of detail.teams) {
               await processTeamPokepaste({

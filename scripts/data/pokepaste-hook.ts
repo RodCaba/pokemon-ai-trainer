@@ -61,11 +61,21 @@ export interface ProcessTeamArgs {
 /**
  * Extract the hex paste id from a `https://pokepast.es/<id>` URL.
  *
- * @returns The paste id, or `null` if the URL is not a pokepaste link.
+ * **When to use it:** the labmaus ingest's per-team loop, to convert a
+ * raw `tournament_teams.team_url` into the `paste_id` argument for
+ * `pokepaste.fetchPaste`. Returns `null` for non-pokepaste URLs (e.g.
+ * Showdown replay links, occasionally seen in labmaus payloads), which
+ * is the silent-skip signal — not a pokepaste failure mode.
+ *
+ * @param url — The labmaus team_url string.
+ * @returns The lowercased hex paste id, or `null` if the URL is not a
+ *   pokepaste link.
  */
 export function extractPasteId(url: string): string | null {
   const m = /^https?:\/\/pokepast\.es\/([a-f0-9]{12,32})(?:\/.*)?$/i.exec(url);
-  return m ? m[1]?.toLowerCase() ?? null : null;
+  // The regex has exactly one capture group, so when `m` is non-null,
+  // `m[1]` is always defined; the `??` is for `noUncheckedIndexedAccess`.
+  return m ? (m[1] ?? "").toLowerCase() : null;
 }
 
 /**
@@ -89,10 +99,9 @@ export async function processTeamPokepaste(args: ProcessTeamArgs): Promise<void>
     return;
   }
 
-  // Idempotency: if sets already exist for this team, no-op.
-  if (sets.list(args.db, { tournament_team_id: args.team_id }).length > 0) {
-    return;
-  }
+  // Idempotency is provided by `ON CONFLICT DO NOTHING` on `team_sets`
+  // (see `sets.upsertTeamSets`) plus the labmaus-level `tournaments.exists`
+  // skip-existing short-circuit (ca91e03) — no extra prefilter needed here.
 
   try {
     const result = await fetchPaste(

@@ -66,7 +66,6 @@ export const IvsSchema = z
  */
 export const PokepasteSourceSchema = z
   .object({
-    schema_version: z.literal(1),
     site: z.literal("pokepaste"),
     paste_id: PasteId,
     source_url: z.string().url(),

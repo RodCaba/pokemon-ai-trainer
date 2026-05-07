@@ -7,11 +7,13 @@
  * can observe pacing without real waits.
  */
 
-/** Configuration for {@link createTokenBucket}. */
+/** Configuration for {@link createTokenBucket}.
+ *
+ * Burst capacity intentionally not supported in v1; the bucket is a
+ * sustained-rate throttle only (one slot, gated on the "next allowed at"
+ * timestamp). If a consumer needs bursty semantics, extend the type and
+ * the `acquire()` impl together. */
 export interface TokenBucketOpts {
-  /** Burst capacity in tokens. Currently unused (token bucket is implicit
-   *  in the "next allowed at" timestamp); kept for future bursty modes. */
-  capacity: number;
   /** Sustained refill rate in tokens per second. */
   refillPerSec: number;
   /** Injectable clock (defaults to `Date.now`) for tests. */

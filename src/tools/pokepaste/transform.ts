@@ -99,15 +99,34 @@ function evsToSps(evs: PokemonSet["evs"] | undefined): Sps | null {
   };
 }
 
+/**
+ * Honest IV copy. If any per-stat key is missing from the parser's IV
+ * object, return `null` for the entire spread rather than inventing 31s
+ * the author didn't write. The Reg M-A calc layer always passes 31s
+ * downstream regardless (see memory `regulation_m_a_stat_rules.md`); the
+ * `ivs` field on `TeamSet` is preserved for provenance only, so a
+ * partially-filled IV line is more faithfully recorded as "no provenance"
+ * than as "author affirmed 31 in five stats."
+ */
 function ivsCopy(ivs: PokemonSet["ivs"] | undefined): Ivs | null {
   if (!ivs) return null;
+  if (
+    ivs.hp === undefined ||
+    ivs.atk === undefined ||
+    ivs.def === undefined ||
+    ivs.spa === undefined ||
+    ivs.spd === undefined ||
+    ivs.spe === undefined
+  ) {
+    return null;
+  }
   return {
-    hp: ivs.hp ?? 31,
-    atk: ivs.atk ?? 31,
-    def: ivs.def ?? 31,
-    spa: ivs.spa ?? 31,
-    spd: ivs.spd ?? 31,
-    spe: ivs.spe ?? 31,
+    hp: ivs.hp,
+    atk: ivs.atk,
+    def: ivs.def,
+    spa: ivs.spa,
+    spd: ivs.spd,
+    spe: ivs.spe,
   };
 }
 
@@ -269,10 +288,10 @@ export function transformPaste(input: TransformInput, deps: TransformDeps): Past
       nature: natureDisplay,
       completeness,
       source: {
-        schema_version: 1,
         site: "pokepaste",
         paste_id: input.paste_id,
         source_url: `https://pokepast.es/${input.paste_id}`,
+        // TODO(stage6-deferred): track upstream fetched_at in cache envelope so cache hits don't restamp; see docs/reviews/pokepaste-sets.md §9
         fetched_at: input.fetched_at,
       },
     };

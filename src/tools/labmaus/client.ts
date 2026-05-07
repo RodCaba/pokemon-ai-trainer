@@ -81,7 +81,6 @@ export function createLabmausClient(opts: LabmausClientOptions): LabmausClient {
   // Throttle: shared token-bucket from src/tools/_shared/throttle.ts (each
   // client constructs its own bucket so per-host limits are independent).
   const bucket = createTokenBucket({
-    capacity: 1,
     refillPerSec: opts.throttleRps,
   });
   const throttle = (): Promise<void> => bucket.acquire();

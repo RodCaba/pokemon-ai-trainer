@@ -83,7 +83,6 @@ describe("team_sets has no tera_* anywhere (T36)", () => {
       nature: null,
       completeness: "minimal",
       source: {
-        schema_version: 1,
         site: "pokepaste",
         paste_id: "abc1234567890def",
         source_url: "https://pokepast.es/abc1234567890def",
