@@ -125,6 +125,22 @@ describe("transformPaste", () => {
     expect(thrown).toBeInstanceOf(PokepasteParseError);
   });
 
+  it("T18. normalizeSpeciesName converts `Mega <X>` to `<X>-Mega` (with X/Y variant suffix)", async () => {
+    // Pokepaste authors write Mega forms as `Mega Floette @ Floettite` or
+    // `Mega Charizard Y @ Charizardite Y`, but the Champions roster uses
+    // canonical Showdown suffixes (`Floette-Mega`, `Charizard-Mega-Y`).
+    // Discovered live during the 2026-05-05 end-to-end ingest demo against
+    // paste 41fccb7cc14d48c3.
+    const { normalizeSpeciesName } = await import("../../../src/tools/pokepaste/transform");
+    expect(normalizeSpeciesName("Mega Floette")).toBe("Floette-Mega");
+    expect(normalizeSpeciesName("Mega Charizard Y")).toBe("Charizard-Mega-Y");
+    expect(normalizeSpeciesName("Mega Charizard X")).toBe("Charizard-Mega-X");
+    expect(normalizeSpeciesName("mega delphox")).toBe("delphox-Mega");
+    expect(normalizeSpeciesName("Floette-Mega")).toBe("Floette-Mega"); // already canonical
+    expect(normalizeSpeciesName("Ninetales-Alola")).toBe("Ninetales-Alola");
+    expect(normalizeSpeciesName("Megalopolis")).toBe("Megalopolis"); // word boundary
+  });
+
   it("T17b. transform rejects no-ability set (drops below minimal completeness)", async () => {
     // Per plan §2.5 + flow §2.5, `minimal = species + item + ability + ≥1
     // move`. A set without an Ability: line drops below minimal and the

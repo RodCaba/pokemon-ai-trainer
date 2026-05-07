@@ -3,12 +3,14 @@
   "fetched_at": "2026-05-04",
   "_note": "Hand-curated nicknames the team builder should resolve to canonical Showdown ids. Conservative set — add a new entry only when the alias is unambiguous (no two species share it) and in common VGC/Champions vernacular. Build pipeline reads this and merges into species.aliases JSON.",
   "aliases": {
-    "garchomp":     ["chomp"],
-    "garchompmega": ["mega chomp"],
-    "tyranitar":    ["ttar"],
-    "rotomwash":    ["wash rotom", "wash"],
-    "rotomheat":    ["heat rotom", "heat"],
-    "hippowdon":    ["hippo"],
-    "kingambit":    ["kingam"]
+    "garchomp":       ["chomp"],
+    "garchompmega":   ["mega chomp"],
+    "tyranitar":      ["ttar"],
+    "rotomwash":      ["wash rotom", "wash"],
+    "rotomheat":      ["heat rotom", "heat"],
+    "hippowdon":      ["hippo"],
+    "kingambit":      ["kingam"],
+    "aegislashboth":  ["Aegislash"],
+    "floetteeternal": ["Floette"]
   }
 }

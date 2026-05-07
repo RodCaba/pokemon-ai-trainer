@@ -50,6 +50,7 @@ function emptySummary(): PokepasteRunSummary {
     pokepaste_404s: [],
     pokepaste_failures: [],
     ref_validation_failures: [],
+      unknown_species: [],
   };
 }
 
@@ -163,30 +164,35 @@ describe("pokepaste ingest hook", () => {
     expect(tt).toBeDefined();
   });
 
-  it("T40. PokepasteUnknownSpeciesError fails loud (re-raised)", async () => {
+  it("T40. PokepasteUnknownSpeciesError logs into summary and continues", async () => {
+    // Original design re-raised this as fail-loud (assumed a roster gap).
+    // Real labmaus data shows it can also be a format-illegal team an
+    // unofficial organizer let through (e.g., one player running Surskit in
+    // a 20-player Reg M-A event). Per-team rejection is the right
+    // granularity; the summary becomes the operator's audit log. Recurring
+    // entries for the same species across paste_ids indicate a roster gap
+    // worth fixing in `data/reg-m-a/aliases.json`.
     seedLabmausTeam(db, "labmaus:56757:1", "labmaus:56757");
     const raw = readFileSync(join(FIX, "2026-05-04__7205bf28f85d1e79.txt"), "utf8");
     const client: PokepasteClient = { fetchRaw: vi.fn(async () => raw) };
     const summary = emptySummary();
-    let thrown: unknown;
-    try {
-      await processTeamPokepaste({
-        db,
-        client,
-        transform: {
-          ...permissiveTransformDeps(db),
-          rosterRepo: {
-            has: (): boolean => false,
-            get: (): { id: string } | null => null,
-          },
+    await processTeamPokepaste({
+      db,
+      client,
+      transform: {
+        ...permissiveTransformDeps(db),
+        rosterRepo: {
+          has: (): boolean => false,
+          get: (): { id: string } | null => null,
         },
-        team_id: "labmaus:56757:1",
-        team_url: "https://pokepast.es/7205bf28f85d1e79",
-        summary,
-      });
-    } catch (e) {
-      thrown = e;
-    }
-    expect(thrown).toBeInstanceOf(PokepasteUnknownSpeciesError);
+      },
+      team_id: "labmaus:56757:1",
+      team_url: "https://pokepast.es/7205bf28f85d1e79",
+      summary,
+    });
+    expect(summary.unknown_species.length).toBe(1);
+    expect(summary.unknown_species[0]?.team_id).toBe("labmaus:56757:1");
+    expect(summary.unknown_species[0]?.species).toBeDefined();
+    expect(summary.team_sets).toBe(0); // no rows written for a rejected team
   });
 });

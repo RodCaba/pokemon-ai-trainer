@@ -112,6 +112,37 @@ function ivsCopy(ivs: PokemonSet["ivs"] | undefined): Ivs | null {
 }
 
 /**
+ * Convert a pokepaste-authored Mega species name to the Champions roster
+ * convention.
+ *
+ * **When to use it:** before any roster lookup of a species name that came
+ * from a pokepaste body. Pokepaste authors typically write Mega forms as
+ * `Mega Floette @ Floettite` or `Mega Charizard Y @ Charizardite Y`, but
+ * the Champions roster uses canonical Showdown-style suffixes:
+ * `Floette-Mega`, `Charizard-Mega-Y`, `Charizard-Mega-X`. The roster
+ * generally treats Mega forms as first-class species (61 entries with
+ * `-Mega` suffix) rather than implied-by-stone variants of the base form.
+ *
+ * @param raw — The species display name as parsed by `Teams.importTeam`.
+ * @returns The roster-style name. Non-Mega names pass through unchanged.
+ *
+ * @example
+ *   normalizeSpeciesName("Mega Floette"); // "Floette-Mega"
+ *   normalizeSpeciesName("Mega Charizard Y"); // "Charizard-Mega-Y"
+ *   normalizeSpeciesName("Mega Charizard X"); // "Charizard-Mega-X"
+ *   normalizeSpeciesName("Floette-Mega"); // "Floette-Mega" (already canonical)
+ *   normalizeSpeciesName("Ninetales-Alola"); // "Ninetales-Alola"
+ *   normalizeSpeciesName("Megalopolis"); // "Megalopolis" (word-boundary safe)
+ */
+export function normalizeSpeciesName(raw: string): string {
+  const m = /^Mega\s+(.+?)(?:\s+([XY]))?$/i.exec(raw);
+  if (!m) return raw;
+  const base = m[1];
+  const variant = m[2]?.toUpperCase();
+  return variant ? `${base}-Mega-${variant}` : `${base}-Mega`;
+}
+
+/**
  * Transform a raw Showdown export into a validated {@link PasteFetchResult}.
  *
  * **When to use it:** the only translation layer between `@pkmn/sets`'s
@@ -179,13 +210,18 @@ export function transformPaste(input: TransformInput, deps: TransformDeps): Past
 
     // Species ref-table validation (different error class from item/ability/move
     // per plan §8 — unknown species fails loud at the ingest layer).
-    if (!deps.rosterRepo.has(deps.db, speciesDisplay, "RegM-A")) {
+    // Normalize the display name first: pokepaste authors sometimes prefix
+    // Mega forms with "Mega " (e.g., "Mega Floette @ Floettite"), but in
+    // Champions, Mega evolution is determined by the held stone, not the
+    // species name. Strip the prefix before roster lookup.
+    const speciesLookup = normalizeSpeciesName(speciesDisplay);
+    if (!deps.rosterRepo.has(deps.db, speciesLookup, "RegM-A")) {
       throw new PokepasteUnknownSpeciesError(
         `unknown species: ${speciesDisplay}`,
         { paste_id: input.paste_id, species: speciesDisplay },
       );
     }
-    const rosterEntry = deps.rosterRepo.get(deps.db, speciesDisplay, "RegM-A");
+    const rosterEntry = deps.rosterRepo.get(deps.db, speciesLookup, "RegM-A");
     if (rosterEntry === null) {
       throw new PokepasteUnknownSpeciesError(
         `species not found: ${speciesDisplay}`,

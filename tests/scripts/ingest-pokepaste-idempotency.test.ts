@@ -88,6 +88,7 @@ describe("pokepaste ingest idempotency", () => {
       pokepaste_404s: [],
       pokepaste_failures: [],
       ref_validation_failures: [],
+      unknown_species: [],
     };
     const args = {
       db,
