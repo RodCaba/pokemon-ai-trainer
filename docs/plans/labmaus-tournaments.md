@@ -322,7 +322,8 @@ export const TournamentTeamSpeciesSchema = z.object({
   team_id:    z.string().regex(/^labmaus:\d+:\d+$/),
   slot:       z.number().int().min(0).max(5),
   labmaus_id: z.string().min(1),
-  roster_id:  z.string().regex(/^[a-z0-9-]+$/),     // Showdown-style; hyphens allowed
+  // NOTE (2026-05-05 simplification, §18.5): roster_id removed. Canonical
+  // roster attribution lives on team_sets.species_roster_id (pokepaste-sets).
 }).strict();
 
 export const TournamentDetailSchema = z.object({
@@ -503,27 +504,22 @@ export const tournamentTeams = sqliteTable("tournament_teams", {
         sql`${t.placement} IS NULL OR ${t.placement} > 0`),
 ]);
 
+// NOTE (2026-05-05 simplification, §18.5): the post-shipping shape is
+// reduced. `roster_id` was removed (canonical attribution lives on
+// team_sets.species_roster_id, owned by pokepaste-sets) and the
+// `species_alias_labmaus` table was dropped entirely. Migration `0003_*` is
+// the schema-of-record after that refactor.
 export const tournamentTeamSpecies = sqliteTable("tournament_team_species", {
   teamId:     text("team_id").notNull().references(() => tournamentTeams.id, { onDelete: "cascade" }),
   slot:       integer("slot").notNull(),
   labmausId:  text("labmaus_id").notNull(),
-  rosterId:   text("roster_id").notNull().references(() => species.id),
 }, (t) => [
   primaryKey({ columns: [t.teamId, t.slot] }),
   check("tournament_team_species_slot_range", sql`${t.slot} BETWEEN 0 AND 5`),
-  index("idx_tournament_team_species_roster_id").on(t.rosterId),
-]);
-
-export const speciesAliasLabmaus = sqliteTable("species_alias_labmaus", {
-  id:         text("id").primaryKey(),                          // labmaus dex-id ("038-a")
-  rosterId:   text("roster_id").notNull().references(() => species.id),
-  sourceJson: text("source_json").notNull(),
-}, (t) => [
-  index("idx_species_alias_labmaus_roster_id").on(t.rosterId),
 ]);
 ```
 
-**Migration:** generated as `src/db/migrations/0001_<auto-name>.sql` by drizzle-kit. The `drizzle.config.ts` already exists from the roster slice. Per memory `db_orm_drizzle.md`, never hand-edit generated SQL.
+**Migration:** generated as `src/db/migrations/0001_<auto-name>.sql` by drizzle-kit. The `drizzle.config.ts` already exists from the roster slice. Per memory `db_orm_drizzle.md`, never hand-edit generated SQL. Migration `0003_*` (post-ship simplification) drops `species_alias_labmaus` and the `roster_id` column.
 
 ---
 
@@ -537,16 +533,16 @@ Same pattern as `roster.ts`: `WeakMap<Db, Prepared>` of pre-compiled statements;
 |---|---|---|
 | `list(db, filter)` | `SELECT * FROM tournaments WHERE format=? AND (date>=? AND date<=?) AND division=? AND status=? ORDER BY date DESC, id ASC` (filter clauses conditionally appended via Drizzle's `and(...optional)`) | `idx_tournaments_format_date` |
 | `get(db, id)` | Three prepared statements: tournament-by-id, teams-by-tournament-id (ORDER BY placement NULLS LAST, external_team_id), species-by-team-id. Assemble in JS into a `TournamentResult` plus joined relations the caller asks for. v1 returns just the `TournamentResult`; team/species joins are exposed via `teams_with` + a future `tournaments.teams(id)` if needed (not in flow §5). | PK lookups + cascade indexes |
-| `teams_with(db, args)` | Subquery: `SELECT team_id FROM tournament_team_species WHERE roster_id IN (?,?,...) GROUP BY team_id HAVING COUNT(DISTINCT roster_id) = ?`. Then join to `tournament_teams` and `tournaments` for filtering by `format`, `lookback_days` (computed against `tournaments.date`), `min_placement`. | `idx_tournament_team_species_roster_id`, `idx_tournament_teams_tournament_placement` |
-| `usage(db, args)` | Single grouped query whose `kind` argument selects the dimension: `species` (group by `tournament_team_species.roster_id`), `item` and `move` (join `team_sets` from the `pokepaste-sets` sibling slice; for `move`, expand `team_sets.moves_json` via `json_each`), `core` (2-mon co-occurrences over `tournament_team_species`). Filter by date window + format, compute `appearances` and `usage_percent = 100.0 * appearances / total_teams`. v1 ships **all four dimensions on day one** because `pokepaste-sets` ships in parallel (per `docs/plans/pokepaste-sets.md` and flow Q8 of that slice; the previous deferral is removed). | `idx_tournament_team_species_roster_id`, `idx_tournaments_format_date`, `idx_team_sets_item`, `idx_team_sets_species` (from pokepaste-sets) |
+| `teams_with(db, args)` | Subquery against `team_sets` (post-§18.5 simplification — canonical attribution lives there): `SELECT tournament_team_id FROM team_sets WHERE species_roster_id IN (?,?,...) GROUP BY tournament_team_id HAVING COUNT(DISTINCT species_roster_id) = ?`. Then join to `tournament_teams` and `tournaments` for filtering by `format`, `lookback_days`, `min_placement`. **Graceful empty:** when `team_sets` has no rows for the matched window (pokepaste hasn't ingested yet), returns `[]`. | `idx_team_sets_species`, `idx_tournament_teams_tournament_placement` |
+| `usage(db, args)` | Single grouped query whose `kind` argument selects the dimension. After §18.5 **all four dimensions read from `team_sets`**: `species` (group by `species_roster_id`), `item` and `move` (group by `item` / expand `moves_json` via `json_each`), `core` (2-mon co-occurrences via self-join on `team_sets`). Filter by date window + format, compute `appearances` and `usage_percent = 100.0 * appearances / total_teams`. **Graceful empty:** every kind returns `[]` when `team_sets` is empty for the window — the uniform contract documented in `usage`'s TSDoc. | `idx_team_sets_species`, `idx_team_sets_item`, `idx_tournaments_format_date` |
 | `upsertTournament(db, t)` | Single transaction. `INSERT … ON CONFLICT(id) DO UPDATE SET ...` for tournament; `DELETE FROM tournament_teams WHERE tournament_id = ?` then bulk insert (simpler than per-team upsert; species cascades). | unique constraint |
 | `recomputeAggregatesForTournament(db, id)` | Scoped variant of `usage` for cross-check — returns the per-species ranking for one tournament. | same as `usage` |
 
 All exported functions get full TSDoc per CLAUDE.md §10. Errors wrap as `RosterDbError` (we reuse the existing class — labmaus shares storage with roster, so `RosterDbError` is the right umbrella for "SQLite I/O failed"; tool-layer errors stay in the new `LabmausError` family).
 
-### 6.2 `src/db/species-alias-labmaus.ts` (`createSimpleRepo`)
+### 6.2 `src/db/species-alias-labmaus.ts` — REMOVED in §18.5 (2026-05-05)
 
-The factory fits perfectly — single table, lookup by `id`, no display_name, no joins. Per CLAUDE.md §10: ~30-line file. We pass `idColumn === displayNameColumn` to the factory and rely on the `byId` path; the `byDisplayName` branch is harmless dead code (factory returns `null` on miss). Justified deviation noted in TSDoc.
+Originally a `createSimpleRepo`-based ref-table mapping `labmaus_id → roster_id`. Dropped because the parallel pokepaste-sets slice already produces canonical Showdown species names that match our roster ids directly — the alias table was a brittle, redundant data layer. See §18.5.
 
 ### 6.3 Why `tournaments` cannot use the factory (justification per CLAUDE.md §10)
 
@@ -712,7 +708,8 @@ Naming convention follows the roster slice's date-prefixed fixtures.
 async function main(argv: string[]): Promise<number> {
   const opts = parseArgs(argv);  // --from, --to, --mode, --db, --no-network, --concurrency
   const db = open(opts.db);
-  await seedAliasTable(db, "data/labmaus/species-alias-seed.json");
+  // NOTE (§18.5, 2026-05-05): the seedAliasTable step is gone — pokepaste-sets
+  // owns species attribution; ingest no longer needs a labmaus alias table.
 
   const client = createLabmausClient({
     cacheDir: "data/cache/labmaus",
@@ -735,7 +732,7 @@ async function main(argv: string[]): Promise<number> {
 
     // Parallel fan-out, capped at 4
     await pMap(summaries, async (s) => {
-      const detail = await getTournament({ id: s.id }, { client, speciesMap });
+      const detail = await getTournament({ id: s.id }, { client });  // §18.5: no speciesMap
       tournaments.upsertTournament(db, detail);
 
       // Cross-check pass
@@ -761,7 +758,7 @@ async function main(argv: string[]): Promise<number> {
 
 **Exit codes.**
 - `0` — success, including bounded cross-check warnings.
-- `1` — schema drift (`LabmausSchemaError`), unknown species (`LabmausUnknownSpeciesError`), DB error.
+- `1` — schema drift (`LabmausSchemaError`), DB error. (Post-§18.5, the unknown-species exit path no longer exists — labmaus ingest only persists dex ids; canonical roster mapping happens in pokepaste-sets.)
 - `2` — invalid argv.
 
 **Observability.**
@@ -810,13 +807,126 @@ async function main(argv: string[]): Promise<number> {
 
 ## 17. Open questions for plan review
 
-1. **Item/move usage rows.** ~~Flow §5 success criteria mentions "per species + per item + per move + per core" usage. The pokepaste deferral makes items/moves unreachable in this slice. **Proposal:** ship `usage` returning species + cores only.~~ **RESOLVED 2026-05-04** — pokepaste-sets ships in parallel (`docs/plans/pokepaste-sets.md`); `usage` now ships with `species + items + moves + cores` on day one. §6 and §10 (T34a/b/c) updated accordingly. Items/moves dimensions read from `team_sets` (owned by the pokepaste slice).
+1. **Item/move usage rows.** ~~Flow §5 success criteria mentions "per species + per item + per move + per core" usage. The pokepaste deferral makes items/moves unreachable in this slice. **Proposal:** ship `usage` returning species + cores only.~~ **RESOLVED 2026-05-04** — pokepaste-sets ships in parallel (`docs/plans/pokepaste-sets.md`); `usage` now ships with `species + items + moves + cores` on day one. §6 and §10 (T34a/b/c) updated accordingly. **Updated post-§18.5 (2026-05-05):** species attribution itself now comes from `team_sets` (pokepaste-sets) rather than from a labmaus-side alias table — `usage(kind="species")` and `teams_with` join through `team_sets.species_roster_id`, with the same graceful-empty contract as items/moves. The labmaus slice persists only `(team_id, slot, labmaus_id)` per species row.
 2. **`LabmausError` vs reusing `RosterError`.** Storage layer reuses `RosterDbError`/`RosterDataError`; tool layer creates a fresh `LabmausError` family. Reviewer confirms this split (alternative: one `IngestError` umbrella for all data-source tool errors).
 Answer: The split makes sense to me. `LabmausError` is specific to the labmaus slice and can evolve independently, while `RosterDbError`/`RosterDataError` are more general and already in use across the codebase. This way we keep a clear distinction between errors related to the data source and errors related to database operations.
-3. **`tournaments.get` return shape.** Plan as written returns just the `TournamentResult` (no joined teams); the agent reaches for teams via `teams_with`. Should `get` instead return `TournamentDetail` (tournament + teams + species)? Trade-off: matches `getTournament` tool output but pulls more data than most callers need. **Proposal:** keep slim `get` + a future `tournaments.detail(id)` if a caller materializes; user confirms.
-Answer: Add a `tournaments.detail(id)` method that returns the full `TournamentDetail` with teams and species. This way, `get` can remain lightweight for callers that only need the tournament summary, while still providing an option for those that need the full details without forcing all callers to pay the cost of joining the teams and species data.
+3. **`tournaments.get` return shape.** ~~Plan as written returns just the `TournamentResult` (no joined teams).~~ **RESOLVED 2026-05-04** — `tournaments.detail(id)` shipped as a third repo method returning full `TournamentDetail` (tournament + teams + species joined). `get` stays slim. §6 repo table updated.
 
 **Flow-doc gap uncovered:** §2.5 specifies `tournament_team_species (team_id FK, slot 0..5, labmaus_id, roster_id FK→species.id)` but the success criteria don't pin a per-team uniqueness rule on `slot`. This plan adds `PRIMARY KEY (team_id, slot)`, which is stricter than the flow doc requires. Calling out for explicit confirmation.
 Answer: The `PRIMARY KEY (team_id, slot)` constraint makes sense to enforce the intended data model where each team can have up to 6 species, each in a specific slot. This will help maintain data integrity and prevent issues with duplicate entries for the same team and slot. Let's go with this stricter constraint.
 
 ---
+
+## 18. Stage 6 outcomes (2026-05-05)
+
+### 18.1 Review
+
+Full review report at [`docs/reviews/labmaus-tournaments.md`](../reviews/labmaus-tournaments.md). Verdict: ship-after-blockers. Two blockers, ten suggested refactor items, five deferrals. The user approved applying all 10; deferrals annotated.
+
+### 18.2 Applied fixes (commit `refactor: apply review — labmaus-tournaments`)
+
+1. **`LabmausClient.nextAllowedAt()` removed** from the public interface. T20 rewritten to use `vi.useFakeTimers()` + `setTimeout` spy, asserting two real ≥1000ms throttle delays across three calls. The throttle now runs in real-clock mode in tests; `clockOverride` removed.
+2. **`usage(kind="item"|"move")` implemented** against a `team_sets` LEFT JOIN. Schema added to `src/db/drizzle-schema.ts` (`team_sets` table, owned by the parallel pokepaste-sets slice; this slice ships the table empty so labmaus's `usage` returns `[]` on items/moves until pokepaste populates it). Migration `0002_dry_tony_stark.sql` generated. T34a/T34b strengthened — non-vacuous when `team_sets` has rows.
+3. **Plan patched** (this file): §17-Q1 and §17-Q3 marked RESOLVED with strikethrough; this §18 added.
+4. **`tournaments.list` converted to Drizzle query builder** with `and(...clauses)` composition; raw-SQL fallback removed.
+5. **Orphan `void` imports deleted** from `scripts/data/ingest-labmaus.ts` (aliasRepo / speciesTable / sql).
+6. **`--no-network` mode** now propagates `LabmausSchemaError` and `LabmausUnknownSpeciesError`; only `LabmausNetworkError` is treated as cache-miss-skip.
+7. **Cross-check pass wired** into the ingest loop: `recomputeAggregatesForTournament` runs after each upsert, `compareWithinTolerance` (±0.05 absolute or ±1% relative) compares to labmaus's own `pokemon[]` aggregate, out-of-tolerance entries emit a JSON-line warning.
+8. **Cross-sync comments** added to `SpeciesAlias` (in `src/tools/labmaus/species-map.ts`) and `SpeciesAliasSchema` (in `src/db/species-alias-labmaus.ts`).
+9. **`labmausIdToRosterId` displayName fallback** implemented — when id-lookup misses, the function normalizes `displayName` (♂/♀ stripped, hyphenated, lowercased) and retries via the roster.
+10. **Tool-definitions wording corrected** — `tournamentsGetTool` description no longer claims `tournaments_detail` is "future."
+
+### 18.3 Deferrals (annotated as inline `// TODO(stage6-deferred):` comments)
+
+| # | Concern | Inline anchor | Belongs in |
+|---|---|---|---|
+| 1 | ~~Extend `createSimpleRepo` to accept optional `displayNameColumn`~~ — **MOOT (§18.5, 2026-05-05).** The only consumer (`src/db/species-alias-labmaus.ts`) was deleted along with the alias table. Concern resurfaces only if a future ref-table actually wants distinct id/display-name columns. |
+| 2 | Real fixture-cache-seeded `--no-network` integration test (current `fakeFetchEmpty` returns `[]` and makes T36/T37 partly vacuous) | `scripts/data/ingest-labmaus.ts:127` | pokepaste-sets sibling or ingest-hardening slice |
+| 3 | 3-mon and 4-mon cores in `usage(kind="core")` (flow §1.1 promised; plan §6 currently restricts to 2-mon) | `src/db/tournaments.ts:357` | New flow doc |
+| 4 | `--strict-offline` argv mode + date validation (`chunkDateRange` accepts NaN dates today) | `scripts/data/ingest-labmaus.ts:243` | argv-validation / ingest-hardening slice |
+| 5 | Live contract test polish — surface `parsed.error.issues` on schema drift for clearer diagnostics | tests/contract/labmaus-live.test.ts (NIT) | accept-or-defer; track if drift bites |
+
+### 18.4 §3 pure-data exemption disclosure (review finding 3)
+
+The Stage 4 "red" commit (`f0a5ca9`) shipped substantial scaffolding alongside the failing tests: `src/schemas/tournament.ts` (≈279 lines), the Drizzle schema additions (≈88 lines), and the migration are all final, not stubs. The schema file qualifies for CLAUDE.md §3's pure-data exemption (zod definitions, no behavior). The other items stretched the rule — module signatures were larger than "minimum to compile" and the disclosure CLAUDE.md §3 last paragraph requires was not written in the commit message. Recording it here for traceability; future slices should disclose pure-data batches in the Stage 4 commit message itself.
+
+### 18.5 Post-ship simplification (2026-05-05)
+
+**Trigger:** during the live demo immediately after Stage 6 shipped, the user hit a `LabmausUnknownSpeciesError` at runtime — the alias table was empty (no `species-alias-seed.json` was committed; the seed step was a no-op when the file didn't exist). The deeper observation: the parallel `pokepaste-sets` slice already produces canonical Showdown species names matching our roster ids directly. The labmaus alias table was solving a problem pokepaste's parser already solves, with a brittle ref-data file that needed manual maintenance every time labmaus added a new species.
+
+**Decision:** drop the labmaus-side species mapping entirely. `tournament_team_species` keeps `(team_id, slot, labmaus_id)` as a secondary record (useful when pokepaste 404s on a team's paste); canonical roster attribution is owned by `team_sets.species_roster_id` via pokepaste-sets.
+
+**Deletions.**
+
+- `src/db/species-alias-labmaus.ts` and its repo tests (T7–T9).
+- `src/tools/labmaus/species-map.ts` and its tests (T10–T13).
+- `species_alias_labmaus` table.
+- `tournament_team_species.roster_id` column + its FK + its index.
+- `T27` (unknown-species error path in `getTournament`) — the error path no longer exists.
+- `data/labmaus/species-alias-seed.json` references in the ingest script.
+- `ALIAS_SEED` / `seedAliases` / `seedSpecies` plumbing in `tests/db/labmaus-fixtures.ts`.
+
+**Code moves.**
+
+- `transformTournament` no longer takes `SpeciesMapDeps`; signature is `(raw, fetchedAt)`. Callers updated.
+- `getTournament` no longer takes a `speciesMap` dep.
+- `tournaments.usage(kind="species")` and `tournaments.teams_with(species=[...])` now read from `team_sets.species_roster_id`. Same graceful-empty contract as items/moves: when `team_sets` has no rows for the matched window, return `[]`. The TSDoc on `usage` makes this uniform contract explicit.
+- `tournaments.usage(kind="core")` similarly reads from `team_sets`.
+- `tournaments.recomputeAggregatesForTournament` reads from `team_sets`; cross-check tolerance unchanged.
+- `runCrossCheck` in the ingest script no longer maps labmaus dex ids → roster ids (no alias table); since our recompute now produces roster ids and labmaus's `pokemon[]` aggregate produces dex ids, the keyspaces no longer line up directly. Comparison effectively skips until a labmaus-id ↔ roster-id translation is reintroduced (e.g. via pokepaste-derived dex-id co-occurrence in a future slice).
+
+**Migration.** `0003_clean_korvac.sql` — drops `species_alias_labmaus`, recreates `tournament_team_species` without the `roster_id` column.
+
+**Tests removed/updated.**
+
+- T7–T13, T27 deleted (modules they covered are gone).
+- T29/T30 simplified — `roster_id` column gone from inserts.
+- T32 (`teams_with`) and T34 (`usage(kind="species")`) now seed `team_sets` rows to exercise the species filter. Both also assert graceful-empty when `team_sets` is absent.
+- T34c (`usage(kind="core")`) likewise.
+- T38/T39 (aggregate cross-check) seed `team_sets` from the fixture's `team_names` so `recompute` has data to read.
+
+Final test totals after this refactor: 259 passed, 3 skipped (down from 268 + 3).
+
+**Failure-mode trade-off.** With the alias table gone, when pokepaste 404s on a team's paste, that team has only `tournament_team_species (team_id, slot, labmaus_id)` and `tournament_teams.team_url` — no canonical `roster_id`. The labmaus dex id and the labmaus `team_names` CSV remain as fallbacks for human or downstream attribution. Acceptable: the failure mode is contained per-team rather than blocking ingest, and the cure (re-fetch the paste, or extend pokepaste's parser) is owned by the pokepaste slice. The previous failure mode — "alias table not populated → ingest blows up wholesale" — is gone.
+
+**Pokepaste-sets is now the single source of truth for species attribution.** Cross-referenced in `docs/plans/pokepaste-sets.md`.
+
+---
+
+## 19. Architectural changes after first live run (2026-05-04)
+
+Two design calls the user made once `data/reg-m-a/db.sqlite` started accruing real labmaus rows from the live demo. Both intentionally invert earlier decisions; recording here so future agents don't restore the old behavior.
+
+### 19.1 The DB is now production state, not a build artifact
+
+Originally `scripts/data/build-reg-m-a.ts` did `unlink + write tmp + atomic rename`, treating `db.sqlite` as a fully-derived artifact. That assumption broke once the labmaus ingest started writing tournaments / teams / team_sets to the same file: the next `pnpm data:build:reg-m-a` would silently destroy the labmaus rows.
+
+**Refactor:** the build is now non-destructive. It opens `dbPath` in place (migrations apply idempotently), and inside one `db.$client.transaction(...)` it rewrites only the **category A** tables — `species`, `species_stats`, `species_abilities`, `items`, `abilities`, `moves`, `sample_sets`, `roster_membership`. Strategy:
+
+- Items / abilities / moves / sample_sets / species_stats / species_abilities / roster_membership: `DELETE FROM <t>; INSERT …` (no incoming FKs from labmaus, safe to wipe).
+- `species`: **UPSERT** (`ON CONFLICT(id) DO UPDATE`). `team_sets.species_roster_id` references it, so a DELETE would either cascade-block or strand production data. Stale species rows (a name no longer in Champions) stay in place — removing one is a manual op that warrants review.
+
+`PRAGMA journal_mode=DELETE; VACUUM;` still runs at the end. The from-scratch determinism guarantee survives at the byte level (existing `tests/data/determinism.test.ts` cases 1–4 use fresh tmp paths). When labmaus rows are present, page-layout interleaving means raw bytes can shift between rebuilds; the new test cases 5–6 cover the post-refactor contract: labmaus rows survive, and category A row content is logically identical across rebuilds.
+
+### 19.2 Ingest is skip-existing, not upsert
+
+The original `upsertTournament` used `ON CONFLICT(id) DO UPDATE SET …` for the parent row and `DELETE + INSERT` for the children, on the theory that re-fetching might pick up corrections labmaus had made post-publication. In practice tournaments are conceptually finalized once published; labmaus rarely edits them retroactively, and even when it does, our captured-as-of-first-sight snapshot is the version we already have citations against.
+
+**Refactor:** captured-as-of-first-sight, two-layer.
+
+1. **Outer guard (script level).** `scripts/data/ingest-labmaus.ts` calls a new `tournaments.exists(db, "labmaus:<id>")` probe before issuing the per-tournament `getTournament` HTTP fetch. If the id is already in the DB, the entire per-tournament path is skipped — no HTTP fetch, no upsert, no cross-check, no pokepaste fan-out (the hook's existing `sets.list(...).length > 0` guard would no-op anyway). A new `skipped_existing` counter surfaces in the JSON summary line so the operator can see how many tournaments were already known. Steady-state re-runs should report `tournaments: 0, skipped_existing: N`.
+
+2. **Inner conflict clause (DB level).** All three insert paths in `upsertTournament` and the single insert in `upsertTeamSets` switched from `DO UPDATE` to `ON CONFLICT … DO NOTHING`. With the outer guard in place, the conflict path is belt-and-braces — only fires under concurrent runs or unexpected re-encounters. First-write wins; finalized rows are never silently overwritten.
+
+**Performance.** On a steady-state re-ingest of the existing 42 tournaments, the labmaus client's `getTournament` is now invoked **0 times** (was 42 times, all cache-hits but still serialized through the throttle). The cross-check pass and the pokepaste fan-out are likewise skipped wholesale. The skipped path uses one PK-only `SELECT 1 FROM tournaments WHERE id = ?` per summary row.
+
+**Failure-mode trade-off.** A genuinely-corrected tournament on labmaus's side now requires a manual delete-and-reingest (or a future `--force` flag) to refresh in our DB. Acceptable: corrections are rare, and the alternative — silently overwriting finalized rows on every run — is worse for the cited-evidence audit trail this codebase is built around.
+
+**Tests touched.**
+
+- `tests/scripts/ingest-labmaus-pokepaste-wired.test.ts:T42c` (new) — pre-seeds `tournaments` with a sentinel `name`, runs `--no-network` ingest with the cache populated, asserts the sentinel survives, no children rows inserted, and `skipped_existing: 1` in the JSON summary.
+- `tests/db/tournaments.test.ts:T29/T30` (unchanged) — assert post-call row counts only; DO NOTHING preserves their behavior.
+- `tests/db/sets.test.ts:T29/T30` (unchanged) — same reasoning.
+- `tests/scripts/ingest-pokepaste-idempotency.test.ts:T41` (unchanged) — relies on the hook's outer `sets.list` guard, untouched here.
+
+No existing test asserted DO UPDATE semantics directly (i.e., that a re-upsert with changed fields propagates the new fields). If such a test had existed it would have needed inversion; none did, so the change is purely additive.

@@ -182,6 +182,160 @@ export const movesHasTool = tool(
   NameInput,
 );
 
+// ---- tournaments (labmaus-backed) ----
+
+const TournamentFilterInput = z
+  .object({
+    format: RegMAFormat,
+    date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    date_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    division: z.enum(["Masters", "Seniors", "Juniors"]).optional(),
+    status: z.enum(["official", "unofficial"]).optional(),
+  })
+  .strict();
+
+const TournamentGetInput = z
+  .object({
+    format: RegMAFormat,
+    id: z
+      .string()
+      .regex(/^labmaus:\d+$/)
+      .describe("Namespaced tournament id, e.g. 'labmaus:56757'."),
+  })
+  .strict();
+
+const TeamsWithInput = z
+  .object({
+    format: RegMAFormat,
+    species: z.array(z.string().min(1)).min(1).max(6),
+    lookback_days: z.number().int().positive().optional(),
+    min_placement: z.number().int().positive().optional(),
+  })
+  .strict();
+
+const UsageInput = z
+  .object({
+    format: RegMAFormat,
+    lookback_days: z.number().int().positive(),
+    weight_by: z.enum(["appearances", "wins", "tournament_weight"]).optional(),
+    kind: z.enum(["species", "item", "move", "core"]).optional(),
+  })
+  .strict();
+
+/** `tournaments_list` — recent tournaments matching a filter. */
+export const tournamentsListTool = tool(
+  "tournaments_list",
+  "List Reg M-A tournaments matching format + optional date window + division + status, ordered by date DESC. Use to enumerate the recent meta. For a single tournament use tournaments_get; for teams containing specific species use tournaments_teams_with.",
+  TournamentFilterInput,
+);
+
+/** `tournaments_get` — exact tournament lookup by namespaced id. */
+export const tournamentsGetTool = tool(
+  "tournaments_get",
+  "Look up one Reg M-A tournament by namespaced id (e.g. 'labmaus:56757'). Returns the TournamentResult metadata or null. For the joined teams + species view use the tournaments.detail repo function; for usage aggregates use tournaments_usage.",
+  TournamentGetInput,
+);
+
+/** `tournaments_teams_with` — set-intersection of teams containing all listed species. */
+export const tournamentsTeamsWithTool = tool(
+  "tournaments_teams_with",
+  "Return tournament teams whose 6-species roster contains ALL of the listed canonical roster ids. Use to find recent placing teams that share a core (lead-planner evidence). Filter by lookback_days and min_placement.",
+  TeamsWithInput,
+);
+
+/** `tournaments_usage` — aggregate usage rows. */
+export const tournamentsUsageTool = tool(
+  "tournaments_usage",
+  "Aggregate Reg M-A usage rows over a date window: per-species, per-item, per-move, or per-core (kind='core' returns 2-mon co-occurrences). Returns rows sorted by usage_percent DESC. Item/move kinds require the pokepaste-sets slice's team_sets table.",
+  UsageInput,
+);
+
+// ---- pokepaste (HTTP tool) + sets (team_sets repo) ----
+
+const PokepasteFetchInput = z
+  .object({
+    format: RegMAFormat,
+    paste_id: z
+      .string()
+      .regex(/^[a-f0-9]{12,32}$/)
+      .describe("Hex paste id from a https://pokepast.es/<id> URL (12-32 hex chars)."),
+  })
+  .strict();
+
+const SetsListInput = z
+  .object({
+    format: RegMAFormat,
+    tournament_team_id: z
+      .string()
+      .regex(/^labmaus:\d+:\d+$/)
+      .optional()
+      .describe("Namespaced team id, e.g. 'labmaus:56757:1'."),
+    species_roster_id: z
+      .string()
+      .regex(/^[a-z0-9-]+$/)
+      .optional()
+      .describe("Canonical Showdown roster id, e.g. 'flutter-mane'."),
+    tournament_id: z
+      .string()
+      .regex(/^labmaus:\d+$/)
+      .optional()
+      .describe("Namespaced tournament id, e.g. 'labmaus:56757'."),
+  })
+  .strict();
+
+const SetsGetInput = z
+  .object({
+    format: RegMAFormat,
+    tournament_team_id: z.string().regex(/^labmaus:\d+:\d+$/),
+    slot: z.number().int().min(0).max(5),
+  })
+  .strict();
+
+const SetsUsageToolInput = z
+  .object({
+    format: RegMAFormat,
+    species: z.string().regex(/^[a-z0-9-]+$/).describe("Canonical Showdown roster id."),
+    lookback_days: z.number().int().positive(),
+    dimension: z.enum(["item", "ability", "move", "nature"]),
+  })
+  .strict();
+
+/**
+ * `pokepaste_fetch_paste` — agent-callable single-paste fetch + parse.
+ */
+export const pokepasteFetchPasteTool = tool(
+  "pokepaste_fetch_paste",
+  "Fetch and parse a single pokepast.es Showdown export by paste id (hex hash from the URL). Returns up to six per-Pokemon sets normalized to our domain shape — species, item, ability, level, moves, optionally SPS/IVs/nature — plus a `completeness` tag (`minimal | partial | full`). Strips Tera unconditionally (Reg M-A has no Terastallization). Validates item/ability/move/species against the Champions ref tables; throws on unknown values. Use this for parse-without-persistence calls (e.g. 'explain this paste'); the labmaus ingest hook calls the same fetcher internally to populate team_sets.",
+  PokepasteFetchInput,
+);
+
+/**
+ * `sets_list` — list parsed sets matching a filter.
+ */
+export const setsListTool = tool(
+  "sets_list",
+  "List parsed pokepaste-derived sets from `team_sets` matching the filter. At least one of `tournament_team_id`, `species_roster_id`, or `tournament_id` must be provided. Returns full TeamSet records ordered by (tournament_team_id, slot). Use this to enumerate the actual builds behind a tournament's placing teams; for one set use sets_get; for ranking dimensions use sets_usage.",
+  SetsListInput,
+);
+
+/**
+ * `sets_get` — exact lookup of a single parsed set.
+ */
+export const setsGetTool = tool(
+  "sets_get",
+  "Look up exactly one parsed `team_sets` row by composite key (tournament_team_id, slot 0-5). Returns the TeamSet record (species, item, ability, moves, sps, ivs, nature, completeness, source) or null. Use this when the lead planner has already chosen a specific team and slot; for enumeration use sets_list.",
+  SetsGetInput,
+);
+
+/**
+ * `sets_usage` — rank items / abilities / moves / natures for a species.
+ */
+export const setsUsageTool = tool(
+  "sets_usage",
+  "Rank items / abilities / moves / natures for a Reg M-A species across a date window, computed from placing-team paste data (not Pikalytics). Returns rows sorted by usage_percent DESC with citations into tournament_team_ids. Use this for 'what is species X running on its placing teams?' grounded queries; for raw species/item/move usage at the team level use tournaments_usage.",
+  SetsUsageToolInput,
+);
+
 /**
  * The full catalog of repo tool definitions, ready to pass to the Anthropic SDK.
  *
@@ -203,4 +357,12 @@ export const ROSTER_TOOL_DEFINITIONS: readonly Tool[] = [
   movesListTool,
   movesGetTool,
   movesHasTool,
+  tournamentsListTool,
+  tournamentsGetTool,
+  tournamentsTeamsWithTool,
+  tournamentsUsageTool,
+  pokepasteFetchPasteTool,
+  setsListTool,
+  setsGetTool,
+  setsUsageTool,
 ];

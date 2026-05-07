@@ -1,0 +1,1176 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "619529c4-375c-4cec-9464-ca18bb00f10e",
+  "prevId": "c4bc3a8c-4c07-42f8-b479-9442b757e539",
+  "tables": {
+    "abilities": {
+      "name": "abilities",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_json": {
+          "name": "source_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_abilities_display_name_nocase": {
+          "name": "idx_abilities_display_name_nocase",
+          "columns": [
+            "\"display_name\" COLLATE NOCASE"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "items": {
+      "name": "items",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_json": {
+          "name": "source_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_items_display_name_nocase": {
+          "name": "idx_items_display_name_nocase",
+          "columns": [
+            "\"display_name\" COLLATE NOCASE"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "items_category_valid": {
+          "name": "items_category_valid",
+          "value": "\"items\".\"category\" IN ('berry','mega-stone','held','choice','plate','memory','seed','gem','weather-rock','terrain-extender','other')"
+        }
+      }
+    },
+    "moves": {
+      "name": "moves",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "base_power": {
+          "name": "base_power",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "accuracy": {
+          "name": "accuracy",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source_json": {
+          "name": "source_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_moves_display_name_nocase": {
+          "name": "idx_moves_display_name_nocase",
+          "columns": [
+            "\"display_name\" COLLATE NOCASE"
+          ],
+          "isUnique": false
+        },
+        "idx_moves_type": {
+          "name": "idx_moves_type",
+          "columns": [
+            "type"
+          ],
+          "isUnique": false
+        },
+        "idx_moves_category": {
+          "name": "idx_moves_category",
+          "columns": [
+            "category"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "moves_category_valid": {
+          "name": "moves_category_valid",
+          "value": "\"moves\".\"category\" IN ('Physical','Special','Status')"
+        },
+        "moves_base_power_nonneg": {
+          "name": "moves_base_power_nonneg",
+          "value": "\"moves\".\"base_power\" >= 0"
+        },
+        "moves_accuracy_range": {
+          "name": "moves_accuracy_range",
+          "value": "\"moves\".\"accuracy\" IS NULL OR (\"moves\".\"accuracy\" >= 0 AND \"moves\".\"accuracy\" <= 100)"
+        }
+      }
+    },
+    "roster_membership": {
+      "name": "roster_membership",
+      "columns": {
+        "species_id": {
+          "name": "species_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "format": {
+          "name": "format",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "is_legal": {
+          "name": "is_legal",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "is_mega": {
+          "name": "is_mega",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_roster_membership_format_legal": {
+          "name": "idx_roster_membership_format_legal",
+          "columns": [
+            "format",
+            "is_legal"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "roster_membership_species_id_species_id_fk": {
+          "name": "roster_membership_species_id_species_id_fk",
+          "tableFrom": "roster_membership",
+          "tableTo": "species",
+          "columnsFrom": [
+            "species_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "roster_membership_species_id_format_pk": {
+          "columns": [
+            "species_id",
+            "format"
+          ],
+          "name": "roster_membership_species_id_format_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "roster_membership_format_regma": {
+          "name": "roster_membership_format_regma",
+          "value": "\"roster_membership\".\"format\" = 'RegM-A'"
+        },
+        "roster_membership_is_legal_bool": {
+          "name": "roster_membership_is_legal_bool",
+          "value": "\"roster_membership\".\"is_legal\" IN (0,1)"
+        },
+        "roster_membership_is_mega_bool": {
+          "name": "roster_membership_is_mega_bool",
+          "value": "\"roster_membership\".\"is_mega\" IN (0,1)"
+        }
+      }
+    },
+    "sample_sets": {
+      "name": "sample_sets",
+      "columns": {
+        "rowid": {
+          "name": "rowid",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "species_id": {
+          "name": "species_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "set_name": {
+          "name": "set_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ability": {
+          "name": "ability",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item": {
+          "name": "item",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "nature": {
+          "name": "nature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "moves_json": {
+          "name": "moves_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sps_json": {
+          "name": "sps_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_json": {
+          "name": "source_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "sample_sets_species_set_uq": {
+          "name": "sample_sets_species_set_uq",
+          "columns": [
+            "species_id",
+            "set_name"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "sample_sets_species_id_species_id_fk": {
+          "name": "sample_sets_species_id_species_id_fk",
+          "tableFrom": "sample_sets",
+          "tableTo": "species",
+          "columnsFrom": [
+            "species_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "sample_sets_moves_len_4": {
+          "name": "sample_sets_moves_len_4",
+          "value": "json_array_length(\"sample_sets\".\"moves_json\") = 4"
+        },
+        "sample_sets_sps_total_le_66": {
+          "name": "sample_sets_sps_total_le_66",
+          "value": "(json_extract(\"sample_sets\".\"sps_json\",'$.hp')+json_extract(\"sample_sets\".\"sps_json\",'$.atk')+json_extract(\"sample_sets\".\"sps_json\",'$.def')+json_extract(\"sample_sets\".\"sps_json\",'$.spa')+json_extract(\"sample_sets\".\"sps_json\",'$.spd')+json_extract(\"sample_sets\".\"sps_json\",'$.spe')) <= 66"
+        },
+        "sample_sets_sps_per_stat_le_32": {
+          "name": "sample_sets_sps_per_stat_le_32",
+          "value": "json_extract(\"sample_sets\".\"sps_json\",'$.hp')  <= 32\n       AND json_extract(\"sample_sets\".\"sps_json\",'$.atk') <= 32\n       AND json_extract(\"sample_sets\".\"sps_json\",'$.def') <= 32\n       AND json_extract(\"sample_sets\".\"sps_json\",'$.spa') <= 32\n       AND json_extract(\"sample_sets\".\"sps_json\",'$.spd') <= 32\n       AND json_extract(\"sample_sets\".\"sps_json\",'$.spe') <= 32"
+        }
+      }
+    },
+    "species": {
+      "name": "species",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "form_id": {
+          "name": "form_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "is_mega": {
+          "name": "is_mega",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "types": {
+          "name": "types",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "weight_kg": {
+          "name": "weight_kg",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "aliases": {
+          "name": "aliases",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "movepool": {
+          "name": "movepool",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "source_json": {
+          "name": "source_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_species_display_name_nocase": {
+          "name": "idx_species_display_name_nocase",
+          "columns": [
+            "\"display_name\" COLLATE NOCASE"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "species_is_mega_bool": {
+          "name": "species_is_mega_bool",
+          "value": "\"species\".\"is_mega\" IN (0,1)"
+        },
+        "species_weight_positive": {
+          "name": "species_weight_positive",
+          "value": "\"species\".\"weight_kg\" > 0"
+        }
+      }
+    },
+    "species_abilities": {
+      "name": "species_abilities",
+      "columns": {
+        "species_id": {
+          "name": "species_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "slot": {
+          "name": "slot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ability_name": {
+          "name": "ability_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_species_abilities_ability_name": {
+          "name": "idx_species_abilities_ability_name",
+          "columns": [
+            "\"ability_name\" COLLATE NOCASE"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "species_abilities_species_id_species_id_fk": {
+          "name": "species_abilities_species_id_species_id_fk",
+          "tableFrom": "species_abilities",
+          "tableTo": "species",
+          "columnsFrom": [
+            "species_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "species_abilities_species_id_slot_pk": {
+          "columns": [
+            "species_id",
+            "slot"
+          ],
+          "name": "species_abilities_species_id_slot_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "species_abilities_slot_valid": {
+          "name": "species_abilities_slot_valid",
+          "value": "\"species_abilities\".\"slot\" IN ('0','1','h')"
+        }
+      }
+    },
+    "species_stats": {
+      "name": "species_stats",
+      "columns": {
+        "species_id": {
+          "name": "species_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "hp": {
+          "name": "hp",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "atk": {
+          "name": "atk",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "def": {
+          "name": "def",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "spa": {
+          "name": "spa",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "spd": {
+          "name": "spd",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "spe": {
+          "name": "spe",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "bst": {
+          "name": "bst",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "species_stats_species_id_species_id_fk": {
+          "name": "species_stats_species_id_species_id_fk",
+          "tableFrom": "species_stats",
+          "tableTo": "species",
+          "columnsFrom": [
+            "species_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "species_stats_hp_positive": {
+          "name": "species_stats_hp_positive",
+          "value": "\"species_stats\".\"hp\" > 0"
+        },
+        "species_stats_atk_positive": {
+          "name": "species_stats_atk_positive",
+          "value": "\"species_stats\".\"atk\" > 0"
+        },
+        "species_stats_def_positive": {
+          "name": "species_stats_def_positive",
+          "value": "\"species_stats\".\"def\" > 0"
+        },
+        "species_stats_spa_positive": {
+          "name": "species_stats_spa_positive",
+          "value": "\"species_stats\".\"spa\" > 0"
+        },
+        "species_stats_spd_positive": {
+          "name": "species_stats_spd_positive",
+          "value": "\"species_stats\".\"spd\" > 0"
+        },
+        "species_stats_spe_positive": {
+          "name": "species_stats_spe_positive",
+          "value": "\"species_stats\".\"spe\" > 0"
+        },
+        "species_stats_bst_consistent": {
+          "name": "species_stats_bst_consistent",
+          "value": "\"species_stats\".\"bst\" = \"species_stats\".\"hp\" + \"species_stats\".\"atk\" + \"species_stats\".\"def\" + \"species_stats\".\"spa\" + \"species_stats\".\"spd\" + \"species_stats\".\"spe\""
+        }
+      }
+    },
+    "team_sets": {
+      "name": "team_sets",
+      "columns": {
+        "tournament_team_id": {
+          "name": "tournament_team_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "slot": {
+          "name": "slot",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "species_roster_id": {
+          "name": "species_roster_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item": {
+          "name": "item",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ability": {
+          "name": "ability",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "level": {
+          "name": "level",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "moves_json": {
+          "name": "moves_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sps_json": {
+          "name": "sps_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ivs_json": {
+          "name": "ivs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "nature": {
+          "name": "nature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "completeness": {
+          "name": "completeness",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_site": {
+          "name": "source_site",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_paste_id": {
+          "name": "source_paste_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_url": {
+          "name": "source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_team_sets_species": {
+          "name": "idx_team_sets_species",
+          "columns": [
+            "species_roster_id"
+          ],
+          "isUnique": false
+        },
+        "idx_team_sets_item": {
+          "name": "idx_team_sets_item",
+          "columns": [
+            "item"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "team_sets_tournament_team_id_slot_pk": {
+          "columns": [
+            "tournament_team_id",
+            "slot"
+          ],
+          "name": "team_sets_tournament_team_id_slot_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "team_sets_slot_range": {
+          "name": "team_sets_slot_range",
+          "value": "\"team_sets\".\"slot\" BETWEEN 0 AND 5"
+        }
+      }
+    },
+    "tournament_team_species": {
+      "name": "tournament_team_species",
+      "columns": {
+        "team_id": {
+          "name": "team_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "slot": {
+          "name": "slot",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "labmaus_id": {
+          "name": "labmaus_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "tournament_team_species_team_id_tournament_teams_id_fk": {
+          "name": "tournament_team_species_team_id_tournament_teams_id_fk",
+          "tableFrom": "tournament_team_species",
+          "tableTo": "tournament_teams",
+          "columnsFrom": [
+            "team_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "tournament_team_species_team_id_slot_pk": {
+          "columns": [
+            "team_id",
+            "slot"
+          ],
+          "name": "tournament_team_species_team_id_slot_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "tournament_team_species_slot_range": {
+          "name": "tournament_team_species_slot_range",
+          "value": "\"tournament_team_species\".\"slot\" BETWEEN 0 AND 5"
+        }
+      }
+    },
+    "tournament_teams": {
+      "name": "tournament_teams",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tournament_id": {
+          "name": "tournament_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "external_team_id": {
+          "name": "external_team_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "player": {
+          "name": "player",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "player_key": {
+          "name": "player_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "country": {
+          "name": "country",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "placement": {
+          "name": "placement",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "record": {
+          "name": "record",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "team_url": {
+          "name": "team_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "tournament_teams_tournament_external_uq": {
+          "name": "tournament_teams_tournament_external_uq",
+          "columns": [
+            "tournament_id",
+            "external_team_id"
+          ],
+          "isUnique": true
+        },
+        "idx_tournament_teams_tournament_placement": {
+          "name": "idx_tournament_teams_tournament_placement",
+          "columns": [
+            "tournament_id",
+            "placement"
+          ],
+          "isUnique": false
+        },
+        "idx_tournament_teams_player_key": {
+          "name": "idx_tournament_teams_player_key",
+          "columns": [
+            "player_key"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "tournament_teams_tournament_id_tournaments_id_fk": {
+          "name": "tournament_teams_tournament_id_tournaments_id_fk",
+          "tableFrom": "tournament_teams",
+          "tableTo": "tournaments",
+          "columnsFrom": [
+            "tournament_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "tournament_teams_country_iso2": {
+          "name": "tournament_teams_country_iso2",
+          "value": "\"tournament_teams\".\"country\" IS NULL OR length(\"tournament_teams\".\"country\") = 2"
+        },
+        "tournament_teams_placement_positive": {
+          "name": "tournament_teams_placement_positive",
+          "value": "\"tournament_teams\".\"placement\" IS NULL OR \"tournament_teams\".\"placement\" > 0"
+        }
+      }
+    },
+    "tournaments": {
+      "name": "tournaments",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "external_id": {
+          "name": "external_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tournament_code": {
+          "name": "tournament_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "organizer": {
+          "name": "organizer",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "format": {
+          "name": "format",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "division": {
+          "name": "division",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "date": {
+          "name": "date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "num_players": {
+          "name": "num_players",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "num_phase_2": {
+          "name": "num_phase_2",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source_site": {
+          "name": "source_site",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_site_source": {
+          "name": "source_site_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source_url": {
+          "name": "source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "tournaments_site_external_uq": {
+          "name": "tournaments_site_external_uq",
+          "columns": [
+            "source_site",
+            "external_id"
+          ],
+          "isUnique": true
+        },
+        "idx_tournaments_format_date": {
+          "name": "idx_tournaments_format_date",
+          "columns": [
+            "format",
+            "date"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "tournaments_format_regma": {
+          "name": "tournaments_format_regma",
+          "value": "\"tournaments\".\"format\" = 'RegM-A'"
+        },
+        "tournaments_division_valid": {
+          "name": "tournaments_division_valid",
+          "value": "\"tournaments\".\"division\" IN ('Masters','Seniors','Juniors')"
+        },
+        "tournaments_status_valid": {
+          "name": "tournaments_status_valid",
+          "value": "\"tournaments\".\"status\" IN ('official','unofficial')"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {
+      "idx_abilities_display_name_nocase": {
+        "columns": {
+          "\"display_name\" COLLATE NOCASE": {
+            "isExpression": true
+          }
+        }
+      },
+      "idx_items_display_name_nocase": {
+        "columns": {
+          "\"display_name\" COLLATE NOCASE": {
+            "isExpression": true
+          }
+        }
+      },
+      "idx_moves_display_name_nocase": {
+        "columns": {
+          "\"display_name\" COLLATE NOCASE": {
+            "isExpression": true
+          }
+        }
+      },
+      "idx_species_display_name_nocase": {
+        "columns": {
+          "\"display_name\" COLLATE NOCASE": {
+            "isExpression": true
+          }
+        }
+      },
+      "idx_species_abilities_ability_name": {
+        "columns": {
+          "\"ability_name\" COLLATE NOCASE": {
+            "isExpression": true
+          }
+        }
+      }
+    }
+  }
+}

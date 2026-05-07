@@ -1,0 +1,43 @@
+Charizard @ Charizardite Y
+Ability: Blaze
+Level: 50
+Tera Type: None
+- Heat Wave
+- Weather Ball
+- Solar Beam
+- Protect
+
+Ninetales-Alola @ Light Clay
+Ability: Snow Warning
+Level: 50
+Tera Type: None
+- Blizzard
+- Moonblast
+- Aurora Veil
+- Protect
+
+Basculegion ♂ @ Choice Scarf
+Ability: Adaptability
+Level: 50
+Tera Type: None
+- Wave Crash
+- Last Respects
+- Flip Turn
+- Aqua Jet
+
+Sneasler @ Focus Sash
+Ability: Unburden
+Level: 50
+Tera Type: None
+- Close Combat
+- Dire Claw
+- Fake Out
+- Protect
+
+Aerodactyl @ White Herb
+Ability: Unnerve
+Level: 50
+- Rock Slide
+- Tailwind
+- Wide Guard
+- Protect

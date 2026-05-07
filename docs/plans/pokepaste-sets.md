@@ -99,6 +99,13 @@ All paths absolute under `/Users/rodrigo/src/pokemon-ai-trainer/`. New files onl
 #### `src/tools/pokepaste/transform.ts` (new)
 
 - **Single responsibility:** raw Showdown plaintext → `TeamSet[]`. Calls `Teams.importTeam(rawText)` from `@pkmn/sets` (pinned in §4.4), strips `teraType` from each parsed `PokemonSet`, renames `evs → sps` at this boundary (the engine API uses `evs`; our domain uses `sps` per CLAUDE.md §10 / `regulation_m_a_stat_rules.md`), validates `species`/`item`/`ability`/`moves` against the roster + ref tables, computes the `completeness` tag.
+- **Stage 6 deviation (review §7.b):** species names from the parser
+  pass through `normalizeSpeciesName` before roster lookup. Champions
+  treats Mega forms as first-class species (`Charizard-Mega-Y`,
+  `Floette-Mega`); pokepaste authors typically write `Mega Charizard Y`
+  / `Mega Floette`. The normalizer rewrites `^Mega <Base>( [XY])?$` →
+  `<Base>-Mega(-X|-Y)?` and is word-boundary safe (`Megalopolis`
+  passes through). See `transform.ts` `normalizeSpeciesName` TSDoc.
 - **Exported surface:**
   ```ts
   export interface TransformDeps {
@@ -226,8 +233,10 @@ export const IvsSchema = z.object({
   spe: z.number().int().min(0).max(31),
 }).strict();
 
+// Stage 6 deviation (review §8 item 8): `schema_version` removed; the
+// outer `TeamSetSchema.schema_version` is the entity-level version per
+// CLAUDE.md §5.
 export const PokepasteSourceSchema = z.object({
-  schema_version: z.literal(1),
   site:           z.literal("pokepaste"),
   paste_id:       PasteId,
   source_url:     z.string().url(),
@@ -342,7 +351,13 @@ Same pattern as labmaus's tournament tools — agent-callable thin wrappers over
 - `sets_get` — fetch one set by `(tournament_team_id, slot)`.
 - `sets_usage` — rank items / abilities / moves / natures for a given species across a date window. Use this to answer "what's species X running in the meta?" — strictly grounded in placing-team paste data (not Pikalytics).
 
-### 4.3 `SPEC.md` outline
+**Stage 6 deviation (review §7.f):** `pokepasteFetchPasteTool` /
+`setsListTool` / `setsGetTool` / `setsUsageTool` are now appended to
+`ROSTER_TOOL_DEFINITIONS` in `src/db/tool-definitions.ts`. The slice
+originally shipped only the orphan `fetchPasteToolDefinition` constant
+in `fetch-paste.ts`, never registered.
+
+### 4.3 `SPEC.md` outline (Stage 6: DONE — review §7.g)
 
 Mandatory sections per CLAUDE.md §8:
 
@@ -455,7 +470,7 @@ Same pattern as `roster.ts` / `tournaments.ts`: `WeakMap<Db, Prepared>` of pre-c
 | `list(db, filter)` | `SELECT * FROM team_sets [JOIN tournament_teams ON ...] WHERE [conditional clauses on tournament_id, tournament_team_id, species_roster_id]`. Parses `moves_json`, `sps_json`, `ivs_json` into domain objects; assembles `source` block from `source_site`/`source_paste_id`/`source_url`/`fetched_at`. | `idx_team_sets_species`, PK lookups, `idx_tournament_teams_tournament_placement` (when filtering by tournament_id). |
 | `get(db, tournament_team_id, slot)` | PK lookup `WHERE tournament_team_id = ? AND slot = ?`. | composite PK. |
 | `usage(db, args)` | Single grouped query joining `team_sets` → `tournament_teams` → `tournaments` for the date-window filter. The `dimension` argument (`item`/`ability`/`move`/`nature`) selects which column to `GROUP BY`. For `move`, expand `moves_json` via `json_each(moves_json)` to one row per move per set. `usage_percent = 100.0 * appearances / total_sets`. `citations` aggregates `tournament_team_id`s up to a cap (e.g., 50) so payloads stay bounded. | `idx_team_sets_species`, `idx_team_sets_item`, `idx_team_sets_ability`, `idx_tournaments_format_date`. |
-| `upsertTeamSets(db, sets)` | Single transaction. `INSERT … ON CONFLICT(tournament_team_id, slot) DO UPDATE SET …` for each set. Bulk-prepared statement. | composite PK. |
+| `upsertTeamSets(db, sets)` | Single transaction. `INSERT … ON CONFLICT(tournament_team_id, slot) DO NOTHING` for each set. Bulk-prepared statement. (Updated 2026-05-04 — see `docs/plans/labmaus-tournaments.md` §19.2. Pokepaste URLs are content-addressed; a conflict means the right rows are already there.) | composite PK. |
 
 All exported functions get full TSDoc per CLAUDE.md §10.
 
@@ -485,7 +500,7 @@ The transform layer takes `itemsRepo`, `abilitiesRepo`, `movesRepo` as deps. The
 | **Schema-first (zod)** | `src/schemas/team-set.ts` is the contract; types derive via `z.infer`; both ends parse before trust | Per CLAUDE.md §5. |
 | **Command/query split inside the repo** | `list`/`get`/`usage` are read-only; `upsertTeamSets` is a write callable only by the ingest hook | Lets read-only DB handles power the agent at runtime; only the ingest opens read-write. |
 | **Read-through, content-addressed cache** | `client.ts` checks `data/cache/pokepaste/<paste_id>.txt` before fetching; never expires (URLs are content-hashed) | Per flow §2.6 / Q6; cold-start reruns from disk for free. |
-| **Idempotent upsert keyed on `(tournament_team_id, slot)`** | Composite PK; `ON CONFLICT … DO UPDATE` | Per flow §2.6 idempotency contract; two consecutive runs = zero deltas. |
+| **Idempotent insert keyed on `(tournament_team_id, slot)`** | Composite PK; `ON CONFLICT … DO NOTHING` (changed from `DO UPDATE` 2026-05-04 — see `docs/plans/labmaus-tournaments.md` §19.2) | Per flow §2.6 idempotency contract; two consecutive runs = zero deltas. First-write wins under skip-existing semantics. |
 | **Defense-in-depth Tera strip** | Transform deletes `teraType`; strict schema has no `tera_*`; property test scans rows | Per memory `regulation_m_a_no_tera.md`. |
 | **Reject-and-fail with caller-side per-item recovery** | Transform throws `PokepasteRefValidationError`; ingest catches per-team and continues, logging | Per flow §6 Q4. The transform's purity (single failure mode) is the load-bearing property; the ingest's fan-out loop is where partial-progress lives. |
 
@@ -504,7 +519,7 @@ The transform layer takes `itemsRepo`, `abilitiesRepo`, `movesRepo` as deps. The
 | `PokepasteNetworkError` | HTTP non-2xx / non-404 after retries; DNS/timeout | infra | `client.ts` | `fetch-paste.ts` surfaces up; ingest hook logs and continues to next team |
 | `PokepasteNotFoundError` | HTTP 404 on `/raw` (paste deleted / bad id) | data | `client.ts` | ingest hook logs and continues; the labmaus row stays without sets (per flow §4) |
 | `PokepasteParseError` | `@pkmn/sets` returns `undefined` or `.team.length === 0`, OR completeness check rejects (below `minimal`) | data | `transform.ts` | ingest hook logs and continues |
-| `PokepasteUnknownSpeciesError` | `roster.has(species)` returns false | data | `transform.ts` | **fails loud** in the ingest (consistency with labmaus species-map policy — indicates a roster gap that must be resolved) |
+| `PokepasteUnknownSpeciesError` | `roster.has(species)` returns false (after `normalizeSpeciesName` + alias lookup) | data | `transform.ts` | **Stage 6 deviation (b9a8d98 / review §7.a):** ingest hook **logs and continues**, accumulating `{team_id, paste_id, species}` into `summary.unknown_species[]`. The original fail-loud contract assumed an unknown meant a roster gap (our bug); real labmaus data shows it can also mean a format-illegal team an unofficial organizer accepted. Recurring entries for the same species across multiple paste_ids indicate a real roster gap — see `data/reg-m-a/aliases.json`. |
 | **`PokepasteRefValidationError`** | `itemsRepo.has` / `abilitiesRepo.has` / `movesRepo.has` returns false for any parsed value | data | `transform.ts` | **ingest hook catches per-team**, records the offending value (kind + raw string + paste id + slot) in the run summary, **does not write any team_sets rows for that team**, continues to the next team. |
 | `RosterDbError` (reused) | SQLite I/O on `team_sets` repo or upstream ref-table lookup | infra | `sets.ts`, ref-table repos | callers; ingest reports and exits 1 |
 | `RosterDataError` (reused) | A persisted `team_sets` row fails domain schema on read | corruption | `parseOrThrow` in `sets.ts` | tests; agent path crashes loud |
@@ -543,7 +558,7 @@ This contract is asserted by T8 (`transform throws on unknown item, no partial o
 - The Anthropic `tool(...)` helper in `src/db/tool-definitions.ts` — extended, not duplicated.
 - `zod-to-json-schema` (already a dep) — for the tool input JSON schema.
 - `better-sqlite3`, `drizzle-orm`, `drizzle-kit`, `zod` — already pinned in `package.json`.
-- The labmaus client's hand-rolled token-bucket throttle and file-cache primitives (lands in labmaus Stage 5 per `docs/plans/labmaus-tournaments.md` §12) — **the implementations are extracted into `src/tools/_shared/throttle.ts` + `src/tools/_shared/file-cache.ts` as a sibling-extraction step in this slice's Stage 5** so both labmaus and pokepaste consume the same primitives. The labmaus plan currently scopes them to its own `client.ts`; this plan promotes them to a shared module before the pokepaste client lands. Keeping per-host throttle buckets is then trivial: `createPokepasteClient` constructs its own bucket instance with `rps: 2`, while labmaus's stays at `rps: 1`. The token-bucket primitive itself is hostless.
+- The labmaus client's hand-rolled token-bucket throttle and file-cache primitives (lands in labmaus Stage 5 per `docs/plans/labmaus-tournaments.md` §12) — **the implementations are extracted into `src/tools/_shared/throttle.ts` + `src/tools/_shared/file-cache.ts` as a sibling-extraction step in this slice's Stage 5** so both labmaus and pokepaste consume the same primitives. The labmaus plan currently scopes them to its own `client.ts`; this plan promotes them to a shared module before the pokepaste client lands. Keeping per-host throttle buckets is then trivial: `createPokepasteClient` constructs its own bucket instance with `rps: 2`, while labmaus's stays at `rps: 1`. The token-bucket primitive itself is hostless. **Stage 6 deviation (fd2815b / review §7.c):** shipped at `src/tools/_shared/throttle.ts` + `src/tools/_shared/file-cache.ts`. The file-cache uses a JSON envelope (`{ fetchedAt, body }`) so consumers can inspect cache freshness; the upstream `fetched_at` flow-through is deferred (review §9 — see TODO in `transform.ts`). The `capacity` field on `TokenBucketOpts` was dropped (review §8.6) — sustained-rate throttle only in v1.
 
 **`createSimpleRepo` does NOT apply to `team_sets`** — composite PK, multi-table joins, write path. Justified in §6.2 per CLAUDE.md §10.
 
@@ -598,11 +613,11 @@ The §3 pure-data-definition exemption (CLAUDE.md §3) applies to schema-only te
 | 37 | `tests/scripts/ingest-pokepaste-hook.test.ts` | `ingest hook: happy path persists 6 team_sets per labmaus team` | seed labmaus tournament; --no-network with seeded paste cache; run ingest; assert 6 team_sets per team | hook wiring + upsertTeamSets |
 | 38 | `tests/scripts/ingest-pokepaste-hook.test.ts` | `ingest hook: PokepasteRefValidationError → log warning, skip team, continue` | seed two teams (one with bogus item); assert (a) team A persisted (6 rows), (b) team B persisted 0 rows, (c) run summary contains `ref_validation_failures` entry with kind/value/paste_id/slot, (d) exit code 0 | per-team try/catch in §13 |
 | 39 | `tests/scripts/ingest-pokepaste-hook.test.ts` | `ingest hook: 404 → log warning, skip team, continue (labmaus row preserved)` | seed cache that returns 404; assert 0 team_sets, labmaus row intact, run summary entry | 404 branch in catch |
-| 40 | `tests/scripts/ingest-pokepaste-hook.test.ts` | `ingest hook: PokepasteUnknownSpeciesError fails loud (exit 1)` | inject unknown species; assert ingest aborts with exit 1 and the offending paste_id is logged | re-raise (no catch) for this class |
+| 40 | `tests/scripts/ingest-pokepaste-hook.test.ts` | `ingest hook: PokepasteUnknownSpeciesError logs and continues` (Stage 6 deviation per b9a8d98 / review §7.a — was: "fails loud, exit 1") | inject unknown species; assert `summary.unknown_species[0]?.team_id` populated; assert exit 0; assert other teams persist normally | per-team catch + push to summary |
 | 41 | `tests/scripts/ingest-pokepaste-idempotency.test.ts` | `running ingest twice produces zero team_sets deltas` | snapshot DB hash before+after second run; equal | (no new code if T30 green) |
 | 42 | `tests/contract/pokepaste-live.test.ts` (gated by `RUN_CONTRACT_TESTS=1`) | `live pokepaste /raw for a known stable paste id parses without throwing` | real fetch; `Teams.importTeam(body)` returns a team with `.team.length >= 1`; transform succeeds end-to-end | (no new code) |
 
-T36 qualifies for the §3 "vacuous green slip" flag — the implementor must call it out in their change report so the reviewer can confirm the property holds rather than the test holding nothing.
+T36 qualifies for the §3 "vacuous green slip" flag — the implementor must call it out in their change report so the reviewer can confirm the property holds rather than the test holding nothing. **Stage 6 disclosure (review §7.h):** the slip was disclosed in the eda22ed commit body and confirmed by the reviewer to be defensible as a regression guard (the property holds because `TeamSetSchema` has no `tera_*` field and is `.strict()`).
 
 ---
 
@@ -642,12 +657,13 @@ Per flow §6 Q6: pokepaste at **2 rps**, labmaus stays at **1 rps**. The token-b
 
 ```ts
 // src/tools/_shared/throttle.ts (sibling-extracted from labmaus client)
-export interface TokenBucketOpts { capacity: number; refillPerSec: number; clock?: () => number; }
+// Stage 6: `capacity` field removed (review §8.6); sustained-rate only.
+export interface TokenBucketOpts { refillPerSec: number; clock?: () => number; }
 export interface TokenBucket { acquire(): Promise<void>; }
 export function createTokenBucket(opts: TokenBucketOpts): TokenBucket;
 ```
 
-`createPokepasteClient` constructs `createTokenBucket({ capacity: 1, refillPerSec: 2 })`; the labmaus client constructs `createTokenBucket({ capacity: 1, refillPerSec: 1 })`. **Each client has its own bucket instance — no shared state. This is the correct shape for "separate throttle bucket per host" because the two clients are constructed once each per process and their buckets do not interact.** Verified by T22 which exercises both buckets in the same test process.
+`createPokepasteClient` constructs `createTokenBucket({ refillPerSec: 2 })`; the labmaus client constructs `createTokenBucket({ refillPerSec: 1 })`. **Each client has its own bucket instance — no shared state. This is the correct shape for "separate throttle bucket per host" because the two clients are constructed once each per process and their buckets do not interact.** Verified by T22 which exercises both buckets in the same test process.
 
 Alternative considered: a global `Map<host, TokenBucket>`. Rejected — over-engineers for two known hosts, and the two clients already have separate constructor sites where the literal RPS value documents itself.
 
@@ -726,9 +742,15 @@ for (const team of detail.teams) {
       });
       continue;
     }
-    // Unknown species → fail loud (consistency with labmaus species-map policy).
-    if (e instanceof PokepasteUnknownSpeciesError) throw e;
-    // Anything else is also fail-loud.
+    // Stage 6 deviation (b9a8d98 / review §7.a + §7.i):
+    // Unknown species → log-and-continue (was: fail loud).
+    if (e instanceof PokepasteUnknownSpeciesError) {
+      runSummary.unknown_species.push({ team_id: team.id, paste_id, species: e.species });
+      continue;
+    }
+    // Note: PokepasteParseError and PokepasteNetworkError preserve the
+    // message string but lose the cause chain (review §7.i — deferred).
+    // Anything else is fail-loud (programmer-bug class).
     throw e;
   }
 }
@@ -738,6 +760,17 @@ for (const team of detail.teams) {
 
 Inherits `--mode`, `--from`, `--to`, `--db`, `--no-network` from labmaus. New flag:
 - `--skip-pokepaste` — bypass the pokepaste hook entirely (useful for labmaus-only re-runs while pokepaste schema is in flux).
+
+**Stage 6 deviation (19627b9 / review §7.d):** cache directory paths
+moved from argv flags to env vars — `LABMAUS_CACHE_DIR` and
+`POKEPASTE_CACHE_DIR`. The argv flags `--labmaus-cache` /
+`--pokepaste-cache` originally proposed were replaced; tests stub the
+vars via `vi.stubEnv`.
+
+**Stage 6 deviation (ca91e03 / review §7.e):** the per-tournament
+loop's `tournaments.exists` skip-existing check short-circuits **before**
+the pokepaste hook fires. Steady-state re-run cost is now `O(skipped)`
+DB lookups, not `O(skipped × teams)` pokepaste cache reads.
 
 ### Parallelism
 
@@ -807,3 +840,63 @@ Answer: Cap at 50, sorted by placement and completeness.
 
 **Flow-doc gap uncovered:** flow §2.5 specifies `completeness = "minimal"` requires `species + item + ability + moves`, but doesn't say what happens if `moves.length === 0` (a real edge case in the synthetic edge-cases fixture). Strict reading: "moves" is required → empty list fails. Plan as written: `moves.length === 0` drops the set below `minimal`, so the transform throws `PokepasteParseError` and the team is skipped. T17 asserts this. Calling out for explicit confirmation before Stage 5.
 Answer: Yes, `moves.length === 0` fails minimal completeness and causes a parse error. This is consistent with the intended semantics of "minimal" and is explicitly asserted by T17.
+
+---
+
+## 18. Cross-slice note (2026-05-05): single source of truth for species attribution
+
+The labmaus-tournaments slice originally maintained its own
+`species_alias_labmaus` ref table to translate labmaus dex ids (`"038-a"`,
+`"902"`, `"479-w"`) into canonical roster ids. After the labmaus slice's
+post-ship simplification (`docs/plans/labmaus-tournaments.md` §18.5), that
+table — and the entire labmaus-side species mapping — is gone. **Pokepaste
+is now the sole source of canonical species attribution.** The pokepaste
+parser yields Showdown species names that match our roster ids directly;
+`team_sets.species_roster_id` is the only authoritative roster-id column
+for tournament team composition.
+
+Implications for this slice:
+
+- The `species_roster_id` resolution path (parser → roster lookup) is
+  load-bearing for downstream queries (`tournaments.usage`,
+  `tournaments.teams_with`) — those queries now read from `team_sets`
+  exclusively for species data.
+- A pokepaste 404 (or any failed paste fetch) leaves a tournament team
+  with `tournament_team_species (slot, labmaus_id)` and a
+  `tournament_teams.team_url` but **no canonical roster_id**. That is the
+  acceptable failure mode the labmaus simplification took on; this slice
+  is responsible for shrinking that failure window over time (better
+  retry policy, alternate sources, etc.).
+- Reject-and-fail (§8.1) on a parser failure remains correct — silently
+  fabricating roster ids would corrupt the keyspace shared with `usage`.
+
+---
+
+## 19. Stage 6 outcomes (2026-05-06)
+
+### 19.1 Review summary
+
+Full review report at [`docs/reviews/pokepaste-sets.md`](../reviews/pokepaste-sets.md). Verdict: ship-after-blockers. One blocker (agent tools never wired), six majors, four minors/nits, five deferrals. The user folded three minors (items 8–10) into the apply batch alongside the seven from the suggested batch; deferrals annotated inline with `// TODO(stage6-deferred):`.
+
+### 19.2 Applied fixes (commit `refactor: apply review — pokepaste-sets`)
+
+1. **Agent tools wired.** `pokepasteFetchPasteTool`, `setsListTool`, `setsGetTool`, `setsUsageTool` appended to `ROSTER_TOOL_DEFINITIONS` in `src/db/tool-definitions.ts` with full JSON-Schema descriptions per CLAUDE.md §8 / §9. `tests/data/tool-definitions.test.ts` NAME_PATTERN extended to accept `pokepaste_*` / `sets_*` and the four new names asserted.
+2. **`SPEC.md` authored** per plan §4.3 nine sections — Inputs, Outputs, Edge cases, Cache + throttle, Error matrix, Citation rules, Reg M-A hygiene, Reject-and-fail validation contract, Out-of-scope.
+3. **Stale `ingest-labmaus.ts` comment fixed** (lines around 351) to match the b9a8d98 log-and-continue contract.
+4. **Plan §19 added** (this section); deviations a–i patched into their natural sections (§3 PokepasteSourceSchema, §2 transform module, §4.3 mark DONE, §4.2 tools wired note, §8 row 6, §9 reuse audit, §10 T40, §10 footer T36, §12 throttle sketch, §13 argv handling).
+5. **Redundant `sets.list().length > 0` guard removed** from `pokepaste-hook.ts` — `ON CONFLICT DO NOTHING` + skip-existing handle idempotency.
+6. **`capacity` field removed** from `TokenBucketOpts` in `src/tools/_shared/throttle.ts`; both call sites updated.
+7. **`ivsCopy` no longer invents 31s** — partial IVs return `null` for the entire spread (citation discipline; calc layer fills 31s downstream regardless).
+8. **`schema_version` removed** from `PokepasteSourceSchema` (entity-level version on `TeamSetSchema` is sufficient). Test fixtures updated.
+9. **TSDoc "When to use it"** added to `extractPasteId` (`transformPaste` already had it).
+10. **`rowToTeamSet` uses `parseOrThrow`** (consistency with labmaus + roster repos).
+
+### 19.3 Deferrals (annotated as inline `// TODO(stage6-deferred):` comments)
+
+| # | Concern | Inline anchor | Belongs in |
+|---|---|---|---|
+| 1 | Cache-envelope `fetchedAt` flow-through to `TeamSet.source.fetched_at` (today the timestamp is freshly minted at `fetchPaste` time even on cache hits — correct by accident due to `ON CONFLICT DO NOTHING`) | `src/tools/pokepaste/transform.ts` (the `fetched_at:` line in the `source` block) | Cache-hardening slice or alongside Victory Road's second non-content-addressed cache consumer |
+| 2 | Multi-species `SetsListFilter.species_roster_id` (currently single-species only) | `src/db/sets.ts` `species_roster_id` filter branch | Lead-planner slice when the consumer arrives |
+| 3 | Replace `fakeFetch404` in `--no-network` with real cache-driven replay (current stub silently serves 404 on cache miss) | `scripts/data/ingest-labmaus.ts` near `fakeFetch404` | Ingest-hardening slice (same bucket as labmaus review finding 10) |
+| 4 | `sets.usage` `display_label` joins through canonical-id moves repo (today equals `key` verbatim) | `src/db/sets.ts` `display_label:` field in the row mapper | When canonical-id moves repo lookup lands |
+| 5 | Convert `sets.usage` raw SQL to Drizzle query builder (today raw-SQL with json_each + dynamic group column) | `src/db/sets.ts` above the `WITH scoped AS (...)` SQL string | When the `usage` signature stabilizes |

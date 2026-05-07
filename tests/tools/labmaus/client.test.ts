@@ -1,0 +1,175 @@
+/**
+ * Tests T19–T24 for the `LabmausClient`. Stage 4: tests fail at assertion time
+ * because every client method throws "not implemented (Stage 5)".
+ */
+
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createLabmausClient } from "../../../src/tools/labmaus/client";
+import { LabmausNetworkError } from "../../../src/schemas/errors";
+
+function tmpCacheDir(): string {
+  return mkdtempSync(join(tmpdir(), "labmaus-cache-"));
+}
+
+describe("LabmausClient", () => {
+  afterEach(() => {
+    // Defensive: in case a test leaves fake timers installed.
+    vi.useRealTimers();
+  });
+  it("T19. listCompletedTournaments URL-encodes regulation correctly", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify([]), { status: 200 }),
+    ) as unknown as typeof fetch;
+    const client = createLabmausClient({
+      cacheDir: tmpCacheDir(),
+      cacheTtlMs: 60_000,
+      throttleRps: 1,
+      maxRetries: 0,
+      backoffBaseMs: 1,
+      fetchImpl,
+    });
+    await client.listCompletedTournaments({
+      regulation: "Regulation Set M-A",
+      from: "2026-04-06",
+      to: "2026-05-04",
+    });
+    const fn = fetchImpl as unknown as ReturnType<typeof vi.fn>;
+    expect(fn).toHaveBeenCalledTimes(1);
+    const calledUrl = String(fn.mock.calls[0]?.[0]);
+    // Either '+' or '%20' for spaces is acceptable; key invariant is that the
+    // regulation string is correctly URL-encoded (no raw spaces).
+    expect(calledUrl).toMatch(/regulation=Regulation(\+|%20)Set(\+|%20)M-A/);
+    expect(calledUrl).not.toMatch(/regulation=Regulation Set M-A/);
+  });
+
+  it("T20. client throttles to 1 rps", async () => {
+    // After three back-to-back calls at 1 rps, the throttle must schedule at
+    // least two real `setTimeout` waits (one for the 2nd call, one for the
+    // 3rd) each ≈1000ms. We use fake timers so the test runs synchronously,
+    // and spy on `setTimeout` to observe the requested delays.
+    vi.useFakeTimers();
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    try {
+      const fetchImpl = vi.fn(async () =>
+        new Response(JSON.stringify([]), { status: 200 }),
+      ) as unknown as typeof fetch;
+      const client = createLabmausClient({
+        cacheDir: tmpCacheDir(),
+        cacheTtlMs: 0,
+        throttleRps: 1,
+        maxRetries: 0,
+        backoffBaseMs: 1,
+        fetchImpl,
+      });
+      const promise = (async (): Promise<void> => {
+        await client.listCompletedTournaments({ regulation: "x", from: "2026-04-06", to: "2026-04-07" });
+        await client.listCompletedTournaments({ regulation: "x", from: "2026-04-06", to: "2026-04-07" });
+        await client.listCompletedTournaments({ regulation: "x", from: "2026-04-06", to: "2026-04-07" });
+      })();
+      // Drain any scheduled timers (the throttle's setTimeout calls).
+      await vi.runAllTimersAsync();
+      await promise;
+
+      // The throttle must have scheduled at least two waits ≥ ~1000ms.
+      const throttleDelays = setTimeoutSpy.mock.calls
+        .map((c) => Number(c[1] ?? 0))
+        .filter((ms) => ms >= 900);
+      expect(throttleDelays.length).toBeGreaterThanOrEqual(2);
+    } finally {
+      setTimeoutSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("T21. client retries 429 with exponential backoff", async () => {
+    let attempts = 0;
+    const fetchImpl = vi.fn(async () => {
+      attempts++;
+      if (attempts < 3) return new Response("rate", { status: 429 });
+      return new Response(JSON.stringify({}), { status: 200 });
+    }) as unknown as typeof fetch;
+    const client = createLabmausClient({
+      cacheDir: tmpCacheDir(),
+      cacheTtlMs: 0,
+      throttleRps: 100,
+      maxRetries: 3,
+      backoffBaseMs: 1,
+      fetchImpl,
+    });
+    await client.getTournament({ id: 56757 });
+    expect(attempts).toBe(3);
+  });
+
+  it("T22. client surrenders after maxRetries on 5xx", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response("boom", { status: 503 }),
+    ) as unknown as typeof fetch;
+    const client = createLabmausClient({
+      cacheDir: tmpCacheDir(),
+      cacheTtlMs: 0,
+      throttleRps: 100,
+      maxRetries: 2,
+      backoffBaseMs: 1,
+      fetchImpl,
+    });
+    let thrown: unknown;
+    try {
+      await client.getTournament({ id: 56757 });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(LabmausNetworkError);
+  });
+
+  it("T23. client reads from disk cache when fresh", async () => {
+    const dir = tmpCacheDir();
+    // Pre-seed a cache file with the "expected" payload. The exact key shape is
+    // a Stage-5 implementation detail; the test asserts behavior: when a fresh
+    // cache hit exists, fetch must NOT be called.
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    // The shared file-cache sanitizes keys: `tournament/56757` →
+    // `tournament_56757.json`. Body is JSON-stringified inside the envelope.
+    writeFileSync(
+      join(dir, "tournament_56757.json"),
+      JSON.stringify({
+        fetchedAt: new Date().toISOString(),
+        body: JSON.stringify({ overview: { id: 56757 } }),
+      }),
+    );
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    const client = createLabmausClient({
+      cacheDir: dir,
+      cacheTtlMs: 24 * 60 * 60 * 1000,
+      throttleRps: 1,
+      maxRetries: 0,
+      backoffBaseMs: 1,
+      fetchImpl,
+    });
+    const out = await client.getTournament({ id: 56757 });
+    expect((out as { overview?: { id?: number } }).overview?.id).toBe(56757);
+    expect((fetchImpl as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it("T24. client writes to disk cache after fetch", async () => {
+    const dir = tmpCacheDir();
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ overview: { id: 56757 } }), { status: 200 }),
+    ) as unknown as typeof fetch;
+    const client = createLabmausClient({
+      cacheDir: dir,
+      cacheTtlMs: 24 * 60 * 60 * 1000,
+      throttleRps: 100,
+      maxRetries: 0,
+      backoffBaseMs: 1,
+      fetchImpl,
+    });
+    await client.getTournament({ id: 56757 });
+    // After Stage 5 wires the cache, *some* file should appear in the dir.
+    const { readdirSync } = await import("node:fs");
+    const files = readdirSync(dir);
+    expect(files.length).toBeGreaterThan(0);
+  });
+});

@@ -1,0 +1,7 @@
+Kingambit @ Black Glasses
+Level: 50
+Tera Type: None
+- Kowtow Cleave
+- Sucker Punch
+- Iron Head
+- Protect

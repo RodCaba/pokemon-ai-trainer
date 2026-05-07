@@ -11,6 +11,9 @@ importers:
       '@pkmn/dex':
         specifier: ^0.10.7
         version: 0.10.7
+      '@pkmn/sets':
+        specifier: ^5.2.0
+        version: 5.2.0
       '@smogon/calc':
         specifier: git+https://github.com/RodCaba/damage-calc.git#c1f6bc0fa2e0ee068b9e3061fa68b7db307e6c55&path:/calc
         version: https://codeload.github.com/RodCaba/damage-calc/tar.gz/c1f6bc0fa2e0ee068b9e3061fa68b7db307e6c55#path:/calc
@@ -659,6 +662,9 @@ packages:
 
   '@pkmn/dex@0.10.7':
     resolution: {integrity: sha512-W2/92PNtEP8h/2nIPH1v7qCiiKb9r4JUybv46yo3nxXVZehs3gFR4h/TKK1sopJpLBFul1VSRCTpCdhQx5gLag==}
+
+  '@pkmn/sets@5.2.0':
+    resolution: {integrity: sha512-WHAW6bZu0WCo/3b+LTW7BE0fBhYZnWH1lCXIu2an8/wTiZ/+s1eTcQYj7W/YQKxWT5dm/La03AZ6CeqdJip9CQ==}
 
   '@pkmn/types@4.0.0':
     resolution: {integrity: sha512-gR2s/pxJYEegek1TtsYCQupNR3d5hMlcJFsiD+2LyfKr4tc+gETTql47tWLX5mFSbPcbXh7f4+7txlMIDoZx/g==}
@@ -1869,6 +1875,10 @@ snapshots:
   '@pkmn/dex@0.10.7':
     dependencies:
       '@pkmn/dex-types': 0.10.7
+
+  '@pkmn/sets@5.2.0':
+    dependencies:
+      '@pkmn/types': 4.0.0
 
   '@pkmn/types@4.0.0': {}
 

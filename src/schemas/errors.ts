@@ -91,6 +91,111 @@ export class RosterDbError extends RosterError {}
  *
  * `message` always starts with `"v1 stub:"` so callers and reviewers can grep for it.
  */
+/**
+ * Base class for every error thrown by the labmaus tool family
+ * (`labmaus.listTournaments`, `labmaus.getTournament`, species-map, transform).
+ *
+ * Carries `.cause` and `.query` like {@link RosterError}; storage-layer issues
+ * inside the labmaus repos still throw {@link RosterDbError}/{@link RosterDataError}.
+ *
+ * **When to use it:** as a `try { ... } catch (e) { if (e instanceof LabmausError) ... }`
+ * type guard for "anything went wrong with labmaus ingest." For specific cases catch the
+ * concrete subclass.
+ */
+export class LabmausError extends Error {
+  override readonly cause?: unknown;
+  readonly query?: unknown;
+  constructor(msg: string, opts?: { cause?: unknown; query?: unknown }) {
+    super(msg);
+    this.name = this.constructor.name;
+    this.cause = opts?.cause;
+    this.query = opts?.query;
+  }
+}
+
+/** Tool-input zod failure (bad date range, wrong regulation, etc.). */
+export class LabmausInputError extends LabmausError {}
+/** HTTP non-2xx after retries exhausted, DNS, timeout. */
+export class LabmausNetworkError extends LabmausError {}
+/** Raw labmaus response failed `LabmausRawTournamentSchema` (upstream drift). */
+export class LabmausSchemaError extends LabmausError {}
+/** A labmaus species id has no roster mapping. Carries the offending id in `.query`. */
+export class LabmausUnknownSpeciesError extends LabmausError {}
+
+/**
+ * Base class for every error thrown by the pokepaste tool family
+ * (`pokepaste.fetchPaste`, transform, client). Carries `.cause` and
+ * optional `.paste_id` so callers and tests can grep for the offending
+ * paste without `.message` string-sniffing.
+ */
+export class PokepasteError extends Error {
+  override readonly cause?: unknown;
+  readonly paste_id?: string;
+  constructor(msg: string, opts?: { cause?: unknown; paste_id?: string }) {
+    super(msg);
+    this.name = this.constructor.name;
+    this.cause = opts?.cause;
+    this.paste_id = opts?.paste_id;
+  }
+}
+
+/** Tool-input zod failure (malformed paste id, etc.). */
+export class PokepasteInputError extends PokepasteError {}
+
+/** HTTP non-2xx (other than 404) after retries; DNS / timeout. */
+export class PokepasteNetworkError extends PokepasteError {
+  readonly status?: number;
+  constructor(msg: string, opts?: { cause?: unknown; paste_id?: string; status?: number }) {
+    super(msg, opts);
+    this.status = opts?.status;
+  }
+}
+
+/** HTTP 404 — paste not found / deleted. */
+export class PokepasteNotFoundError extends PokepasteError {}
+
+/**
+ * The Showdown export was unparseable (`@pkmn/sets` returned `undefined`,
+ * `.team.length === 0`, or completeness fell below `"minimal"`).
+ */
+export class PokepasteParseError extends PokepasteError {}
+
+/**
+ * An unknown item / ability / move encountered while validating against the
+ * Champions ref tables. Reject-and-fail per `docs/plans/pokepaste-sets.md`
+ * §8.1 — the transform throws and refuses to produce partial output. The
+ * ingest hook catches this per-team and continues.
+ */
+export class PokepasteRefValidationError extends PokepasteError {
+  readonly kind: "item" | "ability" | "move";
+  readonly value: string;
+  readonly slot: number;
+  constructor(
+    msg: string,
+    opts: {
+      cause?: unknown;
+      paste_id?: string;
+      kind: "item" | "ability" | "move";
+      value: string;
+      slot: number;
+    },
+  ) {
+    super(msg, opts);
+    this.kind = opts.kind;
+    this.value = opts.value;
+    this.slot = opts.slot;
+  }
+}
+
+/** A species name parsed out of the paste isn't in the Champions roster. */
+export class PokepasteUnknownSpeciesError extends PokepasteError {
+  readonly species: string;
+  constructor(msg: string, opts: { cause?: unknown; paste_id?: string; species: string }) {
+    super(msg, opts);
+    this.species = opts.species;
+  }
+}
+
 export class NotImplementedError extends Error {
   constructor(method: string) {
     super(`v1 stub: ${method} is not yet implemented; vector tier lands in a later milestone`);

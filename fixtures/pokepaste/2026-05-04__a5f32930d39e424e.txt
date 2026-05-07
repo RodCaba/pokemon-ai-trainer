@@ -1,0 +1,53 @@
+Mega Floette @ Floettite
+Ability: Flower Veil
+Level: 50
+Tera Type: None
+- Light of Ruin
+- Moonblast
+- Dazzling Gleam
+- Protect
+
+Delphox @ Delphoxite
+Ability: Blaze
+Level: 50
+Tera Type: None
+- Heat Wave
+- Psyshock
+- Substitute
+- Protect
+
+Basculegion @ Choice Scarf
+Ability: Adaptability
+Level: 50
+Tera Type: None
+- Wave Crash
+- Last Respects
+- Flip Turn
+- Aqua Jet
+
+Kingambit @ Black Glasses
+Ability: Defiant
+Level: 50
+Tera Type: None
+- Kowtow Cleave
+- Low Kick
+- Sucker Punch
+- Protect
+
+Sneasler @ White Herb
+Ability: Unburden
+Level: 50
+Tera Type: None
+- Close Combat
+- Dire Claw
+- Fake Out
+- Protect
+
+Aerodactyl @ Focus Sash
+Ability: Unnerve
+Level: 50
+Tera Type: None
+- Rock Slide
+- Dual Wingbeat
+- Tailwind
+- Protect

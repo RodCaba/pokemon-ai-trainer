@@ -8,6 +8,34 @@
       "when": 1777928310839,
       "tag": "0000_square_meltdown",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1777943826974,
+      "tag": "0001_secret_princess_powerful",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1777949782527,
+      "tag": "0002_dry_tony_stark",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1778021421847,
+      "tag": "0003_clean_korvac",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1778023952596,
+      "tag": "0004_nebulous_killmonger",
+      "breakpoints": true
     }
   ]
 }

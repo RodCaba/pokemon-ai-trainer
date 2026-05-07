@@ -173,6 +173,152 @@ export const abilities = sqliteTable(
   ],
 );
 
+// ---------------------------------------------------------------------------
+// labmaus-tournaments slice (Stage 4 stubs — additive)
+// ---------------------------------------------------------------------------
+
+export const tournaments = sqliteTable(
+  "tournaments",
+  {
+    id: text("id").primaryKey(), // "labmaus:56757"
+    externalId: integer("external_id").notNull(),
+    tournamentCode: text("tournament_code"),
+    name: text("name").notNull(),
+    organizer: text("organizer"),
+    format: text("format").notNull(),
+    division: text("division").notNull(),
+    status: text("status").notNull(),
+    date: text("date").notNull(),
+    numPlayers: integer("num_players").notNull(),
+    numPhase2: integer("num_phase_2"),
+    sourceSite: text("source_site").notNull(),
+    sourceSiteSource: text("source_site_source"),
+    sourceUrl: text("source_url").notNull(),
+    fetchedAt: text("fetched_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("tournaments_site_external_uq").on(t.sourceSite, t.externalId),
+    check("tournaments_format_regma", sql`${t.format} = 'RegM-A'`),
+    check("tournaments_division_valid", sql`${t.division} IN ('Masters','Seniors','Juniors')`),
+    check("tournaments_status_valid", sql`${t.status} IN ('official','unofficial')`),
+    index("idx_tournaments_format_date").on(t.format, t.date),
+  ],
+);
+
+export const tournamentTeams = sqliteTable(
+  "tournament_teams",
+  {
+    id: text("id").primaryKey(), // "labmaus:56757:244471"
+    tournamentId: text("tournament_id")
+      .notNull()
+      .references(() => tournaments.id, { onDelete: "cascade" }),
+    externalTeamId: integer("external_team_id").notNull(),
+    player: text("player").notNull(),
+    playerKey: text("player_key").notNull(),
+    country: text("country"),
+    placement: integer("placement"),
+    record: text("record").notNull(),
+    teamUrl: text("team_url").notNull(),
+    fetchedAt: text("fetched_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("tournament_teams_tournament_external_uq").on(t.tournamentId, t.externalTeamId),
+    index("idx_tournament_teams_tournament_placement").on(t.tournamentId, t.placement),
+    index("idx_tournament_teams_player_key").on(t.playerKey),
+    check("tournament_teams_country_iso2", sql`${t.country} IS NULL OR length(${t.country}) = 2`),
+    check("tournament_teams_placement_positive", sql`${t.placement} IS NULL OR ${t.placement} > 0`),
+  ],
+);
+
+export const tournamentTeamSpecies = sqliteTable(
+  "tournament_team_species",
+  {
+    teamId: text("team_id")
+      .notNull()
+      .references(() => tournamentTeams.id, { onDelete: "cascade" }),
+    slot: integer("slot").notNull(),
+    labmausId: text("labmaus_id").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.teamId, t.slot] }),
+    check("tournament_team_species_slot_range", sql`${t.slot} BETWEEN 0 AND 5`),
+  ],
+);
+
+/**
+ * `team_sets` — owned by the `pokepaste-sets` slice (see
+ * `docs/plans/pokepaste-sets.md` §5). One row per (tournament_team, slot)
+ * with the parsed Showdown export from the team's pokepaste link. Adds
+ * full CHECK constraints, FKs, and additional indexes on top of the
+ * labmaus-side stub from migration 0003.
+ */
+export const teamSets = sqliteTable(
+  "team_sets",
+  {
+    tournamentTeamId: text("tournament_team_id")
+      .notNull()
+      .references(() => tournamentTeams.id, { onDelete: "cascade" }),
+    slot: integer("slot").notNull(),
+    speciesRosterId: text("species_roster_id")
+      .notNull()
+      .references(() => species.id),
+    item: text("item"),
+    ability: text("ability"),
+    level: integer("level"),
+    movesJson: text("moves_json").notNull(), // JSON array (≤4 moves)
+    spsJson: text("sps_json"), // JSON object {hp,atk,...} or NULL
+    ivsJson: text("ivs_json"), // JSON object or NULL
+    nature: text("nature"),
+    completeness: text("completeness").notNull(),
+    sourceSite: text("source_site").notNull(),
+    sourcePasteId: text("source_paste_id").notNull(),
+    sourceUrl: text("source_url").notNull(),
+    fetchedAt: text("fetched_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tournamentTeamId, t.slot] }),
+    check("team_sets_slot_range", sql`${t.slot} BETWEEN 0 AND 5`),
+    check(
+      "team_sets_completeness_valid",
+      sql`${t.completeness} IN ('minimal','partial','full')`,
+    ),
+    check(
+      "team_sets_source_site_pokepaste",
+      sql`${t.sourceSite} = 'pokepaste'`,
+    ),
+    check(
+      "team_sets_level_range",
+      sql`${t.level} IS NULL OR (${t.level} BETWEEN 1 AND 100)`,
+    ),
+    check(
+      "team_sets_moves_len",
+      sql`json_array_length(${t.movesJson}) BETWEEN 0 AND 4`,
+    ),
+    check(
+      "team_sets_sps_total_le_66",
+      sql`${t.spsJson} IS NULL OR
+          (json_extract(${t.spsJson},'$.hp')+json_extract(${t.spsJson},'$.atk')
+          +json_extract(${t.spsJson},'$.def')+json_extract(${t.spsJson},'$.spa')
+          +json_extract(${t.spsJson},'$.spd')+json_extract(${t.spsJson},'$.spe')) <= 66`,
+    ),
+    check(
+      "team_sets_sps_per_stat_le_32",
+      sql`${t.spsJson} IS NULL OR (
+        json_extract(${t.spsJson},'$.hp')  <= 32 AND
+        json_extract(${t.spsJson},'$.atk') <= 32 AND
+        json_extract(${t.spsJson},'$.def') <= 32 AND
+        json_extract(${t.spsJson},'$.spa') <= 32 AND
+        json_extract(${t.spsJson},'$.spd') <= 32 AND
+        json_extract(${t.spsJson},'$.spe') <= 32
+      )`,
+    ),
+    index("idx_team_sets_species").on(t.speciesRosterId),
+    index("idx_team_sets_item").on(t.item),
+    index("idx_team_sets_ability").on(t.ability),
+    index("idx_team_sets_paste_id").on(t.sourcePasteId),
+  ],
+);
+
 export const moves = sqliteTable(
   "moves",
   {
