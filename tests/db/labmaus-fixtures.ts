@@ -1,3 +1,4 @@
+// TODO(stage6-deferred): rename to db-test-fixtures.ts when a fourth consumer arrives
 /**
  * Test helpers for labmaus DB tests. Builds an in-memory SQLite seeded with
  * the roster's species set covering every labmaus dex-id present in the
@@ -19,11 +20,15 @@ import {
   species,
   speciesStats,
   speciesAbilities,
+  rosterMembership,
 } from "../../src/db/drizzle-schema";
 
 const SRC_REF = JSON.stringify({
-  origin: "test fixture",
+  stats_source: "test fixture",
+  movepool_source: "test fixture",
+  abilities_source: "test fixture",
   fetched_at: "2026-05-04T00:00:00Z",
+  engine_sha: "0".repeat(40),
 });
 
 /**
@@ -162,6 +167,13 @@ const COMBINED_SEED: Array<{ labmausId: string; rosterId: string; display: strin
   { labmausId: "970", rosterId: "glimmora", display: "Glimmora" },
   { labmausId: "981", rosterId: "farigiraf", display: "Farigiraf" },
   { labmausId: "983", rosterId: "kingambit", display: "Kingambit" },
+  // Pikalytics-only species used by transform-roster-resolution tests.
+  // Pikalytics emits gender-neutral display names; the labmaus dex uses
+  // gender-suffixed ones. These extra rows give the format-agnostic display
+  // name a hit. Labmaus ids are synthetic (no labmaus fixture references them).
+  { labmausId: "006-my", rosterId: "charizardmegay", display: "Charizard-Mega-Y" },
+  { labmausId: "670-m", rosterId: "floettemega", display: "Floette-Mega" },
+  { labmausId: "902-x", rosterId: "basculegion", display: "Basculegion" },
 ];
 
 /**
@@ -201,6 +213,17 @@ export function seedLabmausDb(): Db {
         .run();
       db.insert(speciesAbilities)
         .values({ speciesId: sp.rosterId, slot: "0", abilityName: "Pressure" })
+        .run();
+      // Roster membership — required for `roster.has` / `roster.get` lookups
+      // (which INNER JOIN rosterMembership). Without these rows the seeded
+      // species are invisible to the format-aware roster repo.
+      db.insert(rosterMembership)
+        .values({
+          speciesId: sp.rosterId,
+          format: "RegM-A",
+          isMega: 0,
+          isLegal: 1,
+        })
         .run();
     }
   })();

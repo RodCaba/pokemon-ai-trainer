@@ -196,6 +196,56 @@ export class PokepasteUnknownSpeciesError extends PokepasteError {
   }
 }
 
+/**
+ * Base class for every error thrown by the pikalytics tool family
+ * (`pikalytics.fetchSpecies`, `pikalytics.{get,teammates,usage}`, parse,
+ * transform, client). Carries `.cause` and optional `.species_roster_id`.
+ *
+ * **When to use it:** as a `try { ... } catch (e) { if (e instanceof PikalyticsError) ... }`
+ * type guard for "anything went wrong with pikalytics ingest." For specific cases
+ * catch the concrete subclass.
+ */
+export class PikalyticsError extends Error {
+  override readonly cause?: unknown;
+  readonly species_roster_id?: string;
+  constructor(msg: string, opts?: { cause?: unknown; species_roster_id?: string }) {
+    super(msg);
+    this.name = this.constructor.name;
+    this.cause = opts?.cause;
+    this.species_roster_id = opts?.species_roster_id;
+  }
+}
+
+/** Tool-input zod failure (unknown roster id, bad limit, etc.). */
+export class PikalyticsInputError extends PikalyticsError {}
+
+/** HTTP non-2xx (other than 404) after retries; DNS / timeout. */
+export class PikalyticsNetworkError extends PikalyticsError {
+  readonly status?: number;
+  constructor(
+    msg: string,
+    opts?: { cause?: unknown; species_roster_id?: string; status?: number },
+  ) {
+    super(msg, opts);
+    this.status = opts?.status;
+  }
+}
+
+/** HTTP 404 — species not in pikalytics's coverage for this format. */
+export class PikalyticsNotFoundError extends PikalyticsError {}
+
+/**
+ * Markdown parser couldn't extract the required `as_of` (or other strict
+ * sections). Optional sections missing are NOT errors.
+ */
+export class PikalyticsParseError extends PikalyticsError {}
+
+/**
+ * Defense-in-depth: a `tera_*`-named key surfaced in the parsed structure or
+ * assembled snapshot. **Programmer-bug class — fail loud.**
+ */
+export class PikalyticsTeraLeakError extends PikalyticsError {}
+
 export class NotImplementedError extends Error {
   constructor(method: string) {
     super(`v1 stub: ${method} is not yet implemented; vector tier lands in a later milestone`);
