@@ -907,3 +907,26 @@ Originally `scripts/data/build-reg-m-a.ts` did `unlink + write tmp + atomic rena
 - `species`: **UPSERT** (`ON CONFLICT(id) DO UPDATE`). `team_sets.species_roster_id` references it, so a DELETE would either cascade-block or strand production data. Stale species rows (a name no longer in Champions) stay in place — removing one is a manual op that warrants review.
 
 `PRAGMA journal_mode=DELETE; VACUUM;` still runs at the end. The from-scratch determinism guarantee survives at the byte level (existing `tests/data/determinism.test.ts` cases 1–4 use fresh tmp paths). When labmaus rows are present, page-layout interleaving means raw bytes can shift between rebuilds; the new test cases 5–6 cover the post-refactor contract: labmaus rows survive, and category A row content is logically identical across rebuilds.
+
+### 19.2 Ingest is skip-existing, not upsert
+
+The original `upsertTournament` used `ON CONFLICT(id) DO UPDATE SET …` for the parent row and `DELETE + INSERT` for the children, on the theory that re-fetching might pick up corrections labmaus had made post-publication. In practice tournaments are conceptually finalized once published; labmaus rarely edits them retroactively, and even when it does, our captured-as-of-first-sight snapshot is the version we already have citations against.
+
+**Refactor:** captured-as-of-first-sight, two-layer.
+
+1. **Outer guard (script level).** `scripts/data/ingest-labmaus.ts` calls a new `tournaments.exists(db, "labmaus:<id>")` probe before issuing the per-tournament `getTournament` HTTP fetch. If the id is already in the DB, the entire per-tournament path is skipped — no HTTP fetch, no upsert, no cross-check, no pokepaste fan-out (the hook's existing `sets.list(...).length > 0` guard would no-op anyway). A new `skipped_existing` counter surfaces in the JSON summary line so the operator can see how many tournaments were already known. Steady-state re-runs should report `tournaments: 0, skipped_existing: N`.
+
+2. **Inner conflict clause (DB level).** All three insert paths in `upsertTournament` and the single insert in `upsertTeamSets` switched from `DO UPDATE` to `ON CONFLICT … DO NOTHING`. With the outer guard in place, the conflict path is belt-and-braces — only fires under concurrent runs or unexpected re-encounters. First-write wins; finalized rows are never silently overwritten.
+
+**Performance.** On a steady-state re-ingest of the existing 42 tournaments, the labmaus client's `getTournament` is now invoked **0 times** (was 42 times, all cache-hits but still serialized through the throttle). The cross-check pass and the pokepaste fan-out are likewise skipped wholesale. The skipped path uses one PK-only `SELECT 1 FROM tournaments WHERE id = ?` per summary row.
+
+**Failure-mode trade-off.** A genuinely-corrected tournament on labmaus's side now requires a manual delete-and-reingest (or a future `--force` flag) to refresh in our DB. Acceptable: corrections are rare, and the alternative — silently overwriting finalized rows on every run — is worse for the cited-evidence audit trail this codebase is built around.
+
+**Tests touched.**
+
+- `tests/scripts/ingest-labmaus-pokepaste-wired.test.ts:T42c` (new) — pre-seeds `tournaments` with a sentinel `name`, runs `--no-network` ingest with the cache populated, asserts the sentinel survives, no children rows inserted, and `skipped_existing: 1` in the JSON summary.
+- `tests/db/tournaments.test.ts:T29/T30` (unchanged) — assert post-call row counts only; DO NOTHING preserves their behavior.
+- `tests/db/sets.test.ts:T29/T30` (unchanged) — same reasoning.
+- `tests/scripts/ingest-pokepaste-idempotency.test.ts:T41` (unchanged) — relies on the hook's outer `sets.list` guard, untouched here.
+
+No existing test asserted DO UPDATE semantics directly (i.e., that a re-upsert with changed fields propagates the new fields). If such a test had existed it would have needed inversion; none did, so the change is purely additive.

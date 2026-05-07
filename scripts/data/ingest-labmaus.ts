@@ -264,7 +264,16 @@ export async function main(argv: string[]): Promise<number> {
     // TODO(stage6-deferred): argv-validation slice — add --strict-offline and
     // malformed-date validation (see docs/reviews/labmaus-tournaments.md §9).
     const chunks = chunkDateRange(parsed.from, parsed.to, 30);
-    let total = { tournaments: 0, teams: 0, species: 0, warnings: 0 };
+    let total = {
+      tournaments: 0,
+      teams: 0,
+      species: 0,
+      warnings: 0,
+      // How many summary rows were skipped because the tournament id was
+      // already in the DB (skip-existing path; see plan §19.2). Operator
+      // signal — large nonzero on a re-run is the expected steady state.
+      skipped_existing: 0,
+    };
 
     // Pokepaste wiring — per plan §13 the labmaus ingest fans out to the
     // pokepaste hook per team. Skipped under `--no-pokepaste` (operator
@@ -288,6 +297,7 @@ export async function main(argv: string[]): Promise<number> {
       pokepaste_404s: [],
       pokepaste_failures: [],
       ref_validation_failures: [],
+      unknown_species: [],
     };
 
     for (const chunk of chunks) {
@@ -312,6 +322,18 @@ export async function main(argv: string[]): Promise<number> {
       // Sequential to keep the throttle happy; the parallelism cap matters only
       // in real-network mode and the tests don't exercise it.
       for (const s of summaries) {
+        // Skip-existing: tournaments are conceptually finalized once
+        // published; labmaus rarely edits them retroactively. If the id is
+        // already in `tournaments`, skip the entire per-tournament path —
+        // no `getTournament` HTTP fetch, no upsert, no cross-check, no
+        // pokepaste fan-out (the hook's own `sets.list` guard would no-op
+        // anyway). See docs/plans/labmaus-tournaments.md §19.2.
+        const namespacedId = `labmaus:${s.id}`;
+        if (tournaments.exists(db, namespacedId)) {
+          total.skipped_existing++;
+          continue;
+        }
+
         try {
           const detail = await getTournament({ id: s.id }, { client });
           tournaments.upsertTournament(db, detail);

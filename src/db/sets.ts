@@ -225,10 +225,22 @@ export function usage(db: Db, args: SetsUsageArgs): SetsUsageRow[] {
 }
 
 /**
- * Idempotent upsert of one team's parsed sets in a single transaction.
+ * Idempotent insert of one team's parsed sets in a single transaction.
  *
  * **When to use it:** ingest-only. Re-running the labmaus pipeline
  * produces zero `team_sets` deltas.
+ *
+ * **Skip-existing semantics (2026-05-04):** uses `ON CONFLICT DO NOTHING`.
+ * Pokepaste URLs are content-addressed (the paste id is a hex hash) — the
+ * same paste id always produces the same Showdown export. A conflict on
+ * `(tournament_team_id, slot)` therefore means we already have the right
+ * rows; no point in overwriting them. The hook in `pokepaste-hook.ts` also
+ * guards with a `sets.list(...).length > 0` check before fetching, so the
+ * conflict path is belt-and-braces.
+ *
+ * Previously this function used `ON CONFLICT DO UPDATE` for every column,
+ * which would happily clobber a finalized row's parsed fields with a
+ * re-fetched copy. The new contract: first-write wins.
  *
  * @param db — Open Drizzle DB handle.
  * @param sets — All sets for one team (≤ 6 entries, unique slots).
@@ -242,20 +254,7 @@ export function upsertTeamSets(db: Db, sets: TeamSet[]): void {
           moves_json, sps_json, ivs_json, nature, completeness,
           source_site, source_paste_id, source_url, fetched_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-       ON CONFLICT(tournament_team_id, slot) DO UPDATE SET
-         species_roster_id = excluded.species_roster_id,
-         item = excluded.item,
-         ability = excluded.ability,
-         level = excluded.level,
-         moves_json = excluded.moves_json,
-         sps_json = excluded.sps_json,
-         ivs_json = excluded.ivs_json,
-         nature = excluded.nature,
-         completeness = excluded.completeness,
-         source_site = excluded.source_site,
-         source_paste_id = excluded.source_paste_id,
-         source_url = excluded.source_url,
-         fetched_at = excluded.fetched_at`,
+       ON CONFLICT(tournament_team_id, slot) DO NOTHING`,
     );
     const tx = db.$client.transaction((rows: TeamSet[]) => {
       for (const s of rows) {

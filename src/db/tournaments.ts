@@ -431,11 +431,24 @@ export function usage(db: Db, args: UsageArgs): UsageRow[] {
 }
 
 /**
- * Idempotent upsert of one transformed tournament + its teams + species rows
+ * Idempotent insert of one transformed tournament + its teams + species rows
  * inside a single transaction.
  *
- * **When to use it:** ingest-only. Two consecutive calls with the same payload
- * produce zero row deltas.
+ * **When to use it:** ingest-only. Two consecutive calls with the same
+ * payload produce zero row deltas.
+ *
+ * **Skip-existing semantics (2026-05-04):** all three insert paths use
+ * `ON CONFLICT DO NOTHING`. Tournaments are conceptually finalized once
+ * published; labmaus rarely edits them retroactively, and the labmaus ingest
+ * script's outer skip-existing guard means a known tournament id should
+ * never reach this function in practice. The DO NOTHING clause is
+ * belt-and-braces — concurrent runs or unexpected re-encounters become
+ * no-ops rather than rewrites of finalized rows.
+ *
+ * Previously this function used `ON CONFLICT DO UPDATE` for the tournament
+ * row and `DELETE + INSERT` for the children, which would happily clobber
+ * a finalized row's organizer / status / placements with a re-fetched copy.
+ * The new contract: first-write wins.
  *
  * @param db — Open Drizzle DB handle (writable).
  * @param t — Output of `transformTournament`.
@@ -444,7 +457,6 @@ export function usage(db: Db, args: UsageArgs): UsageRow[] {
 export function upsertTournament(db: Db, t: TransformedTournament): void {
   try {
     db.$client.transaction(() => {
-      // Upsert tournament
       db.insert(tournamentsTable)
         .values({
           id: t.tournament.id,
@@ -463,29 +475,8 @@ export function upsertTournament(db: Db, t: TransformedTournament): void {
           sourceUrl: t.tournament.source.source_url,
           fetchedAt: t.tournament.source.fetched_at,
         })
-        .onConflictDoUpdate({
-          target: tournamentsTable.id,
-          set: {
-            externalId: t.tournament.external_id,
-            tournamentCode: t.tournament.tournament_code,
-            name: t.tournament.name,
-            organizer: t.tournament.organizer,
-            format: t.tournament.format,
-            division: t.tournament.division,
-            status: t.tournament.status,
-            date: t.tournament.date,
-            numPlayers: t.tournament.num_players,
-            numPhase2: t.tournament.num_phase_2,
-            sourceSite: t.tournament.source.site,
-            sourceSiteSource: t.tournament.source.site_source,
-            sourceUrl: t.tournament.source.source_url,
-            fetchedAt: t.tournament.source.fetched_at,
-          },
-        })
+        .onConflictDoNothing({ target: tournamentsTable.id })
         .run();
-
-      // Wipe + reinsert teams (cascades to species). Simpler than per-team upsert.
-      db.delete(tournamentTeams).where(eq(tournamentTeams.tournamentId, t.tournament.id)).run();
 
       for (const tm of t.teams) {
         db.insert(tournamentTeams)
@@ -501,6 +492,7 @@ export function upsertTournament(db: Db, t: TransformedTournament): void {
             teamUrl: tm.team_url,
             fetchedAt: tm.fetched_at,
           })
+          .onConflictDoNothing({ target: tournamentTeams.id })
           .run();
       }
 
@@ -511,11 +503,36 @@ export function upsertTournament(db: Db, t: TransformedTournament): void {
             slot: sp.slot,
             labmausId: sp.labmaus_id,
           })
+          .onConflictDoNothing({ target: [tournamentTeamSpecies.teamId, tournamentTeamSpecies.slot] })
           .run();
       }
     })();
   } catch (e) {
     throw new RosterDbError("tournaments.upsertTournament failed", { cause: e, query: t.tournament.id });
+  }
+}
+
+/**
+ * Cheap existence probe for the skip-existing ingest path.
+ *
+ * **When to use it:** the labmaus ingest's outer loop, before issuing the
+ * `getTournament` HTTP fetch for a summary row. Avoids re-fetching and
+ * re-upserting tournaments already captured in the DB.
+ *
+ * Reads only the primary-key index — does not hydrate the full row. For the
+ * full row use {@link get}.
+ *
+ * @param db — Open Drizzle DB handle.
+ * @param id — Namespaced tournament id (e.g. `"labmaus:56757"`).
+ * @returns `true` iff a row with that id exists.
+ * @throws {RosterDbError} On SQLite I/O failure.
+ */
+export function exists(db: Db, id: string): boolean {
+  try {
+    const row = db.$client.prepare("SELECT 1 FROM tournaments WHERE id = ? LIMIT 1").get(id);
+    return row !== undefined;
+  } catch (e) {
+    throw new RosterDbError("tournaments.exists failed", { cause: e, query: id });
   }
 }
 

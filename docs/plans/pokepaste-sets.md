@@ -455,7 +455,7 @@ Same pattern as `roster.ts` / `tournaments.ts`: `WeakMap<Db, Prepared>` of pre-c
 | `list(db, filter)` | `SELECT * FROM team_sets [JOIN tournament_teams ON ...] WHERE [conditional clauses on tournament_id, tournament_team_id, species_roster_id]`. Parses `moves_json`, `sps_json`, `ivs_json` into domain objects; assembles `source` block from `source_site`/`source_paste_id`/`source_url`/`fetched_at`. | `idx_team_sets_species`, PK lookups, `idx_tournament_teams_tournament_placement` (when filtering by tournament_id). |
 | `get(db, tournament_team_id, slot)` | PK lookup `WHERE tournament_team_id = ? AND slot = ?`. | composite PK. |
 | `usage(db, args)` | Single grouped query joining `team_sets` → `tournament_teams` → `tournaments` for the date-window filter. The `dimension` argument (`item`/`ability`/`move`/`nature`) selects which column to `GROUP BY`. For `move`, expand `moves_json` via `json_each(moves_json)` to one row per move per set. `usage_percent = 100.0 * appearances / total_sets`. `citations` aggregates `tournament_team_id`s up to a cap (e.g., 50) so payloads stay bounded. | `idx_team_sets_species`, `idx_team_sets_item`, `idx_team_sets_ability`, `idx_tournaments_format_date`. |
-| `upsertTeamSets(db, sets)` | Single transaction. `INSERT … ON CONFLICT(tournament_team_id, slot) DO UPDATE SET …` for each set. Bulk-prepared statement. | composite PK. |
+| `upsertTeamSets(db, sets)` | Single transaction. `INSERT … ON CONFLICT(tournament_team_id, slot) DO NOTHING` for each set. Bulk-prepared statement. (Updated 2026-05-04 — see `docs/plans/labmaus-tournaments.md` §19.2. Pokepaste URLs are content-addressed; a conflict means the right rows are already there.) | composite PK. |
 
 All exported functions get full TSDoc per CLAUDE.md §10.
 
@@ -485,7 +485,7 @@ The transform layer takes `itemsRepo`, `abilitiesRepo`, `movesRepo` as deps. The
 | **Schema-first (zod)** | `src/schemas/team-set.ts` is the contract; types derive via `z.infer`; both ends parse before trust | Per CLAUDE.md §5. |
 | **Command/query split inside the repo** | `list`/`get`/`usage` are read-only; `upsertTeamSets` is a write callable only by the ingest hook | Lets read-only DB handles power the agent at runtime; only the ingest opens read-write. |
 | **Read-through, content-addressed cache** | `client.ts` checks `data/cache/pokepaste/<paste_id>.txt` before fetching; never expires (URLs are content-hashed) | Per flow §2.6 / Q6; cold-start reruns from disk for free. |
-| **Idempotent upsert keyed on `(tournament_team_id, slot)`** | Composite PK; `ON CONFLICT … DO UPDATE` | Per flow §2.6 idempotency contract; two consecutive runs = zero deltas. |
+| **Idempotent insert keyed on `(tournament_team_id, slot)`** | Composite PK; `ON CONFLICT … DO NOTHING` (changed from `DO UPDATE` 2026-05-04 — see `docs/plans/labmaus-tournaments.md` §19.2) | Per flow §2.6 idempotency contract; two consecutive runs = zero deltas. First-write wins under skip-existing semantics. |
 | **Defense-in-depth Tera strip** | Transform deletes `teraType`; strict schema has no `tera_*`; property test scans rows | Per memory `regulation_m_a_no_tera.md`. |
 | **Reject-and-fail with caller-side per-item recovery** | Transform throws `PokepasteRefValidationError`; ingest catches per-team and continues, logging | Per flow §6 Q4. The transform's purity (single failure mode) is the load-bearing property; the ingest's fan-out loop is where partial-progress lives. |
 

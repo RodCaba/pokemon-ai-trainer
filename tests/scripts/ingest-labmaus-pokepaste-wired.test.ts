@@ -306,6 +306,89 @@ describe("ingest-labmaus pokepaste wiring", () => {
     expect(parsed.pokepaste.team_sets).toBeGreaterThan(0);
   });
 
+  it("T42c. skip-existing: a tournament already in the DB is not re-fetched and is left untouched", async () => {
+    // Pre-seed the tournament row with a SENTINEL name. If the ingest
+    // re-fetches and re-upserts it, the name will be overwritten with the
+    // fixture's actual name. The skip-existing guard means we should never
+    // call client.getTournament for this id, so the row stays as-seeded.
+    //
+    // We also assert via the JSON summary line that `skipped_existing: 1`
+    // was emitted. To detect that the cached payload was not read, we
+    // additionally check that the would-be-written `tournament_teams` and
+    // `tournament_team_species` rows do NOT appear (they wouldn't exist
+    // because we only seeded the parent row).
+    const SENTINEL_NAME = "PRE-SEEDED — must not be overwritten";
+    const dbSeed = open(dbPath);
+    try {
+      dbSeed.$client.exec(`
+        INSERT INTO tournaments (id, external_id, name, format, division, status, date,
+          num_players, source_site, source_url, fetched_at)
+        VALUES ('labmaus:56757', 56757, '${SENTINEL_NAME}', 'RegM-A', 'Masters',
+          'unofficial', '2026-05-04', 42, 'labmaus',
+          'https://labmaus.net/tournaments/56757', '2026-05-04T00:00:00Z');
+      `);
+    } finally {
+      dbSeed.$client.close();
+    }
+
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]): void => {
+      logs.push(args.map(String).join(" "));
+    };
+    let exit: number;
+    try {
+      exit = await main([
+        "--no-network",
+        "--from",
+        "2026-05-04",
+        "--to",
+        "2026-05-04",
+        "--db",
+        dbPath,
+      ]);
+    } finally {
+      console.log = origLog;
+    }
+    expect(exit).toBe(0);
+
+    const db = open(dbPath, { readonly: true });
+    try {
+      // Sentinel name preserved → skip-existing fired.
+      const row = db.$client
+        .prepare("SELECT name FROM tournaments WHERE id = 'labmaus:56757'")
+        .get() as { name: string };
+      expect(row.name).toBe(SENTINEL_NAME);
+
+      // No teams or species were inserted because we never reached the
+      // upsert path for this tournament.
+      const teams = db.$client
+        .prepare("SELECT COUNT(*) AS n FROM tournament_teams WHERE tournament_id = 'labmaus:56757'")
+        .get() as { n: number };
+      expect(teams.n).toBe(0);
+      const species = db.$client
+        .prepare(
+          "SELECT COUNT(*) AS n FROM tournament_team_species s JOIN tournament_teams t ON t.id = s.team_id WHERE t.tournament_id = 'labmaus:56757'",
+        )
+        .get() as { n: number };
+      expect(species.n).toBe(0);
+    } finally {
+      db.$client.close();
+    }
+
+    // Summary line carries skipped_existing: 1 and tournaments: 0.
+    const summaryLine = logs.find((l) => l.includes('"pokepaste"'));
+    expect(summaryLine).toBeDefined();
+    const parsed = JSON.parse(summaryLine ?? "{}") as {
+      ok: boolean;
+      tournaments: number;
+      skipped_existing: number;
+    };
+    expect(parsed.ok).toBe(true);
+    expect(parsed.tournaments).toBe(0);
+    expect(parsed.skipped_existing).toBe(1);
+  });
+
   it("T42b. --no-pokepaste skips the pokepaste step (no team_sets rows)", async () => {
     const origLog = console.log;
     console.log = (): void => {};
