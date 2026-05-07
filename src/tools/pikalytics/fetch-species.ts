@@ -75,9 +75,14 @@ export async function fetchSpecies(
     );
   }
 
-  // Pikalytics's URL slug is the Showdown id (lowercase, hyphenated). The
-  // roster id is already canonical Showdown form, so use it directly.
-  const slug = parsed.data.species_roster_id;
+  // Pikalytics's URL slug is the Showdown-style hyphenated lowercase form
+  // (e.g. `charizard-mega-y`, `ninetales-alola`), which corresponds to our
+  // roster's `display_name` lowercased — NOT the no-hyphen `species_roster_id`.
+  // Without this transform, single-token species (`garchomp`, `sneasler`)
+  // happen to work but every Mega/regional/form variant would 404 in
+  // production. Discovered via Stage 5 reviewer flag against `charizardmegay`
+  // → `charizard-mega-y`.
+  const slug = rosterEntry.display_name.toLowerCase();
 
   const fetched = await deps.client.fetchSpeciesMarkdown(slug);
   const result = transformPikalyticsMarkdown(

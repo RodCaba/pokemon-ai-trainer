@@ -21,7 +21,7 @@ export interface PikalyticsTransformDeps {
   db: Db;
   rosterRepo: {
     has(db: Db, name: string, format: "RegM-A"): boolean;
-    get(db: Db, name: string, format: "RegM-A"): { id: string } | null;
+    get(db: Db, name: string, format: "RegM-A"): { id: string; display_name: string } | null;
   };
 }
 

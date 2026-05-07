@@ -121,9 +121,9 @@ async function processSpecies(
           db,
           rosterRepo: {
             has: roster.has,
-            get: (d, name): { id: string } | null => {
+            get: (d, name): { id: string; display_name: string } | null => {
               const p = roster.get(d, name, "RegM-A");
-              return p ? { id: p.id } : null;
+              return p ? { id: p.id, display_name: p.display_name } : null;
             },
           },
         },

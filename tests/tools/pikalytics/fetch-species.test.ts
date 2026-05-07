@@ -45,6 +45,39 @@ describe("pikalytics.fetchSpecies (PIKA-T29, PIKA-T30)", () => {
     }
   });
 
+  it("PIKA-T29b. derives URL slug from roster display_name (lowercase, hyphenated), not roster id", async () => {
+    // Regression guard for the Stage 5 reviewer's flag: `charizardmegay`
+    // (roster id, no hyphens) ≠ `charizard-mega-y` (Pikalytics slug).
+    // Without the display_name path, Mega + regional forms 404 in
+    // production. Asserts the slug passed to `client.fetchSpeciesMarkdown`
+    // is the hyphenated form.
+    const db = seedLabmausDb();
+    try {
+      const seenSlugs: string[] = [];
+      const captureSlugClient: PikalyticsClient = {
+        async fetchSpeciesMarkdown(slug: string) {
+          seenSlugs.push(slug);
+          // Return a minimal valid snapshot body so the transform doesn't throw.
+          return {
+            body: readFileSync(join(FIX, "2026-05-07__garchomp.md"), "utf8"),
+            source_url: `https://www.pikalytics.com/pokedex/gen9championsvgc2026regma/${slug}`,
+            ai_url: `https://www.pikalytics.com/ai/pokedex/gen9championsvgc2026regma/${slug}`,
+          };
+        },
+      };
+      await fetchSpecies(
+        { format: "RegM-A", species_roster_id: "charizardmegay" },
+        {
+          client: captureSlugClient,
+          transform: { db, rosterRepo: { has: roster.has, get: roster.get } },
+        },
+      );
+      expect(seenSlugs).toEqual(["charizard-mega-y"]);
+    } finally {
+      closeIfOpen(db);
+    }
+  });
+
   it("PIKA-T30. throws PikalyticsInputError on unknown roster id", async () => {
     const db = seedLabmausDb();
     try {
