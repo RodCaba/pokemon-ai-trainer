@@ -347,7 +347,7 @@
         },
         "pikalytics_as_of_iso": {
           "name": "pikalytics_as_of_iso",
-          "value": "\"pikalytics_snapshots\".\"as_of\" GLOB '____-__-__'"
+          "value": "\"pikalytics_snapshots\".\"as_of\" GLOB '????-??-??'"
         }
       }
     },

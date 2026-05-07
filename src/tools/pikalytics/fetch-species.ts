@@ -1,6 +1,12 @@
 /**
- * Stage 4 stub for the agent-callable `pikalytics.fetchSpecies` tool. Real
- * implementation lands in Stage 5 per `docs/plans/pikalytics.md` §2 / §4.1.
+ * Agent-callable `pikalytics.fetchSpecies` tool. Validates input via
+ * {@link PikalyticsFetchSpeciesArgsSchema}, derives the species slug from
+ * `roster.get(species_roster_id).display_name` (lowercase), calls the
+ * client, calls the transform, returns `{ snapshot, unknown_teammate_names }`.
+ *
+ * Per plan §17 Q1, the return shape is `{ snapshot, unknown_teammate_names }`
+ * so callers (the ingest script in particular) can accumulate run-summary
+ * diagnostics without re-deriving them.
  */
 
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
@@ -12,10 +18,10 @@ import {
 } from "../../schemas/pikalytics";
 import { PikalyticsInputError } from "../../schemas/errors";
 import type { PikalyticsClient } from "./client";
-import type { PikalyticsTransformDeps } from "./transform";
-
-const _ERROR_REFS = [PikalyticsInputError];
-void _ERROR_REFS;
+import {
+  transformPikalyticsMarkdown,
+  type PikalyticsTransformDeps,
+} from "./transform";
 
 /** Deps for {@link fetchSpecies}. */
 export interface FetchSpeciesDeps {
@@ -47,12 +53,44 @@ export interface FetchSpeciesResult {
  * @throws {PikalyticsTeraLeakError} On `tera_*` leak (programmer bug).
  */
 export async function fetchSpecies(
-  _args: PikalyticsFetchSpeciesArgs,
-  _deps: FetchSpeciesDeps,
+  args: PikalyticsFetchSpeciesArgs,
+  deps: FetchSpeciesDeps,
 ): Promise<FetchSpeciesResult> {
-  void _args;
-  void _deps;
-  throw new Error("not implemented (Stage 5): pikalytics.fetchSpecies");
+  const parsed = PikalyticsFetchSpeciesArgsSchema.safeParse(args);
+  if (!parsed.success) {
+    throw new PikalyticsInputError("invalid args to pikalytics.fetchSpecies", {
+      cause: parsed.error,
+    });
+  }
+
+  const rosterEntry = deps.transform.rosterRepo.get(
+    deps.transform.db,
+    parsed.data.species_roster_id,
+    parsed.data.format,
+  );
+  if (!rosterEntry) {
+    throw new PikalyticsInputError(
+      `unknown roster id: ${parsed.data.species_roster_id}`,
+      { species_roster_id: parsed.data.species_roster_id },
+    );
+  }
+
+  // Pikalytics's URL slug is the Showdown id (lowercase, hyphenated). The
+  // roster id is already canonical Showdown form, so use it directly.
+  const slug = parsed.data.species_roster_id;
+
+  const fetched = await deps.client.fetchSpeciesMarkdown(slug);
+  const result = transformPikalyticsMarkdown(
+    {
+      species_roster_id: parsed.data.species_roster_id,
+      raw_markdown: fetched.body,
+      source_url: fetched.source_url,
+      ai_url: fetched.ai_url,
+      fetched_at: new Date().toISOString(),
+    },
+    deps.transform,
+  );
+  return result;
 }
 
 /** Anthropic SDK tool definition for `pikalytics_fetch_species`. */

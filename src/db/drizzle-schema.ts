@@ -360,7 +360,7 @@ export const pikalyticsSnapshots = sqliteTable(
       "pikalytics_usage_pct_range",
       sql`${t.usagePercent} IS NULL OR (${t.usagePercent} BETWEEN 0 AND 100)`,
     ),
-    check("pikalytics_as_of_iso", sql`${t.asOf} GLOB '____-__-__'`),
+    check("pikalytics_as_of_iso", sql`${t.asOf} GLOB '????-??-??'`),
   ],
 );
 

@@ -1,7 +1,7 @@
 # pikalytics tool — SPEC
 
-TODO(stage5): full SPEC per CLAUDE.md §8 + plan §4.4. This Stage-4 placeholder
-captures the tool surface; bodies land in Stage 5.
+Implementation surface for the pikalytics meta-intelligence slice. See
+`docs/plans/pikalytics.md` for design rationale.
 
 ## Tools registered
 

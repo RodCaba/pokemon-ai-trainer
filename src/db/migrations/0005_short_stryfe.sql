@@ -17,7 +17,7 @@ CREATE TABLE `pikalytics_snapshots` (
 	CONSTRAINT "pikalytics_format_regma" CHECK("pikalytics_snapshots"."format" = 'RegM-A'),
 	CONSTRAINT "pikalytics_format_slug_value" CHECK("pikalytics_snapshots"."format_slug" = 'gen9championsvgc2026regma'),
 	CONSTRAINT "pikalytics_usage_pct_range" CHECK("pikalytics_snapshots"."usage_percent" IS NULL OR ("pikalytics_snapshots"."usage_percent" BETWEEN 0 AND 100)),
-	CONSTRAINT "pikalytics_as_of_iso" CHECK("pikalytics_snapshots"."as_of" GLOB '____-__-__')
+	CONSTRAINT "pikalytics_as_of_iso" CHECK("pikalytics_snapshots"."as_of" GLOB '????-??-??')
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `uq_pikalytics_species_as_of` ON `pikalytics_snapshots` (`species_roster_id`,`as_of`);--> statement-breakpoint
