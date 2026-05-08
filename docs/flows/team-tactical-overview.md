@@ -366,48 +366,59 @@ of scope today.
 1. **Threat panel size N.** Proposal: **15** species (covers the meaty
    middle of usage; 95% of opponent contact). Alternatives: 10
    (faster, less coverage) or 25 (slower, marginal coverage gain).
+   Answer: Go with 15, test on the live demo and pivot if performance is an issue. Damage calc shouldn't be an issue since computations are fast.
 
 2. **Scenario count.** Proposal: **5–7** (3 archetype + 2–4 individual).
    Alternatives: 3 (just archetypes, leaner) or 10+ (all individual
    threats, expensive).
+   Answer: 5–7 seems like a sweet spot for v1; we want enough variety to be meaningful but not so many that it overwhelms the user or causes performance issues. We can always add more scenarios in future iterations if users want deeper analysis. Scenario should consider weaknesses of the team, so if there are clear weaknesses to specific threats, those should be included as scenarios even if they aren't in the top 15 overall.
 
 3. **TR inversion threshold.** Proposal: TR-active scoring kicks in if
    team has a TR setter ability AND ≥ 2 attackers with base speed < 60.
    Confirm or adjust thresholds.
+   Answer: This is a good starting point, but we should be open to adjusting the thresholds based on testing. The key is to capture the cases where TR fundamentally changes the speed dynamics of the team. We can analyze existing teams and see if this heuristic captures the intended cases or if we need to tweak it (e.g. maybe it's 1 slow attacker instead of 2, or maybe certain key Pokémon trigger it regardless of count).
+
 
 4. **Synergy scoring split** (60/40 between teammate-cooccurrence and
    archetype detection) — feels arbitrary. Confirm or propose
    alternate weights.
+   Answer: The 60/40 split is a starting point based on intuition about the relative importance of raw teammate synergy vs fitting into known archetypes. However, this is definitely something we should be open to adjusting based on the knowledge base date we gather (vector data)
 
 5. **`damage_calc` budget.** Worst case: 6 our × 15 panel × 2 directions
    × ~6 scenarios = ~1080 calls per overview. At ~10ms each = 10s.
    Tolerable? Or do we cache per (our_set, panel_set, field) pair so
    re-scoring after one edit reuses ~85% of calls?
+   Answer: 10s is on the higher end but still within a tolerable range for a deep analysis feature like this. Caching could definitely help with performance, especially for re-scoring after edits. We can implement a simple in-memory cache keyed by (our_set, panel_set, field) that stores the calc results during the overview generation. This way, if the user makes a small edit and re-scores, we can reuse most of the previous calculations and significantly reduce the time for subsequent runs.
 
 6. **Lead recommendation cost coefficient (α/β/γ).** Proposal:
    `α=1.0, β=0.5, γ=0.7`. Hand-tuned starting point; tunable per
    user's preferred play style. v1 ships with hard-coded defaults.
+   Answer: The proposed coefficients are a reasonable starting point, but we should be open to adjusting them based on user feedback and testing. The relative importance of offense, speed, and defense can vary greatly depending on the user's play style and the specific team composition. In future iterations, we could even consider allowing users to customize these coefficients to tailor the lead recommendations to their preferences.
 
 7. **Stale overview detection.** If pikalytics snapshot updates between
    calls, do we transparently re-curate the panel and re-score, or
    surface a "your previous overview is now N hours stale" hint? v1
    regenerates silently. Confirm.
+   Answer: For v1, silently regenerating the overview when a new pikalytics snapshot is detected is a good approach to ensure users always have the most up-to-date analysis without needing to manually refresh. However, we should consider adding a subtle indicator in the UI that shows when the overview was last generated and when the latest snapshot was ingested. This way, users are aware of the freshness of their analysis without it being intrusive.
 
 8. **`team_tactical_overview` agent tool surface.** Proposal: a single
    tool with `format` + `team_id` inputs, returns the full
    `TeamTacticalOverview` JSON. Agent quotes pieces back to user.
    Alternative: separate `score_pillars` and `recommend_leads` tools so
    the agent can pick what to ask. v1 single-tool.
+   Answer: I'll split the tool into two: `score_pillars(team_id)` that returns the pillar scores and evidence, and `recommend_leads(team_id, scenario_name)` that returns the lead recommendations and citations for a specific scenario. This way, the agent can first call `score_pillars` to get an overall sense of the team's strengths and weaknesses, and then call `recommend_leads` for specific scenarios that it identifies as relevant based on the pillar scores. This modular approach gives the agent more flexibility in how it uses the tactical overview data.
 
 9. **Speed table seed.** The flow says we generate `fixtures/speed/top50.json`
    from labmaus + pikalytics. Tech plan: should this live as a
    committed fixture (regenerated weekly per CLAUDE.md §4) or be a
    live query against `pikalytics_snapshots` every call? v1 fixture;
    live-query as a future optimization.
+   Answer: For v1, using a committed fixture that is regenerated on a regular cadence (e.g., weekly) is a good approach to ensure consistent performance while still keeping the data relatively fresh. 
 
 10. **Scoring against Reg M-A only** — confirm. Champions adds species
     mid-format; the threat panel honors `roster_membership.is_legal=1`.
+    Answer: Yes, we'll focus on Reg M-A legality for the threat panel and scoring. 
 
 ## 13. Reviewed-by
 
-Reviewed-by: _pending Stage 2_
+Reviewed-by: _Rodrigo Caballero_
