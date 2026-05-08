@@ -8,6 +8,7 @@ coverage/
 data/cache/labmaus/
 data/cache/pokepaste/
 data/cache/pikalytics/
+data/cache/vgcguide/
 
 # Production runtime DB — accumulates captured tournament/team/team_set rows
 # from labmaus + pokepaste + pikalytics ingest. Build script regenerates the

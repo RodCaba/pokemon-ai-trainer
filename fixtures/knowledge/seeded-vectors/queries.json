@@ -1,0 +1,35 @@
+{
+  "dim": 1024,
+  "queries": [
+    {
+      "idx": 0,
+      "query": "what is pokemon showdown",
+      "expected_article_slug": "what-is-pokemon-showdown"
+    },
+    {
+      "idx": 1,
+      "query": "how does typing work in vgc",
+      "expected_article_slug": "typing"
+    },
+    {
+      "idx": 2,
+      "query": "how to predict opponent moves",
+      "expected_article_slug": "predictions"
+    },
+    {
+      "idx": 3,
+      "query": "speed control on a sun team",
+      "expected_article_slug": "speed-control"
+    },
+    {
+      "idx": 4,
+      "query": "when should I switch a pokemon",
+      "expected_article_slug": "switching"
+    },
+    {
+      "idx": 5,
+      "query": "choosing items for my team",
+      "expected_article_slug": "items"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head><title>Synthetic Short — Single Section</title></head>
+<body>
+  <h1>Synthetic Short</h1>
+  <main>
+    <article>
+      <div class="sqs-html-content">
+        <p>This is a hand-crafted synthetic article fixture for the VGC knowledge base
+        red tests. It exists to exercise the chunker's permissive single-implicit-section
+        branch — there are no h2 or h3 headings here, just a couple of paragraphs that
+        together fall well under the 500-token chunk cap.</p>
+        <p>A second paragraph keeps the body non-trivial while still single-chunk.
+        The chunker should emit exactly one KnowledgeChunk with chunk_index 0, the
+        whole article body collapsed into chunk_text, and section_heading falling
+        back to the article_title. No Tera content. No species-specific data.</p>
+      </div>
+    </article>
+  </main>
+</body>
+</html>
