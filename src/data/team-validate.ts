@@ -248,8 +248,14 @@ export function validateTeam(
 
     // ability_not_legal
     if (s.ability_id !== null && s.ability_id !== undefined) {
+      // Case-folded — `species_abilities.ability_name` stores display names
+      // ("Intimidate") while user input may be either case. Match the
+      // movepool case-fold below.
       const legalAbilities = deps.speciesAbilities.legalFor(deps.db, speciesId);
-      if (!legalAbilities.includes(s.ability_id)) {
+      const legalAbilitiesLc = new Set(
+        legalAbilities.map((a) => a.toLowerCase()),
+      );
+      if (!legalAbilitiesLc.has(s.ability_id.toLowerCase())) {
         errors.push({
           code: "ability_not_legal",
           message: `${s.ability_id} is not a legal ability for ${speciesId}`,
