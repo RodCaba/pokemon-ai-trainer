@@ -283,6 +283,28 @@ export class VgcGuideNotFoundError extends VgcGuideError {}
  */
 export class VgcGuideParseError extends VgcGuideError {}
 
+// Stage 4 scaffold (per `docs/plans/metavgc-guides.md` §19.2): the metavgc
+// slice imports the renamed `KnowledgeArticle*Error` family. The full rename
+// of the vgcguide call sites is a Stage 5 task; here we expose the new names
+// as subclasses of the existing classes so metavgc tests compile and the
+// existing vgcguide tests still pass (`instanceof VgcGuideNotFoundError`
+// remains true). Stage 5 must collapse these into renamed base classes.
+/** Renamed alias for {@link VgcGuideNotFoundError}. Stage 4 scaffold. */
+export class KnowledgeArticleNotFoundError extends VgcGuideNotFoundError {}
+/** Renamed alias for {@link VgcGuideNetworkError}. Stage 4 scaffold. */
+export class KnowledgeArticleNetworkError extends VgcGuideNetworkError {}
+/** Renamed alias for {@link VgcGuideParseError}. Stage 4 scaffold. */
+export class KnowledgeArticleParseError extends VgcGuideParseError {}
+/** Programmer-class: empty species index at ingest start. */
+export class SpeciesTaggerError extends Error {
+  override readonly cause?: unknown;
+  constructor(msg: string, opts?: { cause?: unknown }) {
+    super(msg);
+    this.name = "SpeciesTaggerError";
+    this.cause = opts?.cause;
+  }
+}
+
 /**
  * Base class for every error thrown by the knowledge embedding / storage path
  * (`knowledge.embed`, `knowledge.search`, `knowledge.upsertArticleChunks`,
