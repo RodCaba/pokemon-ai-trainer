@@ -361,6 +361,70 @@ export class KnowledgeAuthError extends KnowledgeError {}
  */
 export class KnowledgeStorageError extends KnowledgeError {}
 
+/**
+ * Base class for every error thrown by the user-teams slice
+ * (`src/db/user-teams.ts`, `src/data/user-teams/*`, `src/data/team-validate.ts`).
+ *
+ * Carries `.cause` and optional `.team_id` so callers and tests can grep
+ * for the offending team without `.message` string-sniffing. Storage-layer
+ * issues inside the user-teams repo still throw `RosterDbError` /
+ * `RosterDataError` per the labmaus precedent.
+ */
+export class UserTeamError extends Error {
+  override readonly cause?: unknown;
+  readonly team_id?: string;
+  constructor(msg: string, opts?: { cause?: unknown; team_id?: string }) {
+    super(msg);
+    this.name = this.constructor.name;
+    this.cause = opts?.cause;
+    this.team_id = opts?.team_id;
+  }
+}
+
+/**
+ * Thrown by `setStatus('saved')` when the team has any `errors` on
+ * `validateTeam`. Warnings do NOT block save (per Stage-2 Q5).
+ *
+ * Carries the full `ValidationResult` on `.result` so callers and tests
+ * can inspect codes rather than parsing prose.
+ */
+export class UserTeamValidationError extends UserTeamError {
+  readonly result: { errors: unknown[]; warnings: unknown[] };
+  constructor(
+    msg: string,
+    opts: {
+      cause?: unknown;
+      team_id?: string;
+      result: { errors: unknown[]; warnings: unknown[] };
+    },
+  ) {
+    super(msg, opts);
+    this.result = opts.result;
+  }
+}
+
+/** Thrown by `update`/`upsertSet`/`setStatus`/`delete`/`restoreRevision` against an unknown team id. */
+export class UserTeamNotFoundError extends UserTeamError {}
+
+/** Thrown by `restoreRevision` when `(team_id, revision_number)` doesn't exist. */
+export class UserTeamRevisionNotFoundError extends UserTeamError {
+  readonly revision_number?: number;
+  constructor(
+    msg: string,
+    opts?: { cause?: unknown; team_id?: string; revision_number?: number },
+  ) {
+    super(msg, opts);
+    this.revision_number = opts?.revision_number;
+  }
+}
+
+/**
+ * Thrown by repository / data-layer code paths in user-teams when a
+ * persisted blob can't be assembled (e.g. a corrupt JSON column). Surfaces
+ * the storage-error class for parity with the other user-team families.
+ */
+export class UserTeamStorageError extends UserTeamError {}
+
 export class NotImplementedError extends Error {
   constructor(method: string) {
     super(`v1 stub: ${method} is not yet implemented; vector tier lands in a later milestone`);

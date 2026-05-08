@@ -453,6 +453,127 @@ export const knowledgeChunkSpeciesTags = sqliteTable(
   ],
 );
 
+// ---------------------------------------------------------------------------
+// user-teams slice (Stage 4 — additive)
+// ---------------------------------------------------------------------------
+
+/**
+ * `user_teams` — top-level row for a user-owned team. See
+ * `docs/plans/user-teams.md` §4.1 / §5. FK to `tournament_teams` uses
+ * SET NULL so a tournament-team deletion preserves the user team
+ * (Stage-2 Q4).
+ */
+export const userTeams = sqliteTable(
+  "user_teams",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    description: text("description"),
+    winCondition: text("win_condition"),
+    status: text("status").notNull().default("draft"),
+    origin: text("origin").notNull(),
+    originPayload: text("origin_payload"),
+    sourceTournamentTeamId: text("source_tournament_team_id").references(
+      () => tournamentTeams.id,
+      { onDelete: "set null" },
+    ),
+    validationErrors: text("validation_errors").notNull().default("[]"),
+    validationWarnings: text("validation_warnings").notNull().default("[]"),
+    schemaVersion: integer("schema_version").notNull().default(1),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => [
+    check(
+      "user_teams_status_valid",
+      sql`${t.status} IN ('draft','saved','archived')`,
+    ),
+    check(
+      "user_teams_origin_valid",
+      sql`${t.origin} IN ('paste','builder','ai_prompt','duplicated_from_tournament')`,
+    ),
+    // Note: no CHECK on (origin, source_tournament_team_id) consistency —
+    // the FK is ON DELETE SET NULL, which contradicts a strict biconditional.
+    // See migration 0009 leading comment.
+    index("idx_user_teams_status").on(t.status),
+    index("idx_user_teams_origin").on(t.origin),
+    index("idx_user_teams_updated_at_desc").on(t.updatedAt),
+    uniqueIndex("uq_user_teams_name").on(t.name),
+  ],
+);
+
+/**
+ * `user_team_sets` — six-slot child rows. CASCADE on parent delete.
+ * Per-stat SPS ≤ 32 enforced as hard CHECK; the ≤66 total is
+ * validator-only so drafts can transiently overshoot.
+ */
+export const userTeamSets = sqliteTable(
+  "user_team_sets",
+  {
+    userTeamId: text("user_team_id")
+      .notNull()
+      .references(() => userTeams.id, { onDelete: "cascade" }),
+    slot: integer("slot").notNull(),
+    // Soft references — validator-enforced (see migration 0009 comment).
+    speciesId: text("species_id"),
+    nickname: text("nickname"),
+    itemId: text("item_id"),
+    abilityId: text("ability_id"),
+    nature: text("nature"),
+    hpSps: integer("hp_sps").notNull().default(0),
+    atkSps: integer("atk_sps").notNull().default(0),
+    defSps: integer("def_sps").notNull().default(0),
+    spaSps: integer("spa_sps").notNull().default(0),
+    spdSps: integer("spd_sps").notNull().default(0),
+    speSps: integer("spe_sps").notNull().default(0),
+    move1Id: text("move_1_id"),
+    move2Id: text("move_2_id"),
+    move3Id: text("move_3_id"),
+    move4Id: text("move_4_id"),
+    notes: text("notes"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userTeamId, t.slot] }),
+    check("user_team_sets_slot_range", sql`${t.slot} BETWEEN 0 AND 5`),
+    check("user_team_sets_hp_sps_le_32", sql`${t.hpSps} BETWEEN 0 AND 32`),
+    check("user_team_sets_atk_sps_le_32", sql`${t.atkSps} BETWEEN 0 AND 32`),
+    check("user_team_sets_def_sps_le_32", sql`${t.defSps} BETWEEN 0 AND 32`),
+    check("user_team_sets_spa_sps_le_32", sql`${t.spaSps} BETWEEN 0 AND 32`),
+    check("user_team_sets_spd_sps_le_32", sql`${t.spdSps} BETWEEN 0 AND 32`),
+    check("user_team_sets_spe_sps_le_32", sql`${t.speSps} BETWEEN 0 AND 32`),
+  ],
+);
+
+/**
+ * `user_team_revisions` — durable snapshot history. CASCADE on parent.
+ * Composite PK (user_team_id, revision_number); revision_number ∈ 1..5.
+ */
+export const userTeamRevisions = sqliteTable(
+  "user_team_revisions",
+  {
+    userTeamId: text("user_team_id")
+      .notNull()
+      .references(() => userTeams.id, { onDelete: "cascade" }),
+    revisionNumber: integer("revision_number").notNull(),
+    label: text("label"),
+    snapshotJson: text("snapshot_json").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userTeamId, t.revisionNumber] }),
+    // Retention to 5 entries enforced at the repo layer (insert-and-evict);
+    // surviving revision_numbers can exceed 5 (USR-T39). See migration 0009.
+    check(
+      "user_team_revisions_number_positive",
+      sql`${t.revisionNumber} >= 1`,
+    ),
+    index("idx_user_team_revisions_team_created").on(
+      t.userTeamId,
+      t.createdAt,
+    ),
+  ],
+);
+
 export const moves = sqliteTable(
   "moves",
   {
