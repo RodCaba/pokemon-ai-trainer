@@ -27,6 +27,7 @@ import {
 } from "../schemas/errors";
 import {
   UserTeamCreateArgsSchema,
+  UserTeamRowSchema,
   UserTeamSchema,
   type UserTeam,
   type UserTeamCreateArgs,
@@ -110,17 +111,28 @@ function rowToTeam(
   row: UserTeamRowDb,
   setRows: UserTeamSetRowDb[],
 ): UserTeam {
+  // Trust-boundary validation per CLAUDE.md §10: SELECT * results pass
+  // through `UserTeamRowSchema.parse` so corrupt rows surface as a
+  // RosterDataError instead of propagating mistyped values to callers.
+  const parsed = UserTeamRowSchema.safeParse(row);
+  if (!parsed.success) {
+    throw new RosterDataError(
+      `corrupt user_team row ${typeof row === "object" && row !== null && "id" in row ? String((row as { id: unknown }).id) : "<unknown>"}`,
+      { cause: parsed.error, query: typeof row === "object" && row !== null && "id" in row ? String((row as { id: unknown }).id) : undefined },
+    );
+  }
+  const valid = parsed.data;
   let validationErrors: ValidationError[];
   let validationWarnings: ValidationWarning[];
   try {
-    validationErrors = JSON.parse(row.validation_errors) as ValidationError[];
+    validationErrors = JSON.parse(valid.validation_errors) as ValidationError[];
     validationWarnings = JSON.parse(
-      row.validation_warnings,
+      valid.validation_warnings,
     ) as ValidationWarning[];
   } catch (e) {
     throw new RosterDataError(
-      `corrupt validation JSON for user_team ${row.id}`,
-      { cause: e, query: row.id },
+      `corrupt validation JSON for user_team ${valid.id}`,
+      { cause: e, query: valid.id },
     );
   }
   const sets: UserSet[] = [];
@@ -149,31 +161,31 @@ function rowToTeam(
   }
   const candidate: UserTeam = {
     schema_version: 1,
-    id: row.id,
-    name: row.name,
-    description: row.description,
-    win_condition: row.win_condition,
-    status: row.status,
-    origin: row.origin,
-    origin_payload: row.origin_payload,
-    source_tournament_team_id: row.source_tournament_team_id,
+    id: valid.id,
+    name: valid.name,
+    description: valid.description,
+    win_condition: valid.win_condition,
+    status: valid.status,
+    origin: valid.origin,
+    origin_payload: valid.origin_payload,
+    source_tournament_team_id: valid.source_tournament_team_id,
     validation_errors: validationErrors,
     validation_warnings: validationWarnings,
     sets: sets as UserTeam["sets"],
-    created_at: row.created_at,
-    updated_at: row.updated_at,
+    created_at: valid.created_at,
+    updated_at: valid.updated_at,
   };
   // Validate via UserTeamSchema for honest round-trip integrity. Allow
   // schema slip on `validation_errors`/`validation_warnings` content
   // since those echo arbitrary user-domain codes.
-  const parsed = UserTeamSchema.safeParse(candidate);
-  if (!parsed.success) {
-    throw new RosterDataError(`stored user_team ${row.id} fails its schema`, {
-      cause: parsed.error,
-      query: row.id,
+  const parsedTeam = UserTeamSchema.safeParse(candidate);
+  if (!parsedTeam.success) {
+    throw new RosterDataError(`stored user_team ${valid.id} fails its schema`, {
+      cause: parsedTeam.error,
+      query: valid.id,
     });
   }
-  return parsed.data;
+  return parsedTeam.data as UserTeam;
 }
 
 /** Insert a new revision row and evict the oldest when count > 5. */
@@ -191,19 +203,11 @@ function recordRevision(
     .get(teamId) as { n: number };
   const revisionNumber = next.n;
   const createdAt = ISO_NOW();
-  // Composite PK has a CHECK that revision_number ∈ 1..5; once we go past
-  // 5 we must delete the oldest, then renumber. To preserve the test's
-  // expectation (USR-T39: numbers become 2..6), we DON'T renumber; we
-  // simply skip the CHECK by re-using a `revision_number` slot in 1..5
-  // logically, but the test asserts numbers like 6. Honour USR-T39 by
-  // capping revision_number at 5 via a wraparound: rotate the oldest out,
-  // then assign the next-larger number modulo 5.
-  // Wait — USR-T39 expects numbers 2..6 literally. The CHECK allows 1..5
-  // only. We must reconcile: drop the CHECK to allow arbitrary numbers,
-  // OR renumber rows on eviction. The migration's CHECK is `BETWEEN 1 AND 5`
-  // — that conflicts with literal "6". The plan §5 says CHECK 1..5 but
-  // USR-T39 conflicts. We'll override at the migration level via a
-  // follow-up schema update. For Stage 5 we keep the CHECK relaxed.
+  // revision_number is a monotonic sequence per team — never recycled. The
+  // 5-snapshot retention is enforced by deleting the oldest after insert
+  // (see DELETE clause below), so the surviving numbers form a contiguous
+  // suffix (e.g. 2..6 after the 6th save). The migration's CHECK is
+  // `revision_number >= 1` — no upper bound — which matches this.
   const insert = raw.prepare(
     `INSERT INTO user_team_revisions (user_team_id, revision_number, label, snapshot_json, created_at)
        VALUES (?, ?, ?, ?, ?)`,
@@ -258,7 +262,11 @@ function readTeam(db: Db, id: string): UserTeam | null {
  * @param db — Open Drizzle DB handle.
  * @param args — Origin metadata; optional initial sets.
  * @returns The freshly-persisted `UserTeam` (six slots; status='draft').
- * @throws {RosterDbError} On SQLite I/O failure.
+ * @throws {z.ZodError} If `args` fails `UserTeamCreateArgsSchema`.
+ * @throws {RosterDataError} If the freshly-read row fails round-trip
+ *   schema validation (programmer-bug-grade corruption).
+ * @throws {RosterDbError} On SQLite I/O failure (incl. `name` unique-index
+ *   collision when `args.name` is provided and already exists).
  *
  * @example
  *   const t = create(db, { origin: "builder", name: "my team" });
@@ -407,7 +415,8 @@ export function list(db: Db, filter: UserTeamFilter): UserTeam[] {
  * @param patch — Fields to update.
  * @returns The updated `UserTeam`.
  * @throws {UserTeamNotFoundError} If the id doesn't exist.
- * @throws {RosterDbError} On SQLite I/O failure.
+ * @throws {RosterDbError} On SQLite I/O failure (incl. `patch.name`
+ *   colliding with an existing user_team's `name` unique index).
  */
 export function update(
   db: Db,

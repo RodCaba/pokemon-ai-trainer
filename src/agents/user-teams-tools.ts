@@ -155,6 +155,16 @@ import { UserTeamNotFoundError } from "../schemas/errors";
  *
  * **When to use it:** the agent loop's tool dispatcher pulls a handler
  * by tool name and invokes it.
+ *
+ * @throws {z.ZodError} On any tool input that fails its zod schema
+ *   (`UserTeamsCreateToolInput`, `UserTeamsSetStatusToolInput`,
+ *   `UserTeamsValidateToolInput`).
+ * @throws {UserTeamNotFoundError} If `setStatus` or `validate` references
+ *   an unknown team id.
+ * @throws {UserTeamValidationError} If `setStatus` is called with
+ *   `status='saved'` and the team has unresolved validation errors.
+ * @throws {RosterDbError} On underlying SQLite I/O failure.
+ * @throws {RosterDataError} On corrupt persisted JSON read by the repo.
  */
 export const userTeamsToolHandlers: UserTeamsToolHandlers = {
   create(db: Db, input: UserTeamsCreateInput): UserTeam {

@@ -37,10 +37,13 @@ export interface ParsePokepasteResult {
   parse_errors: ValidationError[];
 }
 
-/** Repository deps. `transform` is retained for forward-compat / API parity. */
+/** Repository deps. `transform` is optional and unused today — retained as
+ * an opt-in seam for callers that may want to hand the same deps shape to
+ * both this adapter and `transformPaste`. The adapter itself does not read
+ * it (validation is the validator's job). */
 export interface ParseDeps {
   db: Db;
-  transform: TransformDeps;
+  transform?: TransformDeps;
 }
 
 /** Build an empty `UserSet` for one slot. */

@@ -8,7 +8,6 @@
 
 import type { Db } from "../db/open";
 import {
-  UserTeamSchema,
   type UserTeam,
   type ValidationError,
   type ValidationResult,
@@ -110,6 +109,13 @@ export function validateTeam(
   if (team === null || typeof team !== "object") {
     throw new RosterDataError("validateTeam: input must be an object");
   }
+  // Note: we deliberately do NOT run UserTeamSchema.safeParse on `team`
+  // here. The validator's role is to surface user-facing field issues
+  // (sps_per_stat_exceeded, tera_present, etc.) one at a time. Pre-empting
+  // them via a strict schema parse would collapse multiple distinct
+  // validation outcomes into a single RosterDataError. Genuine repo
+  // corruption is caught upstream by `UserTeamRowSchema.parse` inside
+  // `rowToTeam` (`src/db/user-teams.ts`).
 
   // Defense-in-depth: any tera_* key on the team itself or any set is a
   // programmer bug — surface as a single tera_present error.
@@ -298,9 +304,12 @@ export function validateTeam(
       }
     }
 
-    // nature_unknown
+    // nature_unknown — match case-insensitively. Pokepaste authors usually
+    // capitalize ("Adamant"); user input via builder UI may not.
     if (s.nature !== null && s.nature !== undefined) {
-      if (!CANONICAL_NATURES.has(s.nature)) {
+      const cap =
+        s.nature.charAt(0).toUpperCase() + s.nature.slice(1).toLowerCase();
+      if (!CANONICAL_NATURES.has(cap)) {
         errors.push({
           code: "nature_unknown",
           message: `${s.nature} is not a canonical Pokémon nature`,
@@ -309,13 +318,6 @@ export function validateTeam(
       }
     }
   }
-
-  // Schema validation as a final corruption check — only run when the
-  // input claims to be a UserTeam (programmer bug). We *don't* throw on
-  // every malformed shape — the per-field checks above already tolerate
-  // overflow and missing values defensively. The schema check exists to
-  // catch corruption from the repo layer.
-  void UserTeamSchema;
 
   return { errors, warnings };
 }
