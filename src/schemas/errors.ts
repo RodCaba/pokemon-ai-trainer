@@ -247,41 +247,85 @@ export class PikalyticsParseError extends PikalyticsError {}
 export class PikalyticsTeraLeakError extends PikalyticsError {}
 
 /**
- * Base class for every error thrown by the vgcguide tool family
- * (`vgcguide.client`, `extract-article`, `chunk`, `tag-subtype`). Carries
- * `.cause` and `.article_slug`.
+ * Base class for every error thrown by the knowledge article-fetch family
+ * (`vgcguide.client`, `metavgc.client`, `extract-article`, etc.).
+ *
+ * **When to use it:** as a `try { ... } catch (e) { if (e instanceof KnowledgeArticleError) ... }`
+ * type guard for "anything went wrong fetching/parsing an article from one of
+ * our knowledge-base sources." For specific cases catch the concrete subclass.
+ *
+ * Carries `.cause`, `.article_slug`, and `.source_site` so the per-site
+ * adapter that throws can surface its identity to the catch ladder.
  */
-export class VgcGuideError extends Error {
+export class KnowledgeArticleError extends Error {
   override readonly cause?: unknown;
   readonly article_slug?: string;
-  constructor(msg: string, opts?: { cause?: unknown; article_slug?: string }) {
+  readonly source_site?: "vgcguide" | "metavgc";
+  constructor(
+    msg: string,
+    opts?: {
+      cause?: unknown;
+      article_slug?: string;
+      source_site?: "vgcguide" | "metavgc";
+    },
+  ) {
     super(msg);
     this.name = this.constructor.name;
     this.cause = opts?.cause;
     this.article_slug = opts?.article_slug;
+    this.source_site = opts?.source_site;
   }
 }
 
-/** HTTP non-2xx (other than 404) after retries; DNS / timeout. */
-export class VgcGuideNetworkError extends VgcGuideError {
+/**
+ * HTTP non-2xx (other than 404) after retry exhaustion, DNS, timeout — thrown
+ * by any knowledge-article HTTP client (vgcguide, metavgc).
+ *
+ * **When to use it:** catch in ingest scripts to log per-article network
+ * failures into the run summary's `network_failures[]` and continue.
+ */
+export class KnowledgeArticleNetworkError extends KnowledgeArticleError {
   readonly status?: number;
   constructor(
     msg: string,
-    opts?: { cause?: unknown; article_slug?: string; status?: number },
+    opts?: {
+      cause?: unknown;
+      article_slug?: string;
+      source_site?: "vgcguide" | "metavgc";
+      status?: number;
+    },
   ) {
     super(msg, opts);
     this.status = opts?.status;
   }
 }
 
-/** HTTP 404 from sitemap or article fetch — article-class miss. */
-export class VgcGuideNotFoundError extends VgcGuideError {}
+/**
+ * HTTP 404 from sitemap or article fetch — article-class miss.
+ *
+ * **When to use it:** catch in ingest scripts to log into `not_found[]` and
+ * continue without re-tagging the whole run as failed.
+ */
+export class KnowledgeArticleNotFoundError extends KnowledgeArticleError {}
 
 /**
- * Extractor returned empty body — missing `.sqs-html-content` container or
- * fundamentally malformed Squarespace HTML.
+ * Extractor returned empty body — missing per-site body container
+ * (`.sqs-html-content` for vgcguide, `<article>` / `<main>` for metavgc).
+ *
+ * **When to use it:** catch in ingest scripts to log into `parse_failures[]`
+ * and continue.
  */
-export class VgcGuideParseError extends VgcGuideError {}
+export class KnowledgeArticleParseError extends KnowledgeArticleError {}
+
+/** Programmer-class: empty species index at ingest start. */
+export class SpeciesTaggerError extends Error {
+  override readonly cause?: unknown;
+  constructor(msg: string, opts?: { cause?: unknown }) {
+    super(msg);
+    this.name = "SpeciesTaggerError";
+    this.cause = opts?.cause;
+  }
+}
 
 /**
  * Base class for every error thrown by the knowledge embedding / storage path

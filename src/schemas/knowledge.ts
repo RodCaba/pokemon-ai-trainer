@@ -15,10 +15,14 @@ import { z } from "zod";
 const ISODateTime = z.string().datetime({ offset: true });
 const Sha256Hex = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const SlugStr = z.string().regex(/^[a-z0-9-]+$/);
-const ChunkId = z.string().regex(/^vgcguide:[a-z0-9-]+:\d+$/);
+const ChunkId = z.string().regex(/^(vgcguide|metavgc):[a-z0-9-]+:\d+$/);
 const ArticleSection = z.enum(["intro", "teambuilding", "battling"]);
 const Subtype = z.enum(["battle-replay"]).nullable();
 const EmbeddingRef = z.string().regex(/^knowledge_chunk_embeddings:\d+$/);
+
+/** Multi-site discriminator. Plan §19 widened from `"vgcguide"` literal. */
+export const SourceSiteSchema = z.enum(["vgcguide", "metavgc"]);
+export type SourceSite = z.infer<typeof SourceSiteSchema>;
 
 /**
  * Provenance block on every persisted `KnowledgeChunk`.
@@ -29,7 +33,7 @@ const EmbeddingRef = z.string().regex(/^knowledge_chunk_embeddings:\d+$/);
  */
 export const KnowledgeSourceBlockSchema = z
   .object({
-    site: z.literal("vgcguide"),
+    site: SourceSiteSchema,
     fetched_at: ISODateTime,
     author: z.string().min(1).nullable(),
     captured_via: z.string().min(1),
@@ -58,7 +62,7 @@ export const KnowledgeChunkSchema = z
   .object({
     schema_version: z.literal(1),
     id: ChunkId,
-    source_site: z.literal("vgcguide"),
+    source_site: SourceSiteSchema,
     article_slug: SlugStr,
     article_title: z.string().min(1).max(200),
     article_url: z.string().url(),

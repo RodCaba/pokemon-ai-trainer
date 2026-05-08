@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { extractVgcGuideArticle } from "../../../src/tools/vgcguide/extract-article";
-import { VgcGuideParseError } from "../../../src/schemas/errors";
+import { KnowledgeArticleParseError } from "../../../src/schemas/errors";
 
 const FIXTURES = join(__dirname, "../../../fixtures/vgcguide");
 
@@ -33,10 +33,10 @@ describe("extractVgcGuideArticle (VGC-T7–VGC-T11)", () => {
     }
   });
 
-  it("VGC-T8. throws VgcGuideParseError when .sqs-html-content missing", () => {
+  it("VGC-T8. throws KnowledgeArticleParseError when .sqs-html-content missing", () => {
     const html = "<html><body><h1>No body</h1><p>nothing</p></body></html>";
     expect(() => extractVgcGuideArticle({ slug: "x", html })).toThrow(
-      VgcGuideParseError,
+      KnowledgeArticleParseError,
     );
   });
 

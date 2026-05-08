@@ -1,58 +1,61 @@
 /**
- * CLI entry point for `pnpm data:ingest:vgcguide` (cron-driven; weekly).
+ * CLI entry point for `pnpm data:ingest:metavgc` (cron-driven; weekly).
  *
  * Argv:
  *   --db <path>        SQLite path (default ./data/db.sqlite).
- *   --no-network       cache-only (tests and dry runs).
+ *   --no-network       cache-only (tests and dry runs); accepted in
+ *                      `--no-network=false` form too for parity with
+ *                      live-mode CLI scripts.
  *   --slug <slug>      debug single-article mode; bypasses sitemap.
  *
  * Env vars:
  *   VOYAGE_API_KEY     required unless --no-network.
- *   VGCGUIDE_CACHE_DIR override cache directory (default data/cache/vgcguide).
+ *   METAVGC_CACHE_DIR  override cache directory (default data/cache/metavgc).
  *
  * Exit codes:
  *   0  success (including bounded 404s / parse / network / embedding failures).
- *   1  KnowledgeAuthError, KnowledgeStorageError, DB error, uncaught exception.
+ *   1  KnowledgeAuthError, KnowledgeStorageError, SpeciesTaggerError, DB error,
+ *      uncaught exception.
  */
 
 import { createHash } from "node:crypto";
 import { open, type Db } from "../../src/db/open";
 import * as knowledge from "../../src/db/knowledge";
 import {
-  createVgcGuideClient,
-  type VgcGuideClient,
-} from "../../src/tools/vgcguide/client";
+  createMetaVgcClient,
+} from "../../src/tools/metavgc/client";
 import {
   createEmbedClient,
   type EmbedClient,
 } from "../../src/tools/knowledge/embed";
-import { extractVgcGuideArticle } from "../../src/tools/vgcguide/extract-article";
+import { extractMetaVgcArticle } from "../../src/tools/metavgc/extract-article";
 import { chunkExtractedArticle } from "../../src/tools/vgcguide/chunk";
-import { tagSubtype } from "../../src/tools/vgcguide/tag-subtype";
-import { inferSectionFromSlug } from "../../src/tools/vgcguide/section";
-import { discoverScope } from "../../src/tools/vgcguide/discover-scope";
+import { tagSubtype } from "../../src/tools/metavgc/tag-subtype";
+import { discoverScope } from "../../src/tools/metavgc/discover-scope";
+import {
+  buildSpeciesIndex,
+  detectSpeciesTags,
+  type SpeciesIndex,
+} from "../../src/tools/knowledge/species-tagger";
+import type { KnowledgeArticleClient } from "../../src/tools/knowledge/article-client";
 import {
   KnowledgeArticleNetworkError,
   KnowledgeArticleNotFoundError,
   KnowledgeArticleParseError,
   KnowledgeAuthError,
   KnowledgeEmbeddingError,
-  KnowledgeStorageError,
 } from "../../src/schemas/errors";
 
 /** Injection slots for {@link main} — overridable in tests. */
 export interface MainDeps {
-  client?: VgcGuideClient;
+  client?: KnowledgeArticleClient;
   embedClient?: EmbedClient;
-  /** Optional explicit DB handle override (not used by tests). */
+  /** Optional explicit DB handle override. */
   db?: Db;
-  /**
-   * Optional pre-computed scope, bypassing the nav∩sitemap discovery via
-   * `discoverScope(client)`. Tests inject a synthetic small set so the
-   * mock client doesn't have to serve the 3 section landing pages.
-   * Production callers omit this — discovery runs against the live site.
-   */
+  /** Optional pre-computed scope, bypassing `discoverScope(client)`. */
   scope?: Set<string>;
+  /** Optional pre-built species index, bypassing `buildSpeciesIndex(db)`. */
+  speciesIndex?: SpeciesIndex;
 }
 
 interface ParsedArgs {
@@ -67,6 +70,7 @@ interface RunSummary {
   articles_skipped_unchanged: number;
   chunks_inserted: number;
   chunks_re_embedded: number;
+  chunks_with_species_tags: number;
   embedding_failures: Array<{ slug: string; message: string }>;
   network_failures: Array<{ slug: string; status?: number; message: string }>;
   parse_failures: Array<{ slug: string; message: string }>;
@@ -85,6 +89,9 @@ function parseArgs(argv: string[]): ParsedArgs {
       out.db = argv[++i] ?? out.db;
     } else if (a === "--no-network") {
       out.noNetwork = true;
+    } else if (a.startsWith("--no-network=")) {
+      const v = a.slice("--no-network=".length).toLowerCase();
+      out.noNetwork = v !== "false" && v !== "0";
     } else if (a === "--slug") {
       out.slug = argv[++i] ?? null;
     }
@@ -93,7 +100,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 function slugFromUrl(url: string): string {
-  const m = url.match(/^https?:\/\/(?:www\.)?vgcguide\.com\/([^/?#]+)/i);
+  const m = url.match(/^https?:\/\/metavgc\.com\/guides\/([^/?#]+)/i);
   return m?.[1] ?? url;
 }
 
@@ -106,17 +113,21 @@ function gitSha(): string {
 }
 
 /**
- * Run the vgcguide ingest. Accepts argv (without `node script.js` prefix);
+ * Run the metavgc ingest. Accepts argv (without `node script.js` prefix);
  * returns the exit code.
  *
  * **When to use it:** the cron / CLI entry point. Tests inject `client` +
- * `embedClient` to avoid real network and Voyage calls.
+ * `embedClient` + `scope` + `speciesIndex` to avoid real network and DB
+ * coupling.
  *
  * @param argv — Argv slice.
  * @param deps — Optional injection slots; defaults wire to production.
  * @returns Process exit code (0 success, 1 fatal).
  */
-export async function main(argv: string[], deps: MainDeps = {}): Promise<number> {
+export async function main(
+  argv: string[],
+  deps: MainDeps = {},
+): Promise<number> {
   const opts = parseArgs(argv);
   const apiKey = process.env.VOYAGE_API_KEY ?? "";
 
@@ -131,8 +142,8 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
 
   const client =
     deps.client ??
-    createVgcGuideClient({
-      cacheDir: process.env.VGCGUIDE_CACHE_DIR ?? "data/cache/vgcguide",
+    createMetaVgcClient({
+      cacheDir: process.env.METAVGC_CACHE_DIR ?? "data/cache/metavgc",
       throttleRps: 2,
       maxRetries: 3,
       backoffBaseMs: 1000,
@@ -149,12 +160,20 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
       backoffBaseMs: 1000,
     });
 
+  // Build the species index once. Per flow §8 the species index is a hard
+  // contract — an empty roster is fail-loud (`SpeciesTaggerError` propagates
+  // out of `main`). Tests that want to bypass DB seeding inject
+  // `deps.speciesIndex` directly.
+  const speciesIndex: SpeciesIndex =
+    deps.speciesIndex ?? buildSpeciesIndex(db);
+
   const summary: RunSummary = {
     ok: true,
     articles_fetched: 0,
     articles_skipped_unchanged: 0,
     chunks_inserted: 0,
     chunks_re_embedded: 0,
+    chunks_with_species_tags: 0,
     embedding_failures: [],
     network_failures: [],
     parse_failures: [],
@@ -164,15 +183,9 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
   try {
     let urls: string[];
     if (opts.slug) {
-      urls = [`https://www.vgcguide.com/${opts.slug}`];
+      urls = [`https://metavgc.com/guides/${opts.slug}`];
     } else {
-      // Site-author-driven scope: nav∩sitemap intersection. The 3 section
-      // landing pages declare what's in scope (their <main> content links);
-      // the sitemap intersection eliminates broken/cart/UUID links. New
-      // articles auto-include; new Spanish translations or event-logistics
-      // pages auto-exclude. See `src/tools/vgcguide/discover-scope.ts`.
-      // Tests inject `deps.scope` so the mock client doesn't need to serve
-      // the 3 section landing pages.
+      // Sitemap-only scope discovery (memory `scope_discovery_via_site_signals`).
       const scope = deps.scope ?? (await discoverScope(client));
       const sitemapUrls = await client.fetchSitemap();
       urls = sitemapUrls.filter((u) => scope.has(slugFromUrl(u)));
@@ -180,7 +193,6 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
 
     for (const url of urls) {
       const slug = slugFromUrl(url);
-      const section = inferSectionFromSlug(slug);
       let resultKind:
         | "inserted"
         | "re_embedded"
@@ -194,29 +206,37 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
         summary.articles_fetched += 1;
         const body_hash = "sha256:" + sha256Hex(fetched.html);
 
-        const dbHash = knowledge.articleBodyHash(db, slug);
-        if (dbHash === body_hash) {
+        if (knowledge.articleBodyHash(db, "metavgc", slug) === body_hash) {
           summary.articles_skipped_unchanged += 1;
           resultKind = "skipped_unchanged";
           continue;
         }
 
-        const extracted = extractVgcGuideArticle({
+        const extracted = extractMetaVgcArticle({
           slug,
           html: fetched.html,
-          article_section: section,
         });
         const subtype = tagSubtype(slug);
         const { chunks } = chunkExtractedArticle({
           slug,
           article_url: fetched.article_url,
           article_title: extracted.article_title,
-          article_section: section,
-          extracted,
+          article_section: "intro",
+          // The chunker's `ExtractedArticle` shape is structurally compatible:
+          // `.sections[].section_heading + .paragraphs[]`. metavgc's extractor
+          // pins `article_section` to "intro" (plan §19 Q4) and the chunker
+          // doesn't read it from `extracted` anyway.
+          extracted: {
+            article_title: extracted.article_title,
+            article_section: "intro",
+            sections: extracted.sections,
+            raw_warnings: extracted.raw_warnings,
+          },
           body_hash,
           fetched_at: fetched.fetched_at,
           subtype,
-          captured_via: `vgcguide-ingest@${gitSha()}`,
+          captured_via: `metavgc-ingest@${gitSha()}`,
+          author: "MetaVGC",
         });
         if (chunks.length === 0) {
           summary.parse_failures.push({
@@ -227,15 +247,75 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
           continue;
         }
 
+        // Stamp source_site + id prefix on every chunk so they round-trip
+        // through the multi-site CHECK + unique index. The chunker is still
+        // vgcguide-shaped today (TODO(stage6-deferred): lift the chunker into
+        // `tools/knowledge/chunk.ts` with a site param).
+        const stampedChunks = chunks.map((c) => ({
+          ...c,
+          id: c.id.replace(/^vgcguide:/, "metavgc:"),
+          source_site: "metavgc" as const,
+          source: { ...c.source, site: "metavgc" as const },
+        }));
+
+        // Pipeline stage: species tagging between chunk and embed (plan §13).
+        // Build a positional parent-heading lookup: every depth-3 (h3) section
+        // inherits the most recent depth-2 (h2) heading at its position in the
+        // sections list. Species named only in the parent (e.g. "1. Mega
+        // Glimmora" → child chunks "Strategic Overview", "Base Stats") would
+        // otherwise miss the tagger. Heading text is NOT a stable key — the
+        // megas guide repeats "Strategic Overview" once per Mega, so we walk
+        // sections positionally and match chunks to sections by their order
+        // of appearance.
+        const parentBySection = new Map<number, string>();
+        {
+          let lastH2: string | null = null;
+          extracted.sections.forEach((s, i) => {
+            if (s.heading_level === 2) {
+              lastH2 = s.section_heading;
+            } else if (s.heading_level === 3 && lastH2 !== null) {
+              parentBySection.set(i, lastH2);
+            }
+          });
+        }
+        let sectionIdx = -1;
+        let prevHeading: string | null = null;
+        const speciesTagsPerChunk: Array<readonly string[] | null> =
+          stampedChunks.map((c) => {
+            if (c.section_heading !== prevHeading) {
+              sectionIdx++;
+              while (
+                sectionIdx < extracted.sections.length &&
+                extracted.sections[sectionIdx]?.section_heading !==
+                  c.section_heading
+              ) {
+                sectionIdx++;
+              }
+              prevHeading = c.section_heading;
+            }
+            const parent = parentBySection.get(sectionIdx);
+            const taggerInput =
+              (parent !== undefined ? parent + "\n" : "") +
+              c.section_heading +
+              "\n" +
+              c.chunk_text;
+            return detectSpeciesTags(taggerInput, speciesIndex);
+          });
+        for (const t of speciesTagsPerChunk) {
+          if (t !== null && t.length > 0) summary.chunks_with_species_tags += 1;
+        }
+
         const vectors = await embedClient.embed(
-          chunks.map((c) => c.chunk_text),
+          stampedChunks.map((c) => c.chunk_text),
           "document",
         );
         const result = knowledge.upsertArticleChunks(db, {
+          source_site: "metavgc",
           article_slug: slug,
           body_hash,
-          chunks,
+          chunks: stampedChunks,
           embeddings: vectors,
+          species_tags_per_chunk: speciesTagsPerChunk,
         });
         summary.chunks_inserted += result.inserted;
         summary.chunks_re_embedded += result.replaced;
@@ -265,11 +345,11 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
           resultKind = "embedding_failure";
           continue;
         }
-        // KnowledgeAuthError + KnowledgeStorageError + everything else:
-        // fail loud; don't swallow.
+        // KnowledgeAuthError + KnowledgeStorageError + SpeciesTaggerError +
+        // everything else: fail loud; don't swallow.
         throw e;
       } finally {
-        process.stderr.write(`[ingest-vgcguide] ${slug} ${resultKind}\n`);
+        process.stderr.write(`[ingest-metavgc] ${slug} ${resultKind}\n`);
       }
     }
 

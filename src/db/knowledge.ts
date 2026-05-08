@@ -43,11 +43,23 @@ export interface KnowledgeSearchRepoArgs {
 
 /** Args for {@link upsertArticleChunks}. */
 export interface UpsertArticleChunksArgs {
+  /**
+   * Source-site discriminator. Backwards-compatible: callers that omit this
+   * default to `"vgcguide"` so the existing vgcguide ingest stays one-line.
+   */
+  source_site?: "vgcguide" | "metavgc";
   article_slug: string;
   body_hash: string;
   chunks: Array<Omit<KnowledgeChunk, "embedding_ref">>;
   /** One vector per chunk. Length must match `chunks.length`. */
   embeddings: Float32Array[];
+  /**
+   * Optional per-chunk species tags (canonical species ids). When provided,
+   * length must equal `chunks.length`. `null` for a position means "not
+   * tagged" (no link rows written for that chunk); `[]` means "tagged, no
+   * matches" (delete-only). Plan §19.3 — link table, not JSON.
+   */
+  species_tags_per_chunk?: ReadonlyArray<readonly string[] | null>;
 }
 
 /** Result of {@link upsertArticleChunks}. */
@@ -94,7 +106,7 @@ function rowToChunk(row: KnowledgeRow): KnowledgeChunk {
     body_hash: row.body_hash,
     embedding_ref: row.embedding_ref,
     source: {
-      site: "vgcguide",
+      site: row.source_site,
       fetched_at: row.fetched_at,
       author: row.author,
       captured_via: row.captured_via,
@@ -304,7 +316,14 @@ export function upsertArticleChunks(
       `upsert: chunks (${input.chunks.length}) and embeddings (${input.embeddings.length}) length mismatch`,
     );
   }
-  // Defensive dim check before opening a transaction.
+  if (
+    input.species_tags_per_chunk !== undefined &&
+    input.species_tags_per_chunk.length !== input.chunks.length
+  ) {
+    throw new KnowledgeStorageError(
+      `upsert: species_tags_per_chunk length (${input.species_tags_per_chunk.length}) != chunks (${input.chunks.length})`,
+    );
+  }
   for (const v of input.embeddings) {
     if (v.length !== VECTOR_DIM) {
       throw new KnowledgeStorageError(
@@ -312,31 +331,43 @@ export function upsertArticleChunks(
       );
     }
   }
+  const sourceSite: "vgcguide" | "metavgc" = input.source_site ?? "vgcguide";
 
   return wrapDb("upsertArticleChunks", () => {
     const raw = db.$client;
     const existingHashRow = raw
       .prepare(
-        "SELECT body_hash FROM knowledge_chunks WHERE article_slug = ? LIMIT 1",
+        "SELECT body_hash FROM knowledge_chunks WHERE source_site = ? AND article_slug = ? LIMIT 1",
       )
-      .get(input.article_slug) as { body_hash: string } | undefined;
-    if (existingHashRow !== undefined && existingHashRow.body_hash === input.body_hash) {
+      .get(sourceSite, input.article_slug) as
+      | { body_hash: string }
+      | undefined;
+    if (
+      existingHashRow !== undefined &&
+      existingHashRow.body_hash === input.body_hash
+    ) {
       return { inserted: 0, replaced: 0, skipped_unchanged: true };
     }
 
     let replaced = 0;
     const tx = raw.transaction(() => {
-      // Cascade-delete vec rows + relational rows for this slug.
+      // Cascade-delete vec rows + relational rows for this (site, slug). The
+      // `knowledge_chunk_species_tags` link rows cascade via FK ON DELETE.
       const oldRefs = raw
         .prepare(
-          "SELECT embedding_ref FROM knowledge_chunks WHERE article_slug = ?",
+          "SELECT embedding_ref FROM knowledge_chunks WHERE source_site = ? AND article_slug = ?",
         )
-        .all(input.article_slug) as Array<{ embedding_ref: string }>;
+        .all(sourceSite, input.article_slug) as Array<{
+        embedding_ref: string;
+      }>;
       replaced = oldRefs.length;
       for (const r of oldRefs) {
         const refStr = r.embedding_ref;
         if (!refStr.startsWith(EMBEDDING_REF_PREFIX)) continue;
-        const rowid = Number.parseInt(refStr.slice(EMBEDDING_REF_PREFIX.length), 10);
+        const rowid = Number.parseInt(
+          refStr.slice(EMBEDDING_REF_PREFIX.length),
+          10,
+        );
         if (Number.isFinite(rowid)) {
           raw
             .prepare("DELETE FROM knowledge_chunk_embeddings WHERE rowid = ?")
@@ -344,8 +375,10 @@ export function upsertArticleChunks(
         }
       }
       raw
-        .prepare("DELETE FROM knowledge_chunks WHERE article_slug = ?")
-        .run(input.article_slug);
+        .prepare(
+          "DELETE FROM knowledge_chunks WHERE source_site = ? AND article_slug = ?",
+        )
+        .run(sourceSite, input.article_slug);
 
       const insertVec = raw.prepare(
         "INSERT INTO knowledge_chunk_embeddings(embedding) VALUES (?)",
@@ -357,6 +390,9 @@ export function upsertArticleChunks(
           chunk_token_count, subtype, body_hash, embedding_ref,
           fetched_at, author, captured_via
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      const insertTag = raw.prepare(
+        "INSERT OR IGNORE INTO knowledge_chunk_species_tags (chunk_id, species_id) VALUES (?, ?)",
       );
 
       for (let i = 0; i < input.chunks.length; i++) {
@@ -384,6 +420,12 @@ export function upsertArticleChunks(
           c.source.author,
           c.source.captured_via,
         );
+        const tags = input.species_tags_per_chunk?.[i];
+        if (tags !== undefined && tags !== null) {
+          for (const speciesId of tags) {
+            insertTag.run(c.id, speciesId);
+          }
+        }
       }
     });
     tx();
@@ -408,14 +450,23 @@ export function upsertArticleChunks(
  */
 export function articleBodyHash(
   db: Db,
-  article_slug: string,
+  arg2: string,
+  arg3?: string,
 ): string | null {
+  // Backwards-compatible overload-style signature:
+  //   articleBodyHash(db, article_slug)                  → vgcguide default
+  //   articleBodyHash(db, source_site, article_slug)     → multi-site form
+  // Plan §19 — the metavgc ingest passes the site explicitly; the vgcguide
+  // ingest stayed one-line and continues to call the two-arg form.
+  const sourceSite: "vgcguide" | "metavgc" =
+    arg3 === undefined ? "vgcguide" : (arg2 as "vgcguide" | "metavgc");
+  const articleSlug = arg3 ?? arg2;
   return wrapDb("articleBodyHash", () => {
     const row = db.$client
       .prepare(
-        "SELECT body_hash FROM knowledge_chunks WHERE article_slug = ? LIMIT 1",
+        "SELECT body_hash FROM knowledge_chunks WHERE source_site = ? AND article_slug = ? LIMIT 1",
       )
-      .get(article_slug) as { body_hash: string } | undefined;
+      .get(sourceSite, articleSlug) as { body_hash: string } | undefined;
     return row?.body_hash ?? null;
   });
 }

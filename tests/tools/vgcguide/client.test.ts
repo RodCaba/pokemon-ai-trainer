@@ -17,8 +17,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createVgcGuideClient } from "../../../src/tools/vgcguide/client";
 import {
-  VgcGuideNetworkError,
-  VgcGuideNotFoundError,
+  KnowledgeArticleNetworkError,
+  KnowledgeArticleNotFoundError,
 } from "../../../src/schemas/errors";
 
 const FIXTURES = join(__dirname, "../../../fixtures/vgcguide");
@@ -71,7 +71,7 @@ describe("VgcGuideClient (VGC-T21–VGC-T29)", () => {
     expect(String(fn.mock.calls[0]?.[0])).toContain("/speed-control");
   });
 
-  it("VGC-T23. fetchArticleHtml throws VgcGuideNotFoundError on 404 (no retry)", async () => {
+  it("VGC-T23. fetchArticleHtml throws KnowledgeArticleNotFoundError on 404 (no retry)", async () => {
     let attempts = 0;
     const fetchImpl = vi.fn(async () => {
       attempts++;
@@ -90,7 +90,7 @@ describe("VgcGuideClient (VGC-T21–VGC-T29)", () => {
     } catch (e) {
       thrown = e;
     }
-    expect(thrown).toBeInstanceOf(VgcGuideNotFoundError);
+    expect(thrown).toBeInstanceOf(KnowledgeArticleNotFoundError);
     expect(attempts).toBe(1);
   });
 
@@ -130,8 +130,8 @@ describe("VgcGuideClient (VGC-T21–VGC-T29)", () => {
     } catch (e) {
       thrown = e;
     }
-    expect(thrown).toBeInstanceOf(VgcGuideNetworkError);
-    expect((thrown as VgcGuideNetworkError).status).toBe(503);
+    expect(thrown).toBeInstanceOf(KnowledgeArticleNetworkError);
+    expect((thrown as KnowledgeArticleNetworkError).status).toBe(503);
   });
 
   it("VGC-T26. client throttles to 2 RPS (independent bucket)", async () => {

@@ -1,9 +1,12 @@
 /**
- * HTTP client for `vgcguide.com`. Throttled at 2 RPS by default (Squarespace;
- * politeness; no observed rate limit). Retries 429/5xx with exponential
- * backoff. Caches 200 responses to disk with a finite 7-day TTL (Aaron edits
- * articles occasionally; weekly cron picks up edits without re-fetching every
- * run). 404 responses are NOT cached.
+ * HTTP client for `metavgc.com`. Throttled at 2 RPS by default (politeness;
+ * no published rate limit; robots.txt has no Crawl-delay). Retries 429/5xx
+ * with exponential backoff. Caches 200 responses to disk with a finite 7-day
+ * TTL. 404 responses are NOT cached.
+ *
+ * Mirrors `src/tools/vgcguide/client.ts` and satisfies the shared
+ * {@link KnowledgeArticleClient} contract so site-agnostic helpers
+ * (ingest scripts, `discoverScope`) accept either client.
  */
 
 import {
@@ -16,18 +19,18 @@ import type {
   KnowledgeArticleClient,
   KnowledgeArticleFetch,
 } from "../knowledge/article-client";
-import { parseVgcGuideSitemap } from "./sitemap";
+import { parseMetaVgcSitemap } from "./sitemap";
 
-const BASE_URL = "https://www.vgcguide.com";
+const BASE_URL = "https://metavgc.com";
 const SITEMAP_URL = `${BASE_URL}/sitemap.xml`;
 const DEFAULT_HEADERS: Record<string, string> = {
-  "User-Agent": "pokemon-ai-trainer/0.1 (vgcguide client)",
+  "User-Agent": "pokemon-ai-trainer/0.1 (metavgc client)",
 };
 const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Configuration for {@link createVgcGuideClient}. */
-export interface VgcGuideClientOptions {
-  /** Absolute path under `data/cache/vgcguide`. */
+/** Configuration for {@link createMetaVgcClient}. Mirrors `VgcGuideClientOptions`. */
+export interface MetaVgcClientOptions {
+  /** Absolute path under `data/cache/metavgc`. */
   cacheDir: string;
   /** Sustained request rate. Default 2. */
   throttleRps?: number;
@@ -44,32 +47,47 @@ export interface VgcGuideClientOptions {
 }
 
 /** Result of one article fetch. */
-export type VgcGuideArticleFetch = KnowledgeArticleFetch;
+export type MetaVgcArticleFetch = KnowledgeArticleFetch;
 
 /**
- * Thin HTTP client around the vgcguide sitemap + article endpoints.
- *
- * Type-aliased to the shared {@link KnowledgeArticleClient} contract so
- * site-agnostic helpers (e.g. ingest scripts) accept either vgcguide or
- * metavgc clients without a discriminated union. See plan §19.1.
+ * Type alias to the shared {@link KnowledgeArticleClient} contract — the
+ * metavgc client adds no surface beyond `fetchSitemap` + `fetchArticleHtml`.
  */
-export type VgcGuideClient = KnowledgeArticleClient;
+export type MetaVgcClient = KnowledgeArticleClient;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
- * Build a {@link VgcGuideClient}.
+ * Build a {@link MetaVgcClient}.
  *
- * **When to use it:** the dep injected into the vgcguide ingest script.
- * Tests inject `fetchImpl` + `clock` to avoid real network.
+ * **When to use it:** the dep injected into the metavgc ingest script. Tests
+ * inject `fetchImpl` + `clock` to avoid real network. Both methods route
+ * through the shared throttle + file-cache primitives so the cron stays under
+ * the 2 RPS politeness ceiling and unchanged guides skip the network on
+ * subsequent runs.
  *
- * @param opts — see {@link VgcGuideClientOptions}.
- * @returns A {@link VgcGuideClient}.
- * @throws {KnowledgeArticleNetworkError} from `fetchSitemap` / `fetchArticleHtml` on HTTP exhaustion.
- * @throws {KnowledgeArticleNotFoundError} from `fetchArticleHtml` on HTTP 404.
+ * @param opts — see {@link MetaVgcClientOptions}.
+ * @returns A {@link MetaVgcClient}.
+ * @throws {KnowledgeArticleNetworkError} from `fetchSitemap` /
+ *   `fetchArticleHtml` after retry exhaustion or non-retryable HTTP failure.
+ * @throws {KnowledgeArticleNotFoundError} from `fetchArticleHtml` on HTTP 404
+ *   (no retry, not cached).
+ *
+ * @example
+ * ```ts
+ * const client = createMetaVgcClient({
+ *   cacheDir: "data/cache/metavgc",
+ *   throttleRps: 2,
+ *   maxRetries: 3,
+ *   backoffBaseMs: 1000,
+ * });
+ * const urls = await client.fetchSitemap();
+ * ```
  */
-export function createVgcGuideClient(opts: VgcGuideClientOptions): VgcGuideClient {
+export function createMetaVgcClient(
+  opts: MetaVgcClientOptions,
+): MetaVgcClient {
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
   const throttleRps = opts.throttleRps ?? 2;
   const maxRetries = opts.maxRetries ?? 3;
@@ -90,17 +108,17 @@ export function createVgcGuideClient(opts: VgcGuideClientOptions): VgcGuideClien
         return await res.text();
       }
       if (res.status === 404) {
-        throw new KnowledgeArticleNotFoundError(`vgcguide 404: ${url}`, {
+        throw new KnowledgeArticleNotFoundError(`metavgc 404: ${url}`, {
           article_slug: slug,
-          source_site: "vgcguide",
+          source_site: "metavgc",
         });
       }
       const retryable =
         res.status === 429 || (res.status >= 500 && res.status < 600);
       if (!retryable || attempt === maxRetries) {
         throw new KnowledgeArticleNetworkError(
-          `vgcguide ${url} failed: HTTP ${lastStatus}`,
-          { article_slug: slug, source_site: "vgcguide", status: lastStatus },
+          `metavgc ${url} failed: HTTP ${lastStatus}`,
+          { article_slug: slug, source_site: "metavgc", status: lastStatus },
         );
       }
       const backoff = backoffBaseMs * 2 ** attempt;
@@ -108,19 +126,19 @@ export function createVgcGuideClient(opts: VgcGuideClientOptions): VgcGuideClien
       attempt++;
     }
     throw new KnowledgeArticleNetworkError(
-      `vgcguide ${url} retries exhausted (status=${lastStatus})`,
-      { article_slug: slug, source_site: "vgcguide", status: lastStatus },
+      `metavgc ${url} retries exhausted (status=${lastStatus})`,
+      { article_slug: slug, source_site: "metavgc", status: lastStatus },
     );
   }
 
   return {
     async fetchSitemap(): Promise<string[]> {
       const xml = await fetchWithRetry(SITEMAP_URL);
-      return parseVgcGuideSitemap(xml);
+      return parseMetaVgcSitemap(xml);
     },
 
-    async fetchArticleHtml(slug: string): Promise<VgcGuideArticleFetch> {
-      const article_url = `${BASE_URL}/${slug}`;
+    async fetchArticleHtml(slug: string): Promise<MetaVgcArticleFetch> {
+      const article_url = `${BASE_URL}/guides/${slug}`;
       const cached = cache.read(slug);
       if (cached !== undefined) {
         return {

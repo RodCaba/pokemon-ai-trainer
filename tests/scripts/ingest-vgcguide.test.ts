@@ -51,8 +51,11 @@ function makeFakeClient(opts: {
     },
     async fetchArticleHtml(slug) {
       if (opts.notFound?.includes(slug)) {
-        const { VgcGuideNotFoundError } = await import("../../src/schemas/errors");
-        throw new VgcGuideNotFoundError(`404: ${slug}`, { article_slug: slug });
+        const { KnowledgeArticleNotFoundError } = await import("../../src/schemas/errors");
+        throw new KnowledgeArticleNotFoundError(`404: ${slug}`, {
+          article_slug: slug,
+          source_site: "vgcguide",
+        });
       }
       if (opts.badHtml?.includes(slug)) {
         return {

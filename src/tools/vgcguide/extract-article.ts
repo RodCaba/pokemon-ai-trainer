@@ -7,7 +7,7 @@
 
 import * as cheerio from "cheerio";
 import type { Element as DomElement } from "domhandler";
-import { VgcGuideParseError } from "../../schemas/errors";
+import { KnowledgeArticleParseError } from "../../schemas/errors";
 import { inferSectionFromSlug } from "./section";
 
 // `domhandler` is cheerio's DOM node library; importing `Element` directly
@@ -46,7 +46,7 @@ function collapseWhitespace(s: string): string {
  *   a slug-prefix heuristic.
  * @returns An {@link ExtractedArticle}; section list is non-empty (single
  *   implicit section if the body has no h2/h3).
- * @throws {VgcGuideParseError} If `.sqs-html-content` is missing.
+ * @throws {KnowledgeArticleParseError} If `.sqs-html-content` is missing.
  */
 export function extractVgcGuideArticle(input: {
   slug: string;
@@ -61,9 +61,9 @@ export function extractVgcGuideArticle(input: {
   // text length — the article body always dominates.
   const containers = $(".sqs-html-content").toArray();
   if (containers.length === 0) {
-    throw new VgcGuideParseError(
+    throw new KnowledgeArticleParseError(
       `vgcguide article ${input.slug}: no .sqs-html-content container`,
-      { article_slug: input.slug },
+      { article_slug: input.slug, source_site: "vgcguide" },
     );
   }
   const container = containers
