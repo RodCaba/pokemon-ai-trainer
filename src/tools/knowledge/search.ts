@@ -1,15 +1,15 @@
 /**
  * Agent-tool wrapper around the `knowledge.search` repo. Validates input via
  * zod, embeds the query (`input_type: "query"`), and returns ranked hits.
- *
- * Stage 4 stub: throws `not implemented (Stage 5)`.
  */
 
 import type { Db } from "../../db/open";
-import type {
-  KnowledgeSearchArgs,
-  KnowledgeSearchHit,
+import {
+  KnowledgeSearchArgsSchema,
+  type KnowledgeSearchArgs,
+  type KnowledgeSearchHit,
 } from "../../schemas/knowledge";
+import * as knowledge from "../../db/knowledge";
 import type { EmbedClient } from "./embed";
 
 /** Deps for {@link knowledgeSearch}. */
@@ -17,6 +17,8 @@ export interface KnowledgeSearchDeps {
   db: Db;
   embedClient: EmbedClient;
 }
+
+const DEFAULT_K = 5;
 
 /**
  * Run a semantic search over the vgcguide corpus.
@@ -32,10 +34,19 @@ export interface KnowledgeSearchDeps {
  * @throws {KnowledgeEmbeddingError} On Voyage retry exhaustion.
  * @throws {RosterDbError} On SQLite I/O failure.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function knowledgeSearch(
   args: KnowledgeSearchArgs,
   deps: KnowledgeSearchDeps,
 ): Promise<KnowledgeSearchHit[]> {
-  throw new Error("not implemented (Stage 5)");
+  const parsed = KnowledgeSearchArgsSchema.parse(args);
+  const k = parsed.k ?? DEFAULT_K;
+  const vecs = await deps.embedClient.embed([parsed.query], "query");
+  const queryVec = vecs[0];
+  if (queryVec === undefined) return [];
+  return knowledge.search(deps.db, {
+    query_vector: queryVec,
+    k,
+    exclude_subtypes: parsed.exclude_subtypes,
+    article_section_filter: parsed.article_section_filter,
+  });
 }

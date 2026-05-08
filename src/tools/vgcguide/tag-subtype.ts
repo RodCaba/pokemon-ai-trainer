@@ -1,8 +1,6 @@
 /**
  * Map a vgcguide article slug to its subtype. Hardcoded list of 3
  * battle-replay slugs per `docs/flows/vgc-knowledge-base.md` §6 Q4.
- *
- * Stage 4 stub: throws `not implemented (Stage 5)`.
  */
 
 /**
@@ -15,6 +13,8 @@ export const BATTLE_REPLAY_SLUGS = [
   "battling-examples-diana-bros-vs-paul-chua-naic-2019",
   "battling-example-will-tansley-vs-nils-dunlop-worlds-2017",
 ] as const;
+
+const BATTLE_REPLAY_SET: ReadonlySet<string> = new Set<string>(BATTLE_REPLAY_SLUGS);
 
 /**
  * Tag a vgcguide slug with its subtype, or `null` for principle articles.
@@ -33,7 +33,6 @@ export const BATTLE_REPLAY_SLUGS = [
  * // "battle-replay"
  * ```
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function tagSubtype(slug: string): null | "battle-replay" {
-  throw new Error("not implemented (Stage 5)");
+  return BATTLE_REPLAY_SET.has(slug) ? "battle-replay" : null;
 }

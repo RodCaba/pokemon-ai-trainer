@@ -4,5 +4,5 @@
 -- the sqlite-vec extension which `src/db/open.ts` loads before this file
 -- runs.
 CREATE VIRTUAL TABLE `knowledge_chunk_embeddings` USING vec0(
-  embedding float[1024]
+  embedding float[1024] distance_metric=cosine
 );
