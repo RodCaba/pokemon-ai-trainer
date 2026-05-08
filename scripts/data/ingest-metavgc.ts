@@ -37,7 +37,6 @@ import {
   detectSpeciesTags,
   type SpeciesIndex,
 } from "../../src/tools/knowledge/species-tagger";
-import { SpeciesTaggerError } from "../../src/schemas/errors";
 import type { KnowledgeArticleClient } from "../../src/tools/knowledge/article-client";
 import {
   KnowledgeArticleNetworkError,
@@ -161,30 +160,12 @@ export async function main(
       backoffBaseMs: 1000,
     });
 
-  // Build the species index once. The contract per flow §8 is fail-loud on
-  // an empty roster, but the ingest stays useful in fresh / test
-  // environments where the species table hasn't been seeded — in that case
-  // we surface a stderr warning, fall back to an empty index, and persist
-  // chunks with `null` species_tags. The backfill script can re-tag later.
-  // Tests inject `deps.speciesIndex` directly when they want a populated
-  // index without seeding the DB.
-  let speciesIndex: SpeciesIndex;
-  if (deps.speciesIndex !== undefined) {
-    speciesIndex = deps.speciesIndex;
-  } else {
-    try {
-      speciesIndex = buildSpeciesIndex(db);
-    } catch (e) {
-      if (e instanceof SpeciesTaggerError) {
-        process.stderr.write(
-          `[ingest-metavgc] WARN species table empty — proceeding with no species tagging\n`,
-        );
-        speciesIndex = { entries: [] };
-      } else {
-        throw e;
-      }
-    }
-  }
+  // Build the species index once. Per flow §8 the species index is a hard
+  // contract — an empty roster is fail-loud (`SpeciesTaggerError` propagates
+  // out of `main`). Tests that want to bypass DB seeding inject
+  // `deps.speciesIndex` directly.
+  const speciesIndex: SpeciesIndex =
+    deps.speciesIndex ?? buildSpeciesIndex(db);
 
   const summary: RunSummary = {
     ok: true,
@@ -255,6 +236,7 @@ export async function main(
           fetched_at: fetched.fetched_at,
           subtype,
           captured_via: `metavgc-ingest@${gitSha()}`,
+          author: "MetaVGC",
         });
         if (chunks.length === 0) {
           summary.parse_failures.push({
