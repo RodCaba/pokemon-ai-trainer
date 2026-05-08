@@ -246,6 +246,77 @@ export class PikalyticsParseError extends PikalyticsError {}
  */
 export class PikalyticsTeraLeakError extends PikalyticsError {}
 
+/**
+ * Base class for every error thrown by the vgcguide tool family
+ * (`vgcguide.client`, `extract-article`, `chunk`, `tag-subtype`). Carries
+ * `.cause` and `.article_slug`.
+ */
+export class VgcGuideError extends Error {
+  override readonly cause?: unknown;
+  readonly article_slug?: string;
+  constructor(msg: string, opts?: { cause?: unknown; article_slug?: string }) {
+    super(msg);
+    this.name = this.constructor.name;
+    this.cause = opts?.cause;
+    this.article_slug = opts?.article_slug;
+  }
+}
+
+/** HTTP non-2xx (other than 404) after retries; DNS / timeout. */
+export class VgcGuideNetworkError extends VgcGuideError {
+  readonly status?: number;
+  constructor(
+    msg: string,
+    opts?: { cause?: unknown; article_slug?: string; status?: number },
+  ) {
+    super(msg, opts);
+    this.status = opts?.status;
+  }
+}
+
+/** HTTP 404 from sitemap or article fetch — article-class miss. */
+export class VgcGuideNotFoundError extends VgcGuideError {}
+
+/**
+ * Extractor returned empty body — missing `.sqs-html-content` container or
+ * fundamentally malformed Squarespace HTML.
+ */
+export class VgcGuideParseError extends VgcGuideError {}
+
+/**
+ * Base class for every error thrown by the knowledge embedding / storage path
+ * (`knowledge.embed`, `knowledge.search`, `knowledge.upsertArticleChunks`,
+ * `loadSqliteVec`). Carries `.cause` and optional `.article_slug`.
+ */
+export class KnowledgeError extends Error {
+  override readonly cause?: unknown;
+  readonly article_slug?: string;
+  constructor(msg: string, opts?: { cause?: unknown; article_slug?: string }) {
+    super(msg);
+    this.name = this.constructor.name;
+    this.cause = opts?.cause;
+    this.article_slug = opts?.article_slug;
+  }
+}
+
+/**
+ * Voyage 4xx/5xx after retry exhaustion — article-level. Aborts the article,
+ * logged into `embedding_failures[]` by ingest.
+ */
+export class KnowledgeEmbeddingError extends KnowledgeError {}
+
+/**
+ * Voyage 401/403 or `VOYAGE_API_KEY` env var missing/empty. Operator class —
+ * fail loud at startup or on first call.
+ */
+export class KnowledgeAuthError extends KnowledgeError {}
+
+/**
+ * sqlite-vec extension not loadable, vector dimension mismatch on insert,
+ * virtual-table corruption. Programmer/operator class — fail loud.
+ */
+export class KnowledgeStorageError extends KnowledgeError {}
+
 export class NotImplementedError extends Error {
   constructor(method: string) {
     super(`v1 stub: ${method} is not yet implemented; vector tier lands in a later milestone`);

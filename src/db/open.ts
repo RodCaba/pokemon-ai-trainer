@@ -5,6 +5,7 @@ import Database, { type Database as SqliteDatabase } from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { RosterDbError } from "../schemas/errors";
 import * as schema from "./drizzle-schema";
+import { loadSqliteVec } from "./sqlite-vec";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, "migrations");
@@ -43,6 +44,12 @@ export function open(dbPath: string, opts?: { readonly?: boolean }): Db {
   } catch (e) {
     throw new RosterDbError(`failed to open SQLite at ${dbPath}`, { cause: e, query: dbPath });
   }
+  // Load sqlite-vec BEFORE migrations: 0007_knowledge_vec0.sql declares a
+  // CREATE VIRTUAL TABLE ... USING vec0(...) and needs the module loaded.
+  // SKIP_SQLITE_VEC=1 turns this into a no-op AND skips the knowledge
+  // migrations (see applyMigrations).
+  loadSqliteVec(raw);
+
   raw.pragma("foreign_keys = ON");
 
   if (!opts?.readonly) {
@@ -66,8 +73,13 @@ function applyMigrations(raw: SqliteDatabase): void {
       .map((r) => (r as { version: number }).version),
   );
 
+  const skipVec = process.env.SKIP_SQLITE_VEC === "1";
   const files = readdirSync(MIGRATIONS_DIR)
     .filter((f) => /^\d{4}_.*\.sql$/.test(f))
+    // When sqlite-vec is unavailable, the knowledge migrations 0006 + 0007
+    // are skipped (the relational table is harmless on its own but pairs
+    // with the vec0 virtual table; we keep them as a unit).
+    .filter((f) => !skipVec || !/^000[67]_/.test(f))
     .sort();
 
   for (const file of files) {

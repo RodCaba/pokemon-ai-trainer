@@ -364,6 +364,62 @@ export const pikalyticsSnapshots = sqliteTable(
   ],
 );
 
+// ---------------------------------------------------------------------------
+// vgc-knowledge-base slice (Stage 4 — additive)
+// ---------------------------------------------------------------------------
+
+/**
+ * `knowledge_chunks` — owned by the `vgc-knowledge-base` slice (see
+ * `docs/plans/vgc-knowledge-base.md` §5). One row per chunk of a vgcguide
+ * article body. The vec0 sidecar `knowledge_chunk_embeddings` is a virtual
+ * table declared in the hand-authored migration `0007_knowledge_vec0.sql`
+ * (drizzle-kit can't express CREATE VIRTUAL TABLE).
+ *
+ * `embedding_ref` is the explicit string link `"knowledge_chunk_embeddings:<rowid>"`
+ * pointing at the corresponding vec0 row.
+ */
+export const knowledgeChunks = sqliteTable(
+  "knowledge_chunks",
+  {
+    id: text("id").primaryKey(),
+    sourceSite: text("source_site").notNull(),
+    articleSlug: text("article_slug").notNull(),
+    articleTitle: text("article_title").notNull(),
+    articleUrl: text("article_url").notNull(),
+    articleSection: text("article_section").notNull(),
+    sectionHeading: text("section_heading").notNull(),
+    chunkIndex: integer("chunk_index").notNull(),
+    chunkText: text("chunk_text").notNull(),
+    chunkTokenCount: integer("chunk_token_count").notNull(),
+    subtype: text("subtype"),
+    bodyHash: text("body_hash").notNull(),
+    embeddingRef: text("embedding_ref").notNull(),
+    fetchedAt: text("fetched_at").notNull(),
+    author: text("author"),
+    capturedVia: text("captured_via").notNull(),
+  },
+  (t) => [
+    uniqueIndex("uq_knowledge_article_chunk").on(t.articleSlug, t.chunkIndex),
+    index("idx_knowledge_section").on(t.articleSection),
+    index("idx_knowledge_subtype").on(t.subtype),
+    index("idx_knowledge_body_hash").on(t.articleSlug, t.bodyHash),
+    check("knowledge_source_site_value", sql`${t.sourceSite} = 'vgcguide'`),
+    check(
+      "knowledge_section_value",
+      sql`${t.articleSection} IN ('intro','teambuilding','battling')`,
+    ),
+    check(
+      "knowledge_subtype_value",
+      sql`${t.subtype} IS NULL OR ${t.subtype} = 'battle-replay'`,
+    ),
+    check(
+      "knowledge_token_count_range",
+      sql`${t.chunkTokenCount} BETWEEN 1 AND 500`,
+    ),
+    check("knowledge_body_hash_format", sql`${t.bodyHash} GLOB 'sha256:*'`),
+  ],
+);
+
 export const moves = sqliteTable(
   "moves",
   {

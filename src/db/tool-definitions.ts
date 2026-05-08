@@ -412,6 +412,53 @@ export const pikalyticsUsageTool = tool(
   PikalyticsUsageToolInput,
 );
 
+// ---- knowledge (vgc-knowledge-base slice) ----
+
+const KnowledgeSearchToolInput = z
+  .object({
+    query: z
+      .string()
+      .min(3)
+      .max(500)
+      .describe("Natural-language query (3-500 chars) to semantic-search the vgcguide tutorial corpus."),
+    k: z
+      .number()
+      .int()
+      .min(1)
+      .max(20)
+      .optional()
+      .describe("Top-k results to return. Default 5."),
+    exclude_subtypes: z
+      .array(z.enum(["battle-replay"]))
+      .optional()
+      .describe(
+        "Subtypes to exclude. Pass `[\"battle-replay\"]` for principle-focused queries — the 3 historical battle-replay articles dominate by narrative density on broad searches.",
+      ),
+    article_section_filter: z
+      .array(z.enum(["intro", "teambuilding", "battling"]))
+      .optional()
+      .describe("Restrict results to specific article sections."),
+  })
+  .strict();
+
+/**
+ * `knowledge_search` — semantic search over the vgcguide tutorial corpus.
+ */
+export const knowledgeSearchTool = tool(
+  "knowledge_search",
+  "Semantic search over the curated VGC tutorial corpus from vgcguide.com. " +
+    "Returns the top-k tutorial passages whose embeddings are most similar to your `query`, " +
+    "with each hit carrying the source article's title, URL, and the parent section heading so " +
+    "you can cite verbatim. Pass `exclude_subtypes: [\"battle-replay\"]` for principle-focused " +
+    "queries (the 3 historical battle-replay articles dominate by narrative density on broad " +
+    "searches). Pass `article_section_filter: [\"intro\"]` for new-player-onboarding queries. " +
+    "The returned `chunk_text` is verbatim — quote it directly with the `article_url` cited. " +
+    "Use this for conceptual VGC questions (speed control, switching, predictions, team preview, " +
+    "item theory). For meta usage data prefer pikalytics_*, for tournament results prefer " +
+    "labmaus_*, for set provenance prefer pokepaste_*.",
+  KnowledgeSearchToolInput,
+);
+
 /**
  * The full catalog of repo tool definitions, ready to pass to the Anthropic SDK.
  *
@@ -444,4 +491,5 @@ export const ROSTER_TOOL_DEFINITIONS: readonly Tool[] = [
   pikalyticsFetchSpeciesTool,
   pikalyticsTeammatesTool,
   pikalyticsUsageTool,
+  knowledgeSearchTool,
 ];

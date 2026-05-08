@@ -14,11 +14,15 @@
     "tool:roster": "tsx src/cli/tool-roster.ts"
   },
   "dependencies": {
+    "@anthropic-ai/tokenizer": "^0.0.4",
     "@pkmn/dex": "^0.10.7",
     "@pkmn/sets": "^5.2.0",
     "@smogon/calc": "git+https://github.com/RodCaba/damage-calc.git#c1f6bc0fa2e0ee068b9e3061fa68b7db307e6c55&path:/calc",
     "better-sqlite3": "^12.9.0",
+    "cheerio": "^1.2.0",
+    "domhandler": "^5.0.3",
     "drizzle-orm": "^0.45.2",
+    "sqlite-vec": "^0.1.9",
     "zod": "^3.23.0",
     "zod-to-json-schema": "^3.22.0"
   },
