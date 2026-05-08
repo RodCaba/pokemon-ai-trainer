@@ -105,13 +105,32 @@ describe("extractMetaVgcArticle (META-T9..T15)", () => {
     const hits = phrases.filter((p) => captured.includes(p)).length;
     expect(hits).toBeGreaterThanOrEqual(4);
     // The captured text must be substantial (real article body, not just a stub).
-    // Stage-5 deviation: original threshold was 2000, but the captured Incineroar
-    // fixture's <article> body SSRs only ~1342 chars (Ant Design "Collapse"
-    // panels lazy-load remaining sections client-side; live re-fetch confirms
-    // the SSR snapshot is identical). 1000 is the largest achievable bound for
-    // this fixture; reviewer call to either re-capture with a JS-rendered
-    // fixture or replace this with the megas fixture (8.8K chars).
-    expect(captured.length).toBeGreaterThan(1000);
+    // Stage-5b: with the RSC pipeline the full body is now recovered (the
+    // static <article> SSR slice was ~1342 chars; the streamed RSC payload
+    // adds sections 2+ for ≥2500 chars total). The 1000-byte placeholder
+    // bound from Stage 5 is replaced by the real coverage threshold.
+    expect(captured.length).toBeGreaterThan(2500);
+  });
+
+  it("META-T16. Stage-5b: incineroar extractor surfaces sections 2+ that were missing pre-RSC", () => {
+    const out = extractMetaVgcArticle({
+      slug: "how-to-counter-incineroar-pokemon-champions",
+      html: INCINEROAR,
+    });
+    const allText = out.sections.flatMap((s) => s.paragraphs).join("\n");
+    // These three names live in sections that the static <article> SSR did
+    // NOT include. They are direct proof that the RSC payload is being read.
+    expect(allText).toContain("Sneasler");
+    expect(allText).toContain("Farigiraf");
+    expect(allText).toContain("Armor Tail");
+  });
+
+  it("META-T17. Stage-5b: megas extractor returns ≥7 sections (full body via RSC)", () => {
+    const out = extractMetaVgcArticle({
+      slug: "anti-meta-underrated-megas-pokemon-champions-2026",
+      html: MEGAS,
+    });
+    expect(out.sections.length).toBeGreaterThanOrEqual(7);
   });
 
   it("META-T15. walker captures p/li/blockquote/h4 (Megas fixture has all four tags)", () => {

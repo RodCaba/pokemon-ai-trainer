@@ -1,10 +1,15 @@
 /**
  * Pure-function HTML extractor for `metavgc.com` articles.
  *
- * Unlike vgcguide (Squarespace + `.sqs-html-content`), metavgc serves
- * semantic HTML on a Next.js stack: the article body lives inside `<article>`
- * (preferred container) or, defensively, inside `<main>` (longest-text
- * descendant fallback when an `<article>` tag is absent).
+ * Stage 5b rewrite: the previous Stage-5 extractor read the static `<article>`
+ * tag, which only SSRs the first ~30–50% of body text — sections 2+ render
+ * client-side from a streamed React Server Components (RSC) payload. The full
+ * markdown body is already in the same HTML, embedded as one of many
+ * `self.__next_f.push([1,"…"])` script calls. We now decode that payload and
+ * emit the same `{ article_title, article_section: "intro", sections }` shape
+ * the chunker already consumes. If RSC extraction fails (no payload, no
+ * markdown), we fall back to the old cheerio path so we degrade gracefully if
+ * metavgc changes its rendering.
  *
  * Per plan §19 Q4 the `article_section` is pinned to `"intro"` for every
  * metavgc article.
@@ -17,6 +22,10 @@
 import * as cheerio from "cheerio";
 import type { Element as DomElement } from "domhandler";
 import { KnowledgeArticleParseError } from "../../schemas/errors";
+import {
+  findArticleMarkdown,
+  parseMarkdownToSections,
+} from "./extract-rsc-payload";
 
 /** One section of an extracted metavgc article — h2 or h3 boundary. */
 export interface ExtractedMetaVgcSection {
@@ -41,50 +50,34 @@ function collapseWhitespace(s: string): string {
 }
 
 /**
- * Extract the heading-tree from raw metavgc article HTML.
- *
- * **When to use it:** the contract between the metavgc HTTP client and the
- * site-agnostic chunker. Tests pin against committed fixtures under
- * `fixtures/metavgc/`.
- *
- * Container strategy:
- *   1. Prefer `<article>` if present (one per page on metavgc per the live probe).
- *   2. Else longest-text `<main>` descendant by raw text length.
- *   3. Else throw {@link KnowledgeArticleParseError}.
- *
- * Walker (mirrors vgcguide for symmetry):
- *   - Section boundaries: `h2`, `h3`.
- *   - Block-text containers: `p`, `li`, `blockquote`, `h4` (treated as inline
- *     subheading prefixed with `### `).
- *   - Stripped chrome: `script`, `style`, `figure`, `aside`, `nav`, `footer`,
- *     `noscript`, plus any element whose class list contains `toc`.
- *
- * Title resolution: first `<h1>` text → `<title>` text → slug.
- *
- * @param input — `{ slug, html }`. Section is pinned, so no `article_section`
- *   override is accepted.
- * @returns An {@link ExtractedMetaVgcArticle}; section list is non-empty
- *   (single implicit section if the body has no h2/h3).
- * @throws {KnowledgeArticleParseError} If neither `<article>` nor any
- *   non-empty `<main>` descendant can be located.
- *
- * @example
- * ```ts
- * const out = extractMetaVgcArticle({
- *   slug: "how-to-counter-incineroar-pokemon-champions",
- *   html: rawHtml,
- * });
- * // out.article_section === "intro"
- * // out.sections.flatMap(s => s.paragraphs).join("\n") contains body text
- * ```
+ * Resolve the article title. Prefer `<h1>`, fall back to `<title>` minus the
+ * ` | MetaVGC` suffix, fall back to the slug.
  */
-export function extractMetaVgcArticle(input: {
+function resolveTitle(
+  $: cheerio.CheerioAPI,
+  slug: string,
+): string {
+  const fromH1 = collapseWhitespace($("h1").first().text());
+  if (fromH1.length > 0) return fromH1;
+  const fromTitle = collapseWhitespace($("title").first().text());
+  if (fromTitle.length > 0) {
+    return fromTitle.replace(/\s*\|\s*MetaVGC\s*$/i, "").trim() || slug;
+  }
+  return slug;
+}
+
+/**
+ * Cheerio fallback: walks `<article>` (or longest `<main>` descendant) and
+ * extracts h2/h3 boundaries with p/li/blockquote/h4 paragraph text. This is
+ * the Stage-5 implementation kept as a graceful fallback for the case where
+ * metavgc changes its rendering and the RSC payload disappears.
+ */
+function extractViaCheerio(input: {
   slug: string;
   html: string;
 }): ExtractedMetaVgcArticle {
   const $ = cheerio.load(input.html);
 
-  // Container selection: prefer <article>, else longest <main> descendant.
   let container: cheerio.Cheerio<DomElement> | null = null;
   const articleEl = $("article").first();
   if (articleEl.length > 0) {
@@ -92,7 +85,6 @@ export function extractMetaVgcArticle(input: {
   } else {
     const mainEl = $("main").first();
     if (mainEl.length > 0) {
-      // Pick the longest-text direct or nested descendant.
       let bestText = collapseWhitespace(mainEl.text());
       let best = mainEl as cheerio.Cheerio<DomElement>;
       mainEl.find("*").each((_, el) => {
@@ -116,21 +108,14 @@ export function extractMetaVgcArticle(input: {
     );
   }
 
-  // Defensive chrome strip — operates on a clone so we don't mutate the input.
-  // cheerio shares the underlying DOM across $() calls; remove() is permanent
-  // for this load context which is fine since the function returns a derived
-  // representation.
   container
     .find("script, style, figure, aside, nav, footer, noscript, [class*='toc' i]")
     .remove();
 
-  const titleFromH1 = collapseWhitespace($("h1").first().text());
-  const titleFromTitle = collapseWhitespace($("title").first().text());
-  const article_title = titleFromH1 || titleFromTitle || input.slug;
+  const article_title = resolveTitle($, input.slug);
 
   const sections: ExtractedMetaVgcSection[] = [];
   const raw_warnings: string[] = [];
-
   let current: ExtractedMetaVgcSection | null = null;
   const flush = (): void => {
     if (current !== null) {
@@ -171,8 +156,6 @@ export function extractMetaVgcArticle(input: {
     }
   };
 
-  // Walk the container's descendants. Use `.contents()` to start with direct
-  // children, then recurse through the walker for wrapper divs.
   for (const child of container.children().toArray()) {
     walk(child as DomElement);
   }
@@ -203,4 +186,88 @@ export function extractMetaVgcArticle(input: {
     sections,
     raw_warnings,
   };
+}
+
+/**
+ * Extract the heading-tree from raw metavgc article HTML.
+ *
+ * **When to use it:** the contract between the metavgc HTTP client and the
+ * site-agnostic chunker. Tests pin against committed fixtures under
+ * `fixtures/metavgc/`.
+ *
+ * Strategy (Stage 5b):
+ *   1. **RSC pipeline (preferred).** Locate the longest `self.__next_f.push`
+ *      payload containing a `\n## ` heading marker; JSON-decode it; walk the
+ *      markdown via {@link parseMarkdownToSections}. This recovers the full
+ *      body, including sections 2+ that render client-side and are missing
+ *      from the static `<article>` tag.
+ *   2. **Cheerio fallback.** If the RSC payload is missing or contains no
+ *      markdown body, fall back to the Stage-5 cheerio walk over `<article>`
+ *      / longest-`<main>`. Better degraded-mode coverage than throwing.
+ *   3. **Hard failure.** If both pipelines fail, throw
+ *      {@link KnowledgeArticleParseError}.
+ *
+ * The title still comes from `<h1>` (or `<title>` minus ` | MetaVGC`), which
+ * the rendered HTML reliably ships even when the body is RSC-streamed.
+ *
+ * @param input — `{ slug, html }`. Section is pinned, so no `article_section`
+ *   override is accepted.
+ * @returns An {@link ExtractedMetaVgcArticle}; section list is non-empty
+ *   (single implicit section if the body has no `## ` / `### ` headings).
+ * @throws {KnowledgeArticleParseError} If neither the RSC pipeline nor the
+ *   cheerio fallback can locate a non-empty body.
+ *
+ * @example
+ * ```ts
+ * const out = extractMetaVgcArticle({
+ *   slug: "how-to-counter-incineroar-pokemon-champions",
+ *   html: rawHtml,
+ * });
+ * // out.article_section === "intro"
+ * // out.sections covers ALL h2/h3 sections, not just the SSR slice.
+ * ```
+ */
+export function extractMetaVgcArticle(input: {
+  slug: string;
+  html: string;
+}): ExtractedMetaVgcArticle {
+  const $ = cheerio.load(input.html);
+  const article_title = resolveTitle($, input.slug);
+
+  // Try RSC first.
+  let markdown: string | null = null;
+  try {
+    markdown = findArticleMarkdown(input.html);
+  } catch (e) {
+    if (e instanceof KnowledgeArticleParseError) {
+      markdown = null;
+    } else {
+      throw e;
+    }
+  }
+
+  if (markdown !== null) {
+    const parsed = parseMarkdownToSections(markdown);
+    const sections: ExtractedMetaVgcSection[] = parsed.sections
+      .map<ExtractedMetaVgcSection>((s) => ({
+        heading_level: s.depth,
+        section_heading:
+          s.heading.length > 0 ? s.heading : article_title,
+        paragraphs: s.paragraphs,
+      }))
+      .filter((s) => s.paragraphs.length > 0 || s.section_heading.length > 0);
+
+    if (sections.length > 0) {
+      return {
+        article_title,
+        article_section: "intro",
+        sections,
+        raw_warnings: [],
+      };
+    }
+    // Empty parse — fall through to cheerio.
+  }
+
+  // Cheerio fallback (also throws if the page has no body container at all).
+  return extractViaCheerio(input);
 }
