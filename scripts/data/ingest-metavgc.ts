@@ -277,10 +277,48 @@ export async function main(
         }));
 
         // Pipeline stage: species tagging between chunk and embed (plan §13).
+        // Build a positional parent-heading lookup: every depth-3 (h3) section
+        // inherits the most recent depth-2 (h2) heading at its position in the
+        // sections list. Species named only in the parent (e.g. "1. Mega
+        // Glimmora" → child chunks "Strategic Overview", "Base Stats") would
+        // otherwise miss the tagger. Heading text is NOT a stable key — the
+        // megas guide repeats "Strategic Overview" once per Mega, so we walk
+        // sections positionally and match chunks to sections by their order
+        // of appearance.
+        const parentBySection = new Map<number, string>();
+        {
+          let lastH2: string | null = null;
+          extracted.sections.forEach((s, i) => {
+            if (s.heading_level === 2) {
+              lastH2 = s.section_heading;
+            } else if (s.heading_level === 3 && lastH2 !== null) {
+              parentBySection.set(i, lastH2);
+            }
+          });
+        }
+        let sectionIdx = -1;
+        let prevHeading: string | null = null;
         const speciesTagsPerChunk: Array<readonly string[] | null> =
-          stampedChunks.map((c) =>
-            detectSpeciesTags(c.chunk_text, speciesIndex),
-          );
+          stampedChunks.map((c) => {
+            if (c.section_heading !== prevHeading) {
+              sectionIdx++;
+              while (
+                sectionIdx < extracted.sections.length &&
+                extracted.sections[sectionIdx]?.section_heading !==
+                  c.section_heading
+              ) {
+                sectionIdx++;
+              }
+              prevHeading = c.section_heading;
+            }
+            const parent = parentBySection.get(sectionIdx);
+            const taggerInput =
+              (parent !== undefined ? parent + "\n" : "") +
+              c.section_heading +
+              "\n" +
+              c.chunk_text;
+            return detectSpeciesTags(taggerInput, speciesIndex);
+          });
         for (const t of speciesTagsPerChunk) {
           if (t !== null && t.length > 0) summary.chunks_with_species_tags += 1;
         }
