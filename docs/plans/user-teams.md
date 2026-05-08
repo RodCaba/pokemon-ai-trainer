@@ -769,20 +769,33 @@ Reuse labmaus's existing `fixtures/labmaus/2026-05-04__tournament_*.json` for th
    - (a) `validateTeam(team, deps, opts?: { target_status?: 'draft' | 'saved' })` — one entry point, opt-in arg, default `'draft'`.
    - (b) `validateForDraft(team, deps)` + `validateForSave(team, deps)` — explicit, two helpers, harder to misuse.
    **Proposal: (a)**, defaulting to `'draft'` (the auto-persist case). Confirm.
+Answer: (a), defaulting to `'draft'`.
 2. **Schema-violation code.** A `UserTeam` value passed to `validateTeam` that fails its own schema is a programmer bug (the repo just read it). Should the validator throw, or return a single `{ code: 'schema_violation', message }` error? **Proposal: throw `RosterDataError`** — it's a corruption signal, not a user error. Confirm.
+Answer: throw `RosterDataError`.
 3. **Anthropic tool surface.** This plan exposes only **read-only** tools (`get`, `list`, `listRevisions`, `validate`). Write-side (`create`, `update`, `upsertSet`, `setStatus`, `delete`, `restoreRevision`) is **NOT** agent-callable in Slice 1. **Proposal: confirm** — Slice 4 (AI prompt) wires its own controlled write surface. Alternative: ship `create` and `setStatus` agent-callable now so Slice 4 can compose without expanding the tool catalog mid-flight.
+Answer: ship create and setStatus now; future Slice 4 composes with them.
 4. **`upsertSet` on a saved team — revision or not?** §6 Q4 — the trigger matrix says NO (auto-persist on a saved team should not silently fork its history). Counter-intuitive: a user editing a saved team via the builder UI would expect each edit to be recoverable. **Proposal: NO in v1.** The user calls `update` (which DOES revision) when they finish a logical edit batch, or re-runs `setStatus('saved')` (which DOES revision via re-entry into 'saved' from 'saved' — needs an explicit branch in `setStatus`). Confirm.
+Answer: Each edit should be recoverable, we must find a balance between intuitive revision history and not burning through revisions on every keystroke.
 5. **ULID factory.** `src/db/ulid.ts` doesn't exist as a shared module today (the labmaus / vgcguide ingest scripts each have their own helper). **Proposal: factor into `src/db/ulid.ts` as part of this slice** so user-teams + future slices share. Flag if the user prefers we keep slice-local copies and refactor later.
+Answer: factor into src/db/ulid.ts as part of this slice.
 6. **Auto-name collision against archived teams.** The unique index on `user_teams.name` matches all rows regardless of status. **Proposal: auto-name's collision query honors archived status (i.e. archived names are not considered collisions for new auto-names).** This requires either (a) excluding archived from the unique index (a partial index — drizzle-kit support TBD) or (b) keeping the unique index global and date-prefixing on collision regardless of archived status. **Proposal: (b)** — simplest, matches the flow's date-prefix algorithm exactly. Confirm.
+Answer: auto-name's collision query honors archived status, date-prefixing on collision regardless of archived status.
 7. **Empty-team auto-name.** Flow §5 doesn't pin the empty case. **Proposal: `"Untitled team"`** with date-prefix on collision (same algorithm). Confirm.
+Answer: "Untitled team" with date-prefix on collision.
 8. **Validator's `species_not_legal_warning` for `is_legal=0` species without a `target_status`.** When a species exists in `roster_membership` with `is_legal=0`, draft validation surfaces the warning. But what if the species isn't in `roster_membership` at all (a new species the roster build hasn't ingested)? **Proposal: that's `species_unknown` (error), not the warning** — unknown to the system is harder to recover from than known-illegal. Confirm.
+Answer: species not in roster_membership are classified as species_unknown (error).
 9. **Stage 4 ordering of pure-data tests.** USR-T1..USR-T6 are eligible for the §3 pure-data exemption. Should Stage 4 batch them as a single commit, or run strict per-test Red→Green for them too? **Proposal: batch** — explicit disclosure in commit message per §18.4 finding from labmaus.
+Answer: batch, with explicit disclosure in commit message per §18.4.
 
 **Flow-doc gaps uncovered (for the reviewer):**
 - **Empty-team auto-name** (Q7 above) — flow §5 doesn't pin.
+Answer: "Untitled team" with date-prefix on collision.
 - **Revision trigger on `upsertSet` of a saved team** (Q4 above) — flow §11 Q2 binds the retention number but not the trigger taxonomy.
+Answer: `upsertSet` on a saved team does NOT trigger a revision; the user must call `update` or re-call `setStatus('saved')` to create a revision checkpoint.
 - **`level` on `UserSet`** — pokepaste's `TeamSet.level` is dropped in the adapter (flow §4.2 doesn't carry a level column). Confirm — for Reg M-A every set is L50, but the team-builder UI may want to surface non-50 for hypothetical play.
+Answer: drop level from `UserSet` for v1; resurface if non-50 hypothetical play matters in the future.
 - **Where `teamValidate` lives in the agent tool catalog** (Q3 above) — flow doc tags it as a "validate" subcommand only.
+Answer: ship `validateTeam` as an Anthropic tool now; future Slice 4 composes with it for the AI prompt path.
 
 ---
 
