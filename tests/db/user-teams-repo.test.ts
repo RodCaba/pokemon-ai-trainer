@@ -21,34 +21,36 @@ afterEach(() => {
   if (opened) { try { opened.$client.close(); } catch { /* noop */ } opened = null; }
 });
 
-function fakeValidateDeps(opts: {
-  errors?: Array<{ code: string; message: string; slot?: number | null }>;
-  warnings?: Array<{ code: string; message: string; slot?: number | null }>;
+/**
+ * Build {@link ValidateDeps} stubs whose return values depend on the
+ * species/item/ability/move ids in the team. The validator (real impl)
+ * runs against these and emits errors/warnings deterministically — no
+ * side-channel into the repo. Caller toggles `unknownItemId` to force a
+ * `item_unknown` error and `notLegalSpeciesId` to force a
+ * `species_not_legal_warning`.
+ */
+function buildValidateDeps(opts: {
+  unknownItemId?: string;
+  notLegalSpeciesId?: string;
 } = {}): ValidateDeps {
-  // Stage 5: real ref-table repos would be injected here; for a unit
-  // test of the repo's gate logic we instead carry the desired
-  // ValidationResult on a `_testOverride` field that the repo honours
-  // (only present on tests).
   const db = {} as ValidateDeps["db"];
-  const deps: ValidateDeps & {
-    _testOverride?: { errors: unknown[]; warnings: unknown[] };
-  } = {
+  return {
     db,
     speciesRepo: { has: () => true, get: () => ({ id: "x" }) },
-    itemsRepo: { has: () => true },
+    itemsRepo: {
+      has: (_db, id) => id !== opts.unknownItemId,
+    },
     abilitiesRepo: { has: () => true },
     movesRepo: { has: () => true },
-    rosterRepo: { isLegalForFormat: () => ({ in_membership: true, is_legal: true }) },
+    rosterRepo: {
+      isLegalForFormat: (_db, speciesId) => ({
+        in_membership: true,
+        is_legal: speciesId !== opts.notLegalSpeciesId,
+      }),
+    },
     speciesAbilities: { legalFor: () => [] },
     speciesMovepool: { legalFor: () => [] },
   };
-  if (opts.errors !== undefined || opts.warnings !== undefined) {
-    deps._testOverride = {
-      errors: opts.errors ?? [],
-      warnings: opts.warnings ?? [],
-    };
-  }
-  return deps;
 }
 
 describe("userTeams repo (USR-T31..T36)", () => {
@@ -82,21 +84,32 @@ describe("userTeams repo (USR-T31..T36)", () => {
 
   it("USR-T33. setStatus('saved') tolerates warnings; rejects on errors with UserTeamValidationError", () => {
     const db = open(":memory:"); opened = db;
+    // Build a complete team (all 6 slots) so the saved gate doesn't trip
+    // slot_empty. One slot uses an unreleased species → warning only.
     const t = userTeams.create(db, { origin: "builder", name: "T-saved" });
-    // Warnings-only: must succeed and return a saved team. Stage 5 will
-    // wire the validator via deps; for now we pass the fake deps and
-    // expect the repo's behavior to honor the contract (no errors → save).
-    const saved = userTeams.setStatus(db, t.id, "saved", fakeValidateDeps({ warnings: [{ code: "species_not_legal_warning", message: "soft" }] }));
+    for (let i = 0; i < 6; i++) {
+      userTeams.upsertSet(db, t.id, i, {
+        species_id: i === 0 ? "unreleased-x" : `species-${i}`,
+      });
+    }
+    // Warnings-only deps: setStatus('saved') succeeds (warnings allowed).
+    const saved = userTeams.setStatus(
+      db,
+      t.id,
+      "saved",
+      buildValidateDeps({ notLegalSpeciesId: "unreleased-x" }),
+    );
     expect(saved.status).toBe("saved");
 
-    // With errors: throws.
+    // Now flip slot 1 to use an unknown item → real error → throws.
+    userTeams.upsertSet(db, t.id, 1, { item_id: "moon-stone" });
     let thrown: unknown;
     try {
       userTeams.setStatus(
         db,
         t.id,
         "saved",
-        fakeValidateDeps({ errors: [{ code: "item_unknown", message: "no such item" }] }),
+        buildValidateDeps({ unknownItemId: "moon-stone" }),
       );
     } catch (e) {
       thrown = e;

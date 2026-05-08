@@ -819,3 +819,63 @@ Per memory `labmaus_pokepaste_deferred_todos.md`, deferred work is annotated as 
 This is the slice's first plan revision. No prior approved version.
 
 ---
+
+
+---
+
+## 19. Stage-5 corrections (applied 2026-05-08, pre-Stage-6)
+
+The user opted to address Stage-5 deviations directly rather than route them
+through Stage-6 review. Six corrections landed before the reviewer was
+spawned. All 539 tests pass; typecheck clean.
+
+### 19.1 Removed `_testOverride` side channel
+
+`src/db/user-teams.ts` previously read a `_testOverride` field off
+`ValidateDeps` so unit tests could pre-stage `{errors, warnings}` arrays
+without driving the validator. Production-honoured-test-only contracts
+violate CLAUDE.md §3 ("write the smallest test that captures the next
+behavior" — not a side door for the test). USR-T33 now seeds real
+`ValidateDeps` stubs that the real `validateTeam` runs against.
+
+### 19.2 `setStatus('saved')` runs validator at saved target
+
+`setStatus` now passes `{ target_status: 'saved' }` so `slot_empty` triggers.
+USR-T37..T41 (revisions tests) updated to fill all 6 slots before saving.
+
+### 19.3 Validator no longer promotes `species_not_legal_warning` to error at saved
+
+Flow §11 Q5 binding ("allow without blocking") was contradicted by the
+implementation's promotion logic. Warnings stay warnings regardless of
+`target_status`. USR-T11 + USR-T22 rewritten to reflect the binding.
+
+### 19.4 Plan §3.1 was wrong about `transformPaste` reuse
+
+The plan said "zero lift cost — reuse `transformPaste`." In fact
+`transformPaste` is **reject-and-fail** (correct for labmaus where data
+is presumed valid) and **incompatible** with user-teams' auto-persist
+contract (flow §2.1 step 6 — malformed paste must persist as a draft,
+not throw). Both consumers share `normalizeSpeciesName` (the Mega-prefix
+rewrite — the only piece worth sharing); each keeps ~10 LOC of
+structural plumbing around `Teams.importTeam`. Documented inline at
+`src/data/user-teams/parse-pokepaste.ts` head.
+
+### 19.5 `move_not_legal` now case-folded
+
+`speciesMovepool` stores Showdown ids (`"earthquake"`); pokepaste authors
+write display names (`"Earthquake"`). Validator now lowercases both
+sides. Per-species adapter doesn't canonicalize moves (only species), so
+the fold lives in the validator.
+
+### 19.6 CLI `from-paste` exit code 3 on parse errors
+
+Was always exit 0. Now: 0 clean, 3 partial-with-errors. The team id is
+still printed so callers can locate the persisted draft. Auto-persist
+contract preserved.
+
+### 19.7 ULID encoding — big-endian per spec
+
+The 80-bit random suffix was being written LSB-first instead of
+big-endian. Sortability of ULIDs (the load-bearing property) was
+unaffected because the timestamp prefix is the only thing that drives
+sort order. Fixed for spec compliance via a 10-line BigInt rewrite.

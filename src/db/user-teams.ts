@@ -539,31 +539,11 @@ export function upsertSet(
 }
 
 /**
- * Run validation against the team using injected deps. Honours a
- * `_testOverride` hook on `deps` so unit tests of the gate logic don't
- * depend on the validator implementation. Otherwise delegates to
- * `validateTeam` at default `target_status='draft'`.
- */
-function runValidate(
-  team: UserTeam,
-  deps: ValidateDeps,
-): ValidationResult {
-  const override = (deps as ValidateDeps & {
-    _testOverride?: { errors: ValidationError[]; warnings: ValidationWarning[] };
-  })._testOverride;
-  if (override !== undefined) {
-    return {
-      errors: override.errors,
-      warnings: override.warnings,
-    };
-  }
-  return validateTeam(team, deps);
-}
-
-/**
- * Status transition. Gates `'saved'` on `validateTeam(...).errors === []`
- * (warnings are allowed). Creates a revision on entry to (or re-entry
- * into) `'saved'`. Per Stage-2 Q5 + plan §6.
+ * Status transition. Gates `'saved'` on
+ * `validateTeam(team, deps, { target_status: 'saved' }).errors === []`
+ * (warnings are allowed; `slot_empty` is checked because the saved gate
+ * runs at saved target — flow §6 contract). Creates a revision on entry
+ * to (or re-entry into) `'saved'`. Per Stage-2 Q5 + plan §6.
  *
  * @param db — Open DB handle.
  * @param id — A ulid.
@@ -586,7 +566,9 @@ export function setStatus(
       team_id: id,
     });
   }
-  const result = runValidate(existing, deps);
+  const result = validateTeam(existing, deps, {
+    target_status: status === "saved" ? "saved" : "draft",
+  });
   if (status === "saved" && result.errors.length > 0) {
     throw new UserTeamValidationError(
       `cannot save user_team ${id}: ${result.errors.length} validation error(s)`,

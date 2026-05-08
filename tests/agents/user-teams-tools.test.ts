@@ -18,6 +18,7 @@ import {
 } from "../../src/agents/user-teams-tools";
 import { open, type Db } from "../../src/db/open";
 import type { ValidateDeps } from "../../src/data/team-validate";
+import * as userTeams from "../../src/db/user-teams";
 
 let opened: Db | null = null;
 afterEach(() => {
@@ -67,6 +68,12 @@ describe("user-teams agent tool surface (USR-T46)", () => {
     });
     expect(created.id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
     expect(created.status).toBe("draft");
+
+    // Fill all 6 slots so setStatus('saved') doesn't trip slot_empty
+    // (the saved-target validation gate).
+    for (let i = 0; i < 6; i++) {
+      userTeams.upsertSet(db, created.id, i, { species_id: `species-${i}` });
+    }
 
     const validateResult = userTeamsToolHandlers.validate(
       db,

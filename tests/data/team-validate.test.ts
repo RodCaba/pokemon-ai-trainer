@@ -152,7 +152,7 @@ describe("validateTeam (USR-T10..T22)", () => {
     expect(codes).toContain("species_unknown");
   });
 
-  it("USR-T11. emits species_not_legal (error) when target_status='saved' for is_legal=0 species", () => {
+  it("USR-T11. species_not_legal_warning stays a warning at target_status='saved' (flow §11 Q5: 'allow without blocking')", () => {
     const t = team([legalSet(0, "incineroar")]);
     const r = validateTeam(
       t,
@@ -163,10 +163,11 @@ describe("validateTeam (USR-T10..T22)", () => {
       { target_status: "saved" },
     );
     const errCodes = r.errors.map((e) => e.code);
-    expect(errCodes).toContain("species_not_legal");
-    // Must NOT also be a warning at the saved gate.
     const warnCodes = r.warnings.map((w) => w.code);
-    expect(warnCodes).not.toContain("species_not_legal_warning");
+    // Must NOT promote to error — flow's Q5 binding ("allow without blocking").
+    expect(errCodes).not.toContain("species_not_legal");
+    // Must remain a warning regardless of target_status.
+    expect(warnCodes).toContain("species_not_legal_warning");
   });
 
   it("USR-T12. species not in roster_membership at all → species_unknown error (Q8)", () => {
@@ -281,7 +282,9 @@ describe("validateTeam (USR-T10..T22)", () => {
     expect(draft.warnings.map((w) => w.code)).toContain("species_not_legal_warning");
     expect(draft.errors.map((e) => e.code)).not.toContain("species_not_legal");
 
-    // At saved, the warning promotes to an error (per Q5 / §4 matrix).
+    // At saved, the warning stays a warning — flow §11 Q5 binding allows
+    // unreleased species through without blocking. The only target-status-
+    // specific error is `slot_empty` (covered by USR-T19).
     const saved = validateTeam(
       t,
       fakeDeps({
@@ -290,6 +293,7 @@ describe("validateTeam (USR-T10..T22)", () => {
       }),
       { target_status: "saved" },
     );
-    expect(saved.errors.map((e) => e.code)).toContain("species_not_legal");
+    expect(saved.errors.map((e) => e.code)).not.toContain("species_not_legal");
+    expect(saved.warnings.map((w) => w.code)).toContain("species_not_legal_warning");
   });
 });

@@ -1,15 +1,19 @@
 /**
  * Adapter: raw Pokepaste body string → `UserTeam` partial.
  *
- * Uses `@pkmn/sets`'s `Teams.importTeam` directly for tolerant parsing —
- * unlike `src/tools/pokepaste/transform.ts` (the labmaus ingest path),
- * the user-teams adapter must accept whatever the user pasted, even when
- * species/items/abilities are unknown. Validation is the user-teams
- * validator's job (`validateTeam`); the adapter only structures the input.
+ * **Why not call `transformPaste` from `src/tools/pokepaste/transform.ts`?**
+ * `transformPaste` is the labmaus ingest path — its contract is
+ * **reject-and-fail**: any unknown species/item/ability/move throws.
+ * That's correct for labmaus (we expect tournament data to be valid) but
+ * incompatible with the user-teams flow §2.1 step 6 *auto-persist*
+ * contract: malformed paste must NOT throw — it must persist as a draft
+ * with structured `parse_errors` so the user can edit and re-validate.
+ * The two consumers therefore share what's truly common
+ * ({@link normalizeSpeciesName} for the Mega-prefix rewrite) and each
+ * keeps its own ~10-LOC structural plumbing around `Teams.importTeam`.
  *
- * Auto-persist contract per flow §2.1 step 6: malformed text yields a
- * `parse_failed` error and an empty-six-slot team. The adapter never
- * throws on user-input issues.
+ * Validation against the ref tables is `validateTeam`'s job, not this
+ * adapter's. The adapter only structures the input.
  */
 
 import { Teams } from "@pkmn/sets";

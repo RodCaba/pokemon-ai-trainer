@@ -34,36 +34,23 @@ function encodeInt(value: number, len: number): string {
 }
 
 /**
- * Encode raw bytes as Crockford base32. The bytes are treated as a
- * big-endian unsigned integer; the output is left-padded to `len` chars.
+ * Encode raw bytes as Crockford base32 with big-endian, MSB-first walk
+ * per the ULID spec. `bytes` are treated as one big-endian integer, then
+ * encoded into `len` 5-bit groups left-to-right (most-significant first).
  *
- * @param bytes — Buffer of arbitrary length.
+ * @param bytes — Buffer of arbitrary length. `bytes.length * 8` should be
+ *   `≤ len * 5`; extra high bits are discarded by the BigInt mask.
  * @param len — Output length in characters.
  * @returns Crockford-base32 string of length `len`.
  */
 function encodeBytes(bytes: Buffer, len: number): string {
-  // Build the 32-bit-aligned bitstream by chunking; we use 5-bit chunks
-  // walking right-to-left for stable padding behaviour.
-  const totalBits = len * 5;
+  let n = 0n;
+  for (const b of bytes) n = (n << 8n) | BigInt(b);
   const out: string[] = new Array(len);
-  let bitsConsumed = 0;
   for (let i = len - 1; i >= 0; i--) {
-    let bits = 0;
-    let needed = 5;
-    while (needed > 0 && bitsConsumed < bytes.length * 8) {
-      const byteIdx = bytes.length - 1 - Math.floor(bitsConsumed / 8);
-      const bitOffset = bitsConsumed % 8;
-      const remaining = 8 - bitOffset;
-      const take = Math.min(needed, remaining);
-      const mask = (1 << take) - 1;
-      const value = (bytes[byteIdx]! >> bitOffset) & mask;
-      bits |= value << (5 - needed);
-      needed -= take;
-      bitsConsumed += take;
-    }
-    out[i] = CROCKFORD[bits & 0x1f]!;
+    out[i] = CROCKFORD[Number(n & 0x1fn)]!;
+    n >>= 5n;
   }
-  void totalBits;
   return out.join("");
 }
 

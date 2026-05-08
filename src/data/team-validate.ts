@@ -44,10 +44,12 @@ export interface ValidateDeps {
   };
 }
 
-/** Optional opts. `target_status` controls promotion of warnings → errors. */
+/** Optional opts. `target_status` controls slot-empty emission only. */
 export interface ValidateOpts {
-  /** Default `'draft'`. When `'saved'`, `species_not_legal_warning` promotes
-   *  to `species_not_legal` error and `slot_empty` is emitted. */
+  /** Default `'draft'`. When `'saved'`, `slot_empty` is emitted for any
+   *  unfilled slot. Warnings (e.g. `species_not_legal_warning`) are NOT
+   *  promoted to errors at saved target — flow §11 Q5 binding allows
+   *  unreleased species through without blocking. */
   target_status?: "draft" | "saved";
 }
 
@@ -221,24 +223,18 @@ export function validateTeam(
       continue;
     }
 
-    // species_not_legal / species_not_legal_warning.
+    // species_not_legal_warning. Per flow §11 Q5 binding: unreleased species
+    // are surfaced as a warning regardless of target_status — the user wants
+    // to prepare for upcoming releases "without being blocked." A warning at
+    // saved target is still a warning (does NOT promote to error).
     const legality = deps.rosterRepo.isLegalForFormat(deps.db, speciesId, "RegM-A");
     if (!legality.is_legal) {
       if (legality.in_membership) {
-        // In membership but is_legal=0 → soft signal.
-        if (target === "saved") {
-          errors.push({
-            code: "species_not_legal",
-            message: `species ${speciesId} is not yet legal for Reg M-A`,
-            slot,
-          });
-        } else {
-          warnings.push({
-            code: "species_not_legal_warning",
-            message: `species ${speciesId} is not yet legal for Reg M-A`,
-            slot,
-          });
-        }
+        warnings.push({
+          code: "species_not_legal_warning",
+          message: `species ${speciesId} is not yet legal for Reg M-A`,
+          slot,
+        });
       } else {
         // Q8: species not in roster_membership at all → species_unknown.
         errors.push({
@@ -262,8 +258,13 @@ export function validateTeam(
       }
     }
 
-    // move_not_legal — emit one entry per offending move.
+    // move_not_legal — emit one entry per offending move. Compared
+    // case-insensitively because pokepaste authors typically write display
+    // names ("Earthquake") while species_movepool stores Showdown ids
+    // ("earthquake"). The user-teams adapter doesn't canonicalize moves
+    // (it does for species), so the validator handles the fold.
     const legalMoves = deps.speciesMovepool.legalFor(deps.db, speciesId);
+    const legalMovesLc = new Set(legalMoves.map((m) => m.toLowerCase()));
     const moves: Array<string | null | undefined> = [
       s.move_1_id,
       s.move_2_id,
@@ -271,7 +272,7 @@ export function validateTeam(
       s.move_4_id,
     ];
     for (const m of moves) {
-      if (m !== null && m !== undefined && !legalMoves.includes(m)) {
+      if (m !== null && m !== undefined && !legalMovesLc.has(m.toLowerCase())) {
         errors.push({
           code: "move_not_legal",
           message: `${m} is not in ${speciesId}'s movepool`,

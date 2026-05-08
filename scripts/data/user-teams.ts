@@ -224,12 +224,17 @@ export async function main(argv: string[]): Promise<number> {
           win_condition: result.team.win_condition,
           sets: result.team.sets,
         });
+        // Persist regardless (auto-persist contract: drafts survive parse
+        // failures so the user can edit and re-validate). But surface the
+        // parse outcome via exit code: 0 clean, 3 partial-with-errors. The
+        // team id is always printed so callers can locate the draft.
+        process.stdout.write(`${team.id}\n`);
         if (result.parse_errors.length > 0) {
           process.stderr.write(
-            `from-paste: parse warnings: ${JSON.stringify(result.parse_errors)}\n`,
+            `from-paste: parse errors: ${JSON.stringify(result.parse_errors)}\n`,
           );
+          return 3;
         }
-        process.stdout.write(`${team.id}\n`);
         return 0;
       }
       case "from-tournament": {

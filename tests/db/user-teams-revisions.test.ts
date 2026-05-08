@@ -34,10 +34,20 @@ function deps(): ValidateDeps {
   };
 }
 
+/**
+ * Seed all 6 slots on a team so {@link userTeams.setStatus}('saved') doesn't
+ * trip `slot_empty` errors (the saved-target validation gate). Repeat-safe.
+ */
+function fillAllSlots(db: Db, teamId: string): void {
+  for (let i = 0; i < 6; i++) {
+    userTeams.upsertSet(db, teamId, i, { species_id: `species-${i}` });
+  }
+}
+
 describe("userTeams revisions (USR-T37..T41)", () => {
   it("USR-T37. setStatus('saved') from draft creates revision #1", () => {
     const db = open(":memory:"); opened = db;
-    const t = userTeams.create(db, { origin: "builder", name: "rev-1" });
+    const t = userTeams.create(db, { origin: "builder", name: "rev-1" }); fillAllSlots(db, t.id);
     expect(userTeams.listRevisions(db, t.id)).toHaveLength(0);
     userTeams.setStatus(db, t.id, "saved", deps());
     const after = userTeams.listRevisions(db, t.id);
@@ -47,7 +57,7 @@ describe("userTeams revisions (USR-T37..T41)", () => {
 
   it("USR-T38. 5 saved-team updates keep all 5 revisions (numbers 1..5)", () => {
     const db = open(":memory:"); opened = db;
-    const t = userTeams.create(db, { origin: "builder", name: "rev-5" });
+    const t = userTeams.create(db, { origin: "builder", name: "rev-5" }); fillAllSlots(db, t.id);
     userTeams.setStatus(db, t.id, "saved", deps()); // rev 1
     for (let i = 0; i < 4; i++) {
       userTeams.update(db, t.id, { description: `edit ${i}` }); // rev 2..5
@@ -60,7 +70,7 @@ describe("userTeams revisions (USR-T37..T41)", () => {
 
   it("USR-T39. 6th save evicts the oldest (numbers become 2..6)", () => {
     const db = open(":memory:"); opened = db;
-    const t = userTeams.create(db, { origin: "builder", name: "rev-6" });
+    const t = userTeams.create(db, { origin: "builder", name: "rev-6" }); fillAllSlots(db, t.id);
     userTeams.setStatus(db, t.id, "saved", deps()); // rev 1
     for (let i = 0; i < 5; i++) {
       userTeams.update(db, t.id, { description: `edit ${i}` }); // rev 2..6
@@ -73,7 +83,7 @@ describe("userTeams revisions (USR-T37..T41)", () => {
 
   it("USR-T40. restoreRevision overwrites current state and drops status to draft (does NOT create a revision)", () => {
     const db = open(":memory:"); opened = db;
-    const t = userTeams.create(db, { origin: "builder", name: "rev-restore" });
+    const t = userTeams.create(db, { origin: "builder", name: "rev-restore" }); fillAllSlots(db, t.id);
     userTeams.setStatus(db, t.id, "saved", deps()); // rev 1
     userTeams.update(db, t.id, { description: "later" });
     const revsBefore = userTeams.listRevisions(db, t.id);
@@ -92,7 +102,7 @@ describe("userTeams revisions (USR-T37..T41)", () => {
 
   it("USR-T41. drafts don't create revisions on update/upsertSet; checkpoint() does on demand (Q4)", () => {
     const db = open(":memory:"); opened = db;
-    const t = userTeams.create(db, { origin: "builder", name: "rev-checkpoint" });
+    const t = userTeams.create(db, { origin: "builder", name: "rev-checkpoint" }); fillAllSlots(db, t.id);
     // Draft updates and upsertSets must not create revisions.
     userTeams.update(db, t.id, { description: "draft edit" });
     userTeams.upsertSet(db, t.id, 0, { hp_sps: 4 });
