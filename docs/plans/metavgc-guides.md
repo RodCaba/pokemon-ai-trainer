@@ -29,7 +29,7 @@
 
 ## 1. Goal recap
 
-Ship a citation-first ingest of metavgc.com's ~54 Champions/Reg M-A guides into the existing `knowledge_chunks` table, alongside a lightweight per-chunk `species_tags` index. Concrete deliverables: a manual-cadence ingest at `scripts/data/ingest-metavgc.ts` walks the metavgc sitemap (excluding the `/pt/guias/` Portuguese mirror and the `/guides` hub root), extracts article bodies via cheerio against semantic HTML (`<h1>` `<h2>` `<h3>` `<p>` `<ul>` `<blockquote>`), reuses the same token-aware chunker and Voyage `voyage-3-lite` embed client as `vgc-knowledge-base`, builds an in-process index of Reg-M-A-legal species display names + aliases, tags each chunk with the canonical species ids it mentions (whole-word, case-insensitive, longest-form-wins on Garchomp vs Garchomp-Mega), and upserts both relational and vec0 sidecar rows under `source_site = 'metavgc'`. Skip-existing on `body_hash` keeps re-runs network-cheap and embedding-API-free. Done means: a SQLite migration `0008_knowledge_multi_site_and_tags.sql` widens the CHECK + unique index + adds nullable `species_tags`, leaving every existing vgcguide row readable; ≥4 fixtures (3 real + 1 synthetic) round-trip; ≥80% of metavgc articles produce ≥1 species_tag on real ingest; two consecutive ingests produce zero embedding API calls; existing vgcguide knowledge tests stay green; live retrieval demo answers "how do I counter Incineroar in Reg M-A?" with the metavgc Incineroar guide top-1; `species_tags` JSON-LIKE filter on `'incineroar'` returns the Incineroar guide chunks first independent of cosine. **Out of scope (deferred to Stage 6 TODO):** species detail pages (`/pokemon/<slug>`), Insight extraction, Portuguese mirror, featured-teams pages, backfill of `species_tags` over existing vgcguide rows.
+Ship a citation-first ingest of metavgc.com's 10 Champions/Reg M-A guides into the existing `knowledge_chunks` table, alongside a lightweight per-chunk `species_tags` index. Concrete deliverables: a manual-cadence ingest at `scripts/data/ingest-metavgc.ts` walks the metavgc sitemap (excluding the `/pt/guias/` Portuguese mirror and the `/guides` hub root), extracts article bodies via cheerio against semantic HTML (`<h1>` `<h2>` `<h3>` `<p>` `<ul>` `<blockquote>`), reuses the same token-aware chunker and Voyage `voyage-3-lite` embed client as `vgc-knowledge-base`, builds an in-process index of Reg-M-A-legal species display names + aliases, tags each chunk with the canonical species ids it mentions (whole-word, case-insensitive, longest-form-wins on Garchomp vs Garchomp-Mega), and upserts both relational and vec0 sidecar rows under `source_site = 'metavgc'`. Skip-existing on `body_hash` keeps re-runs network-cheap and embedding-API-free. Done means: a SQLite migration `0008_knowledge_multi_site_and_tags.sql` widens the CHECK + unique index + adds nullable `species_tags`, leaving every existing vgcguide row readable; ≥4 fixtures (3 real + 1 synthetic) round-trip; ≥80% of metavgc articles produce ≥1 species_tag on real ingest; two consecutive ingests produce zero embedding API calls; existing vgcguide knowledge tests stay green; live retrieval demo answers "how do I counter Incineroar in Reg M-A?" with the metavgc Incineroar guide top-1; `species_tags` JSON-LIKE filter on `'incineroar'` returns the Incineroar guide chunks first independent of cosine. **Out of scope (deferred to Stage 6 TODO):** species detail pages (`/pokemon/<slug>`), Insight extraction, Portuguese mirror, featured-teams pages, backfill of `species_tags` over existing vgcguide rows.
 
 ---
 
@@ -74,9 +74,9 @@ If the rename is rejected at review, fall back to a parallel `MetaVgcNotFoundErr
 
 Mirrors `src/tools/vgcguide/SPEC.md`. Authored before any test or code. Sections:
 1. Tools registered: none new — re-uses `knowledge_search` (already registered with day-one discipline by `vgc-knowledge-base`).
-2. Endpoint contract: `https://metavgc.com/sitemap.xml` (sitemap is canonical; ~54 guides at `/guides/<slug>` plus the bilingual mirror at `/pt/guias/<slug>` which we exclude); `https://metavgc.com/guides/<slug>` (semantic HTML, no SquareSpace wrappers).
+2. Endpoint contract: `https://metavgc.com/sitemap.xml` (sitemap is canonical; 10 guides at `/guides/<slug>` plus the bilingual mirror at `/pt/guias/<slug>` which we exclude); `https://metavgc.com/guides/<slug>` (semantic HTML, no SquareSpace wrappers).
 3. Inputs/outputs (zod verbatim) — same shapes; `source_site = 'metavgc'`.
-4. Edge cases: sitemap returns ≠ 54 URLs (warn + continue); article HTML missing `<article>` AND `<main>` body container → `KnowledgeArticleParseError`; `/pt/guias/*` URLs in sitemap (must be filtered); `/guides` hub root (must be filtered); body that extracts but tokenizes to 0 chunks (log + skip).
+4. Edge cases: sitemap returns ≠ 10 URLs (warn + continue); article HTML missing `<article>` AND `<main>` body container → `KnowledgeArticleParseError`; `/pt/guias/*` URLs in sitemap (must be filtered); `/guides` hub root (must be filtered); body that extracts but tokenizes to 0 chunks (log + skip).
 5. Citation rules: every persisted chunk carries `article_url` (canonical `https://metavgc.com/guides/<slug>`) + `section_heading` + `source.author = "MetaVGC"` + `source.fetched_at`.
 6. Reg M-A hygiene: zero Tera content expected (Champions content); defensive no-tera property test reused.
 7. Cache + throttle: 2 RPS on `metavgc.com` (no published rate limit; politeness; robots.txt has no Crawl-delay); finite TTL 7 days mirroring vgcguide.
@@ -127,7 +127,7 @@ Both `VgcGuideClient` and `MetaVgcClient` already satisfy structurally identical
   2. Else `<main>` longest-text descendant by raw text length (defensive fallback mirroring vgcguide's pattern).
   3. Else throw `KnowledgeArticleParseError`.
 - **Walker:** same recursive walker as `extract-article.ts`. Tags collected as paragraphs: `p`, `li`, `blockquote`, `h4`. Tags treated as section boundaries: `h2`, `h3`. Tags stripped: `script`, `style`, `figure`, `aside`, `nav`, `footer`, `noscript`. **Title:** `<h1>` first hit; fall back to `<title>`; fall back to slug.
-- **`article_section`** is **always `"guides"`** (decision: extend the enum). metavgc has no editorial section structure parallel to vgcguide's intro/teambuilding/battling — the entire site is one tier of guides. Migration `0008` widens the `knowledge_section_value` CHECK to `IN ('intro','teambuilding','battling','guides')`. **No vgcguide backfill is needed** — existing vgcguide rows already satisfy the widened constraint (set membership is monotone). Pinning to `"intro"` was the alternative; rejected as semantically misleading data.
+- **`article_section`** is **always `"intro"`** (per §17 Q4 answer — pin, do not extend the enum). metavgc has no editorial section structure parallel to vgcguide's intro/teambuilding/battling — the entire site is one tier of guides. Migration `0008` does NOT touch `knowledge_section_value`. Slight semantic stretch on `"intro"`; revisit if metavgc adds more sections.
 - **Does NOT do:** chunking, tagging, persistence.
 
 #### `src/tools/metavgc/discover-scope.ts` (new)
@@ -153,7 +153,7 @@ Per memory `scope_discovery_via_site_signals.md`: every adapter exports `discove
 
 #### `src/tools/metavgc/section.ts` (new)
 
-Mirror of `src/tools/vgcguide/section.ts` for symmetry, but trivially returns `"guides"`. Single function `inferMetaVgcSection(slug: string): ArticleSection` returning `"guides"`. **Justification for keeping the file:** the future Stage 6 lift of section inference into a shared module wants every adapter to export the same surface. ~10 LOC. **Does NOT do:** anything else.
+Mirror of `src/tools/vgcguide/section.ts` for symmetry, but trivially returns `"intro"`. Single function `inferMetaVgcSection(slug: string): ArticleSection` returning `"intro"`. **Justification for keeping the file:** the future Stage 6 lift of section inference into a shared module wants every adapter to export the same surface. ~10 LOC. **Does NOT do:** anything else.
 
 #### `src/tools/metavgc/tag-subtype.ts` (new — placeholder)
 
@@ -510,7 +510,7 @@ Numbering: `META-T<n>`. Avoids cross-slice number conflict with VGC-T*, PIKA-T*,
 |---|---|---|---|---|
 | META-T1 | `tests/schemas/knowledge-multi-site.test.ts` | `KnowledgeChunkSchema accepts source_site: "metavgc"` | parses; `'pikalytics'` rejected | widen `SourceSiteSchema` |
 | META-T2 | `tests/schemas/knowledge-multi-site.test.ts` | `KnowledgeChunkSchema accepts species_tags: null \| []  \| ["incineroar"]` | three-state contract; non-canonical id rejected by `SpeciesIdSchema` | add `species_tags` field |
-| META-T3 | `tests/tools/metavgc/discover-scope.test.ts` | `extractMetaVgcSlugs returns /guides/<slug> set from real sitemap fixture` | fixture sitemap → ~54 slugs; spot-check 3 known slugs present | impl |
+| META-T3 | `tests/tools/metavgc/discover-scope.test.ts` | `extractMetaVgcSlugs returns /guides/<slug> set from real sitemap fixture` | fixture sitemap → 10 slugs; spot-check 3 known slugs present | impl |
 | META-T4 | `tests/tools/metavgc/discover-scope.test.ts` | `extractMetaVgcSlugs excludes /pt/guias/* (Portuguese mirror)` | inject 2 `/pt/guias/x` URLs into fixture; assert dropped | filter clause |
 | META-T5 | `tests/tools/metavgc/discover-scope.test.ts` | `extractMetaVgcSlugs excludes /guides hub root` | bare `/guides` in fixture; assert dropped | exclusion clause |
 | META-T6 | `tests/tools/metavgc/discover-scope.test.ts` | `extractMetaVgcSlugs excludes /pokemon/<slug>` (deferred scope guard) | inject `/pokemon/incineroar`; assert dropped | path-prefix filter |
@@ -519,7 +519,7 @@ Numbering: `META-T<n>`. Avoids cross-slice number conflict with VGC-T*, PIKA-T*,
 | META-T9 | `tests/tools/metavgc/extract-article.test.ts` | `extractMetaVgcArticle uses <article> when present` | fixture with `<article>`; assert that body is the source | branch |
 | META-T10 | `tests/tools/metavgc/extract-article.test.ts` | `extractMetaVgcArticle falls back to longest <main> descendant` | synthetic without `<article>` but with multiple `<main>` candidates; assert longest chosen | fallback branch |
 | META-T11 | `tests/tools/metavgc/extract-article.test.ts` | `extractMetaVgcArticle strips nav / aside / footer / script` | inject all four; assert text excludes them | sanitizer |
-| META-T12 | `tests/tools/metavgc/extract-article.test.ts` | `extractMetaVgcArticle title from <h1>; section always "guides"` | fixture; assert `article_title === "<h1 text>"`; `article_section === "guides"` | title + section |
+| META-T12 | `tests/tools/metavgc/extract-article.test.ts` | `extractMetaVgcArticle title from <h1>; section always "intro"` | fixture; assert `article_title === "<h1 text>"`; `article_section === "intro"` | title + section |
 | META-T13 | `tests/tools/knowledge/species-tagger.test.ts` | `detectSpeciesTags returns ["incineroar"] for chunk mentioning Incineroar` | "...you must counter Incineroar carefully..." → `["incineroar"]` | basic regex |
 | META-T14 | `tests/tools/knowledge/species-tagger.test.ts` | `detectSpeciesTags returns [] when no species mentioned` | "...speed control matters..." → `[]` | empty-result branch |
 | META-T15 | `tests/tools/knowledge/species-tagger.test.ts` | `detectSpeciesTags handles multi-species chunk with deduplication` | "...Incineroar and Garchomp synergize. Incineroar..." → `["incineroar","garchomp"]` (deduped, in order of first occurrence) | dedup |
@@ -578,7 +578,7 @@ All fixtures committed and immutable; filenames carry capture date.
 
 ```
 fixtures/metavgc/
-  2026-05-08__sitemap.xml                            (real sitemap with ~54 guides + /pt/guias/* + /pokemon/* + /guides root)
+  2026-05-08__sitemap.xml                            (real sitemap with 10 guides + /pt/guias/* + /pokemon/* + /guides root)
   2026-05-08__guides-incineroar-counters.html        (real — heavy species mentions for tagger sanity)
   2026-05-08__guides-team-building-walkthrough.html  (real — long, heading-rich)
   2026-05-08__guides-format-breakdown.html           (real — short, intro-style)
@@ -723,7 +723,7 @@ async function main(argv: string[], deps?: MainDeps): Promise<number> {
         const { chunks } = chunkExtractedArticle({
           slug, article_url: fetched.article_url,
           article_title: extracted.article_title,
-          article_section: "guides",               // pinned for metavgc
+          article_section: "intro",                // pinned for metavgc
           extracted, body_hash, fetched_at: fetched.fetched_at,
           subtype, captured_via: `metavgc-ingest@${gitSha()}`,
         });
@@ -780,7 +780,7 @@ async function main(argv: string[], deps?: MainDeps): Promise<number> {
 
 ### 13.2 Parallelism
 
-Serial. 2 RPS × 54 articles ≈ 27s HTTP; embedding batches of 64 take a few seconds; total cold-start well under 5 min. No need for in-loop parallelism.
+Serial. 2 RPS × 10 articles ≈ 27s HTTP; embedding batches of 64 take a few seconds; total cold-start well under 5 min. No need for in-loop parallelism.
 
 ### 13.3 Exit codes
 
@@ -841,20 +841,28 @@ Single JSON-line summary on stdout; per-article progress to stderr. New summary 
 ## 17. Open questions for plan review
 
 1. **Lift `VgcGuideClient` + `MetaVgcClient` into shared `KnowledgeArticleClient` interface NOW vs Stage 6?** §2.2 recommends defer with a `// TODO(stage6-deferred): unify-client-interface` annotation. Cost of lifting now: ~30 LOC refactor across vgcguide + 2 SPEC.md edits. Reviewer's call before Stage 4.
+Answer: Refactor now. The shared interface clarifies the contract and reduces duplication in the new client tests (e.g. the fetchArticleHtml 404 test is identical except for the URL). The upfront cost is manageable, and it avoids a rushed refactor later when more code has landed on top of the separate clients.
 
 2. **Rename `VgcGuideNotFoundError` → `KnowledgeArticleNotFoundError` (and siblings) NOW vs ship parallel `MetaVgc*` family?** §8.1 recommends rename. Cost is bounded (~30 mechanical edits, all caught by typecheck). Reviewer call. If reject, the parallel-family fallback adds ~80 LOC permanent duplication.
+Answer: Rename now. The unified error classes reduce cognitive load and code duplication. The risk of confusion is minimal since the context (client code) makes it clear which site is involved. The long-term maintenance cost of parallel error families outweighs the short-term cost of renaming.
 
 3. **Keep `src/tools/metavgc/tag-subtype.ts` as a no-op file or drop it?** §2.2 recommends keep-for-symmetry (~10 LOC, future-proof). Reviewer can vote dead-code-cleanup.
+Answer: Keep
 
 4. **`article_section` for metavgc — pin to `"intro"` or extend the enum to `"guides"`?** §2.2 recommends pin to `"intro"`. Extending the enum forces the `knowledge_section_value` CHECK widening AND backfilling vgcguide rows; the cost outweighs the semantic clarity. Reviewer's call.
+Answer: Pin to "intro". The section concept is underdeveloped for metavgc (currently just "guides" but no other sections); the enum extension and backfill cost is non-trivial; and the retrieval utility of the section distinction is minimal given the current single-section state. We can revisit once metavgc adds more sections.
 
 5. **Should `species_tags_contains` filter scan `JSON_EACH(species_tags)` (current proposal) or do we add a separate `knowledge_chunk_species_tags` link table?** §6 / §10 deferred. Profile-driven. Stage 6 TODO if the JSON_EACH path slows down.
+Answer: Add a link table. The JSON_EACH EXISTS approach is straightforward to implement but doesn't scale well as the number of tagged chunks grows (potentially >5K). A normalized link table with an index on `species_id` would provide much faster lookups. The upfront cost is higher, but it future-proofs the system for more extensive tagging.
 
 6. **Backfill of `species_tags` on existing vgcguide rows — Stage 6 deferred TODO?** Yes per §1 — flagged as `// TODO(stage6-deferred): backfill-vgcguide-species-tags`. Reviewer can pull forward into this slice if there's appetite, but the corpus is small (~750 chunks) and a one-shot script can run later without a schema change. Recommend defer.
+Answer: Backfill on existing vgcguide rows.
 
 **Flow-doc gap uncovered:** flow §6 mentions "alias table from `data/reg-m-a/aliases.json`" but that file isn't authoritative — aliases live in `species.aliases` (JSON column) per the existing roster build. The plan reads aliases directly from the DB (`buildSpeciesIndex`), avoiding a divergent fixture file. **Recommend updating the flow doc** to reference the `species.aliases` column rather than the JSON file.
+Answer: Update flow doc to reference `species.aliases` column.
 
 **Flow-doc gap (minor):** flow §9 success criteria says "vector search filtered by `species_tags LIKE '%incineroar%'`" — this is illustrative, not a literal API. Per §6 the actual filter is `species_id_filter` on the `knowledge_search` tool (which compiles to `JSON_EACH EXISTS`). Recommend the flow be updated to match the agent-tool surface.
+Answer: Update flow doc to reference `species_id_filter` on the `knowledge_search` tool.
 
 ---
 
@@ -876,3 +884,109 @@ Per memory `labmaus_pokepaste_deferred_todos.md`, every deferral is annotated in
 | 10 | Portuguese mirror ingest — out-of-scope today | n/a | If the user ever asks for it. |
 
 Each will land as an inline `// TODO(stage6-deferred): <slug>` comment in the cited file at Stage 5; the Stage 6 reviewer is expected to confirm the comments are present and greppable.
+
+
+---
+
+## 19. Plan amendments after Stage-3 review (2026-05-08)
+
+The §17 answers from the reviewer reshape v1 scope. These amendments **override** the earlier sections where they conflict.
+
+### 19.1 Shared client interface — IN v1 (Q1)
+
+Lift the article-fetching contract into `src/tools/knowledge/article-client.ts`:
+
+```ts
+export interface KnowledgeArticleClient {
+  fetchSitemap(): Promise<string[]>;
+  fetchArticleHtml(slug: string): Promise<{
+    slug: string;
+    html: string;
+    article_url: string;
+    fetched_at: string;
+  }>;
+}
+```
+
+Both `VgcGuideClient` and `MetaVgcClient` re-export this type alias (or `extends` it). Existing call-sites in `scripts/data/ingest-vgcguide.ts` and tests need a one-line import swap. Stage 6 deferred TODO #1 is **removed** from §18.
+
+### 19.2 Error rename — IN v1 (Q2)
+
+`VgcGuideNotFoundError` → `KnowledgeArticleNotFoundError` (and any sibling `VgcGuide*Error` classes that aren't site-specific by content). ~30 mechanical edits across `src/schemas/errors.ts`, `src/tools/vgcguide/client.ts`, `scripts/data/ingest-vgcguide.ts`, and tests. All caught by typecheck. Done as a separate green commit before metavgc tests reference the renamed classes.
+
+### 19.3 Species-tags storage — link table, NOT JSON_EACH (Q5)
+
+The plan's original proposal of `species_tags TEXT` on `knowledge_chunks` plus `JSON_EACH(...)` filtering is **replaced** with a normalized link table.
+
+**Schema (migration 0008 update):**
+```sql
+CREATE TABLE knowledge_chunk_species_tags (
+  chunk_id   TEXT NOT NULL REFERENCES knowledge_chunks(id) ON DELETE CASCADE,
+  species_id TEXT NOT NULL REFERENCES species(id) ON DELETE CASCADE,
+  PRIMARY KEY (chunk_id, species_id)
+);
+CREATE INDEX idx_kcst_species ON knowledge_chunk_species_tags (species_id);
+```
+
+The `species_tags TEXT` column on `knowledge_chunks` is **dropped from the design** — link table is the source of truth.
+
+**Drizzle schema:** add `knowledgeChunkSpeciesTags` table with composite PK, both FKs cascading on delete.
+
+**Repo:**
+- `upsertKnowledgeChunks(rows, vectors, speciesTagsByChunkId: Map<string, string[]>)` — single transaction; replaces existing tag rows for affected chunk ids before inserting new ones (idempotent).
+- `searchKnowledgeChunks({ speciesIdFilter?: string[], ... })` — joins `knowledge_chunks` ⨝ `knowledge_chunk_species_tags` with `WHERE species_id IN (?)` when filter provided. Without filter: no join overhead.
+
+**Test deltas (META-T29..T36 region):**
+- "JSON_EACH filter" tests are replaced with "link-table join" tests of the same shape.
+- New test: composite-PK rejects duplicate `(chunk_id, species_id)` insert.
+- New test: `ON DELETE CASCADE` removes link rows when a chunk is deleted (smoke test, since v1 doesn't delete chunks; future-proofs the FK).
+
+### 19.4 Vgcguide backfill — IN v1 (Q6)
+
+A backfill pass populates `knowledge_chunk_species_tags` for the existing ~750 vgcguide knowledge_chunks rows.
+
+**Approach:** the metavgc ingest pipeline's `detectSpeciesTags(chunkText, speciesIndex)` is site-agnostic (it operates on text). The backfill is a one-shot loop:
+```ts
+// scripts/data/backfill-vgcguide-species-tags.ts (new, one-shot)
+const speciesIndex = buildSpeciesIndex(db);
+const chunks = db.select().from(knowledgeChunks).where(eq(sourceSite, "vgcguide")).all();
+for (const c of chunks) {
+  const tags = detectSpeciesTags(c.chunkText, speciesIndex);
+  upsertChunkSpeciesTags(db, c.id, tags);  // delete-then-insert in one tx
+}
+```
+
+**Test:** META-T49 (new) — backfill script, given a synthetic 3-row vgcguide fixture, produces the expected link-table rows; running twice is a no-op (idempotent).
+
+**Run order in this slice:**
+1. Migration 0008 lands (schema present, link table empty).
+2. Metavgc ingest runs (link table populated for metavgc rows).
+3. Backfill script runs (link table populated for vgcguide rows).
+4. Live demo: `species_id_filter=["incineroar"]` returns BOTH metavgc and vgcguide chunks mentioning Incineroar.
+
+Stage 6 deferred TODO #3 is **removed** from §18.
+
+### 19.5 Article count correction
+
+The original plan cited "~54 articles" — actual scope (per fixture sitemap, 2026-05-08) is **10 English guides** (`/guides/<slug>`). The Portuguese mirror under `/pt/guias/` adds another 10 (excluded). All §10/§11/§13 numbers updated. Test count remains 48 (now +1 for backfill = 49).
+
+### 19.6 Stage 6 deferred TODOs §18 — revised
+
+Items 1, 3, and 7 were already partial revisits or now in-scope; revised list:
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Lift `VgcGuideClient`+`MetaVgcClient` into shared `KnowledgeArticleClient` | **DONE in v1 §19.1** |
+| 2 | Lift `ExtractedArticle` / `ExtractedSection` into `src/tools/knowledge/extracted.ts` | **deferred** |
+| 3 | Backfill `species_tags` on existing vgcguide rows | **DONE in v1 §19.4** |
+| 4 | Replace `JSON_EACH(species_tags)` filter with link table | **DONE in v1 §19.3 (was the chosen design from the start, no migration)** |
+| 5 | Drop `src/tools/metavgc/tag-subtype.ts` if it stays a no-op | **deferred (per Q3 — keep)** |
+| 6 | Fuzz harness over the species index for false-positive scan | **deferred** |
+| 7 | Section enum extension (`"guides"`) — full migration once metavgc has > 1 section | **deferred (per Q4 — pinned to "intro")** |
+| 8 | Insight extraction over metavgc chunks | **deferred** |
+| 9 | Species detail pages (`/pokemon/<slug>`) ingest | **deferred** |
+| 10 | Portuguese mirror ingest | **deferred** |
+
+---
+
+**Reviewed-by:** Rodrigo Caballero (2026-05-08, see §17 answers)

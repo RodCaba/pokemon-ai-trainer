@@ -9,7 +9,7 @@
 
 The `vgc-knowledge-base` slice ingests vgcguide.com tutorials — high-quality but
 generic VGC theory, not Champions/Reg M-A specific. The user's actual prep
-needs Champions-specific content. metavgc.com publishes ~54 long-form guides
+needs Champions-specific content. metavgc.com publishes 10 long-form guides
 authored *for* Pokemon Champions Reg M-A: lead theory, counters for specific
 species (Incineroar, Megas), team-building walkthroughs, format breakdowns.
 
@@ -88,7 +88,7 @@ Cross-cutting (touches existing schema + extractor):
 ## 4. Scope discovery
 
 metavgc's sitemap.xml lists every URL with `<priority>` weighting. The
-`/guides/` section has 54 articles plus 1 hub (`/guides`). Bilingual mirror
+`/guides/` section has 10 articles plus 1 hub (`/guides`). Bilingual mirror
 under `/pt/guias/` must be excluded. The hub root must be excluded (it's a
 listing page, not an article).
 
@@ -155,7 +155,7 @@ Edge cases:
 
 | Stage | Input | Output |
 |---|---|---|
-| `discoverScope` | sitemap.xml | `Set<string>` of slugs (~54) |
+| `discoverScope` | sitemap.xml | `Set<string>` of slugs (10) |
 | `fetchArticleHtml` | slug | `{slug, html, article_url, fetched_at}` |
 | `extractArticle` | html | `{title, sections: [{heading, paragraphs}]}` |
 | `chunk` | extracted article | `Chunk[]` — body-hashed |
@@ -177,7 +177,7 @@ Edge cases:
 
 ## 9. Success criteria
 
-- 54 articles ingested end-to-end on cached fixtures with zero network
+- 10 articles ingested end-to-end on cached fixtures with zero network
   failures.
 - `pnpm data:ingest:metavgc -- --no-network` is idempotent (second run
   produces zero deltas).
@@ -205,4 +205,4 @@ Edge cases:
 
 ## 11. Reviewed-by
 
-Reviewed-by: _pending Stage 2_
+Reviewed-by: Rodrigo Caballero
