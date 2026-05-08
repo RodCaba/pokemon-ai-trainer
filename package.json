@@ -11,7 +11,9 @@
     "tool:calc": "tsx src/cli/tool-calc.ts",
     "data:build:reg-m-a": "tsx scripts/data/build-reg-m-a.ts",
     "data:refresh:reg-m-a": "tsx scripts/data/fetchers/smogon-champions-sets.ts",
-    "tool:roster": "tsx src/cli/tool-roster.ts"
+    "tool:roster": "tsx src/cli/tool-roster.ts",
+    "data:ingest:metavgc": "tsx scripts/data/ingest-metavgc.ts",
+    "data:backfill:vgcguide-species-tags": "tsx scripts/data/backfill-vgcguide-species-tags.ts"
   },
   "dependencies": {
     "@anthropic-ai/tokenizer": "^0.0.4",

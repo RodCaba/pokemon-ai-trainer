@@ -32,12 +32,12 @@ import { tagSubtype } from "../../src/tools/vgcguide/tag-subtype";
 import { inferSectionFromSlug } from "../../src/tools/vgcguide/section";
 import { discoverScope } from "../../src/tools/vgcguide/discover-scope";
 import {
+  KnowledgeArticleNetworkError,
+  KnowledgeArticleNotFoundError,
+  KnowledgeArticleParseError,
   KnowledgeAuthError,
   KnowledgeEmbeddingError,
   KnowledgeStorageError,
-  VgcGuideNetworkError,
-  VgcGuideNotFoundError,
-  VgcGuideParseError,
 } from "../../src/schemas/errors";
 
 /** Injection slots for {@link main} — overridable in tests. */
@@ -241,17 +241,17 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
         summary.chunks_re_embedded += result.replaced;
         resultKind = result.replaced > 0 ? "re_embedded" : "inserted";
       } catch (e) {
-        if (e instanceof VgcGuideNotFoundError) {
+        if (e instanceof KnowledgeArticleNotFoundError) {
           summary.not_found.push(slug);
           resultKind = "not_found";
           continue;
         }
-        if (e instanceof VgcGuideParseError) {
+        if (e instanceof KnowledgeArticleParseError) {
           summary.parse_failures.push({ slug, message: e.message });
           resultKind = "parse_failure";
           continue;
         }
-        if (e instanceof VgcGuideNetworkError) {
+        if (e instanceof KnowledgeArticleNetworkError) {
           summary.network_failures.push({
             slug,
             status: e.status,

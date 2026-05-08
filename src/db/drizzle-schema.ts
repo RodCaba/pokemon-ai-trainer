@@ -399,11 +399,14 @@ export const knowledgeChunks = sqliteTable(
     capturedVia: text("captured_via").notNull(),
   },
   (t) => [
-    uniqueIndex("uq_knowledge_article_chunk").on(t.articleSlug, t.chunkIndex),
+    uniqueIndex("uq_knowledge_article_chunk").on(t.sourceSite, t.articleSlug, t.chunkIndex),
     index("idx_knowledge_section").on(t.articleSection),
     index("idx_knowledge_subtype").on(t.subtype),
     index("idx_knowledge_body_hash").on(t.articleSlug, t.bodyHash),
-    check("knowledge_source_site_value", sql`${t.sourceSite} = 'vgcguide'`),
+    check(
+      "knowledge_source_site_value",
+      sql`${t.sourceSite} IN ('vgcguide','metavgc')`,
+    ),
     check(
       "knowledge_section_value",
       sql`${t.articleSection} IN ('intro','teambuilding','battling')`,
@@ -417,6 +420,36 @@ export const knowledgeChunks = sqliteTable(
       sql`${t.chunkTokenCount} BETWEEN 1 AND 500`,
     ),
     check("knowledge_body_hash_format", sql`${t.bodyHash} GLOB 'sha256:*'`),
+    check(
+      "knowledge_id_format",
+      sql`${t.id} GLOB 'vgcguide:*' OR ${t.id} GLOB 'metavgc:*'`,
+    ),
+    check(
+      "knowledge_embedding_ref_format",
+      sql`${t.embeddingRef} GLOB 'knowledge_chunk_embeddings:*'`,
+    ),
+  ],
+);
+
+/**
+ * `knowledge_chunk_species_tags` — link table mapping each
+ * `knowledge_chunks` row to the canonical Champions species ids it mentions.
+ * Built by the metavgc ingest at write time (and by a one-shot backfill for
+ * existing vgcguide rows). Per plan §19.3.
+ */
+export const knowledgeChunkSpeciesTags = sqliteTable(
+  "knowledge_chunk_species_tags",
+  {
+    chunkId: text("chunk_id")
+      .notNull()
+      .references(() => knowledgeChunks.id, { onDelete: "cascade" }),
+    speciesId: text("species_id")
+      .notNull()
+      .references(() => species.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.chunkId, t.speciesId] }),
+    index("idx_kcst_species").on(t.speciesId),
   ],
 );
 

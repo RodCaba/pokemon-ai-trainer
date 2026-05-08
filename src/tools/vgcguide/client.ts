@@ -7,11 +7,15 @@
  */
 
 import {
-  VgcGuideNetworkError,
-  VgcGuideNotFoundError,
+  KnowledgeArticleNetworkError,
+  KnowledgeArticleNotFoundError,
 } from "../../schemas/errors";
 import { createTokenBucket } from "../_shared/throttle";
 import { createFileCache } from "../_shared/file-cache";
+import type {
+  KnowledgeArticleClient,
+  KnowledgeArticleFetch,
+} from "../knowledge/article-client";
 import { parseVgcGuideSitemap } from "./sitemap";
 
 const BASE_URL = "https://www.vgcguide.com";
@@ -40,24 +44,16 @@ export interface VgcGuideClientOptions {
 }
 
 /** Result of one article fetch. */
-export interface VgcGuideArticleFetch {
-  slug: string;
-  html: string;
-  /** Canonical https://www.vgcguide.com/<slug>. */
-  article_url: string;
-  /** ISO-8601 UTC fetch timestamp. */
-  fetched_at: string;
-}
+export type VgcGuideArticleFetch = KnowledgeArticleFetch;
 
 /**
  * Thin HTTP client around the vgcguide sitemap + article endpoints.
+ *
+ * Type-aliased to the shared {@link KnowledgeArticleClient} contract so
+ * site-agnostic helpers (e.g. ingest scripts) accept either vgcguide or
+ * metavgc clients without a discriminated union. See plan §19.1.
  */
-export interface VgcGuideClient {
-  /** GET sitemap.xml; returns canonical absolute article URLs. */
-  fetchSitemap(): Promise<string[]>;
-  /** GET https://www.vgcguide.com/<slug>; returns the raw HTML + URL + fetched_at. */
-  fetchArticleHtml(slug: string): Promise<VgcGuideArticleFetch>;
-}
+export type VgcGuideClient = KnowledgeArticleClient;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -70,8 +66,8 @@ const sleep = (ms: number): Promise<void> =>
  *
  * @param opts — see {@link VgcGuideClientOptions}.
  * @returns A {@link VgcGuideClient}.
- * @throws {VgcGuideNetworkError} from `fetchSitemap` / `fetchArticleHtml` on HTTP exhaustion.
- * @throws {VgcGuideNotFoundError} from `fetchArticleHtml` on HTTP 404.
+ * @throws {KnowledgeArticleNetworkError} from `fetchSitemap` / `fetchArticleHtml` on HTTP exhaustion.
+ * @throws {KnowledgeArticleNotFoundError} from `fetchArticleHtml` on HTTP 404.
  */
 export function createVgcGuideClient(opts: VgcGuideClientOptions): VgcGuideClient {
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
@@ -94,25 +90,26 @@ export function createVgcGuideClient(opts: VgcGuideClientOptions): VgcGuideClien
         return await res.text();
       }
       if (res.status === 404) {
-        throw new VgcGuideNotFoundError(`vgcguide 404: ${url}`, {
+        throw new KnowledgeArticleNotFoundError(`vgcguide 404: ${url}`, {
           article_slug: slug,
+          source_site: "vgcguide",
         });
       }
       const retryable =
         res.status === 429 || (res.status >= 500 && res.status < 600);
       if (!retryable || attempt === maxRetries) {
-        throw new VgcGuideNetworkError(
+        throw new KnowledgeArticleNetworkError(
           `vgcguide ${url} failed: HTTP ${lastStatus}`,
-          { article_slug: slug, status: lastStatus },
+          { article_slug: slug, source_site: "vgcguide", status: lastStatus },
         );
       }
       const backoff = backoffBaseMs * 2 ** attempt;
       await sleep(backoff);
       attempt++;
     }
-    throw new VgcGuideNetworkError(
+    throw new KnowledgeArticleNetworkError(
       `vgcguide ${url} retries exhausted (status=${lastStatus})`,
-      { article_slug: slug, status: lastStatus },
+      { article_slug: slug, source_site: "vgcguide", status: lastStatus },
     );
   }
 
