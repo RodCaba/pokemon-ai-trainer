@@ -11,7 +11,7 @@ import {
   KnowledgeEmbeddingError,
 } from "../../../src/schemas/errors";
 
-const DIM = 1024;
+const DIM = 512;
 
 function makeVoyageOk(n: number): Response {
   const data = Array.from({ length: n }, (_, i) => ({
@@ -25,7 +25,7 @@ function makeVoyageOk(n: number): Response {
 }
 
 describe("EmbedClient (VGC-T30–VGC-T35)", () => {
-  it("VGC-T30. returns 1024-dim vectors per input", async () => {
+  it("VGC-T30. returns 512-dim vectors per input", async () => {
     const fetchImpl = vi.fn(async () => makeVoyageOk(5)) as unknown as typeof fetch;
     const client = createEmbedClient({
       apiKey: "vy_test",

@@ -28,12 +28,12 @@ import {
 } from "../schemas/errors";
 import { parseOrThrow } from "./simple-repo";
 
-const VECTOR_DIM = 1024;
+const VECTOR_DIM = 512;
 const EMBEDDING_REF_PREFIX = "knowledge_chunk_embeddings:";
 
 /** Args for {@link search}. */
 export interface KnowledgeSearchRepoArgs {
-  /** 1024-dim query vector. */
+  /** 512-dim query vector (voyage-3-lite). */
   query_vector: Float32Array;
   /** Top-k. Plan default 5. */
   k: number;

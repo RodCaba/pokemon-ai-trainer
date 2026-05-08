@@ -9,7 +9,7 @@ import { knowledgeSearch } from "../../../src/tools/knowledge/search";
 import type { EmbedClient } from "../../../src/tools/knowledge/embed";
 import { KnowledgeAuthError } from "../../../src/schemas/errors";
 
-const DIM = 1024;
+const DIM = 512;
 
 function fakeEmbedClient(vec?: Float32Array): EmbedClient {
   return {

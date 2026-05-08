@@ -21,7 +21,7 @@ import {
 } from "../../src/schemas/errors";
 
 const FIXTURES = join(__dirname, "../../fixtures/vgcguide");
-const DIM = 1024;
+const DIM = 512;
 
 const SLUGS = [
   "what-is-pokemon-showdown",

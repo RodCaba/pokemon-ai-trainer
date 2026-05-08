@@ -44,7 +44,7 @@ describe("knowledge no-tera (VGC-T50)", () => {
         article_slug: "speed-control",
         body_hash: c.body_hash,
         chunks: [c],
-        embeddings: [new Float32Array(1024)],
+        embeddings: [new Float32Array(512)],
       });
       const rows = db.$client
         .prepare("SELECT * FROM knowledge_chunks")

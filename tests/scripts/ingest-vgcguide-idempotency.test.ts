@@ -12,7 +12,7 @@ import type { VgcGuideClient } from "../../src/tools/vgcguide/client";
 import type { EmbedClient } from "../../src/tools/knowledge/embed";
 
 const FIXTURES = join(__dirname, "../../fixtures/vgcguide");
-const DIM = 1024;
+const DIM = 512;
 
 function makeClient(): VgcGuideClient {
   return {

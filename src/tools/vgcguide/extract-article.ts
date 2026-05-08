@@ -54,13 +54,21 @@ export function extractVgcGuideArticle(input: {
   article_section?: "intro" | "teambuilding" | "battling";
 }): ExtractedArticle {
   const $ = cheerio.load(input.html);
-  const container = $(".sqs-html-content").first();
-  if (container.length === 0) {
+  // Squarespace pages typically render 3 `.sqs-html-content` divs per article:
+  // (0) excerpt/summary blurb at the top, (1) breadcrumb navigation, (2) the
+  // actual body. `.first()` picks the summary (verified empirically against
+  // /predictions: 911 / 768 / 5840 chars). Pick the LONGEST container by raw
+  // text length — the article body always dominates.
+  const containers = $(".sqs-html-content").toArray();
+  if (containers.length === 0) {
     throw new VgcGuideParseError(
       `vgcguide article ${input.slug}: no .sqs-html-content container`,
       { article_slug: input.slug },
     );
   }
+  const container = containers
+    .map((el) => $(el))
+    .reduce((best, c) => (c.text().length > best.text().length ? c : best));
 
   // Defensive: drop chrome we never want in chunks.
   container.find("script, style, figure, aside, noscript").remove();
@@ -102,7 +110,14 @@ export function extractVgcGuideArticle(input: {
       };
       return;
     }
-    if (tag === "p") {
+    // Block-level text containers — collect as a paragraph and DO NOT recurse.
+    // This includes `<p>`, `<li>` (bullet/ordered list items, ~14 per article on
+    // vgcguide), `<blockquote>`, and `<h4>` (treated as inline subheading text,
+    // not a section boundary, since vgcguide's section structure is h2/h3 only).
+    // Empirical: without `<li>` + `<h4>` collection, the predictions article
+    // captured 28 `<p>` and silently dropped 14 `<li>` + 2 `<h4>` — roughly half
+    // the body content went missing.
+    if (tag === "p" || tag === "li" || tag === "blockquote" || tag === "h4") {
       const text = collapseWhitespace($(el).text());
       if (text.length === 0) return;
       if (current === null) {
@@ -112,10 +127,12 @@ export function extractVgcGuideArticle(input: {
           paragraphs: [],
         };
       }
-      current.paragraphs.push(text);
+      // h4 gets a leading marker so chunked text preserves the visual hierarchy
+      // for the embedding model (and for human-readable citations).
+      current.paragraphs.push(tag === "h4" ? `### ${text}` : text);
       return;
     }
-    // For containers (divs, sections, ul, etc.), recurse into element children.
+    // For containers (divs, sections, ul, ol, etc.), recurse into element children.
     const kids = el.children ?? [];
     for (const child of kids) {
       if ((child as DomElement).tagName !== undefined) {

@@ -9,7 +9,7 @@ import {
 } from "../../schemas/errors";
 
 const VOYAGE_URL = "https://api.voyageai.com/v1/embeddings";
-const VOYAGE_DIM = 1024;
+const VOYAGE_DIM = 512;
 
 /** Configuration for {@link createEmbedClient}. */
 export interface EmbedClientOptions {
@@ -33,7 +33,7 @@ export interface EmbedClientOptions {
 export interface EmbedClient {
   /**
    * Embed `texts` and return one Float32Array per input. Each vector is
-   * 1024-dim (`voyage-3-lite`).
+   * 512-dim (`voyage-3-lite`).
    *
    * @param texts — Inputs to embed; the client batches internally.
    * @param input_type — `"document"` for ingest-time chunks; `"query"` for
@@ -82,10 +82,16 @@ export function createEmbedClient(opts: EmbedClientOptions): EmbedClient {
     }
     if (inputs.length === 0) return [];
 
+    // `voyage-3-lite` outputs 512-dim only — confirmed by the live API:
+    // `accepted values for 'voyage-3-lite' are [512]`. The vec0 migration is
+    // declared as `float[512]` to match. Higher dims (1024) require switching
+    // to `voyage-3` (full) or `voyage-3-large`; defer until retrieval quality
+    // benchmarks demand it.
     const body = JSON.stringify({
       input: inputs,
       model: opts.model,
       input_type,
+      output_dimension: VOYAGE_DIM,
     });
 
     let attempt = 0;
