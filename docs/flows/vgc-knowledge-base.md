@@ -174,6 +174,8 @@ Indexes: `knowledge_chunks(article_slug, chunk_index)`, `knowledge_chunks(articl
 
 This is **production state** (per `single_db_non_destructive_build.md`) — never wiped by the build. Captured-as-of-first-sight semantics; re-ingest only re-embeds when `body_hash` changes for a given article.
 
+**Linkage decision (resolved post Stage 2):** the relational and virtual rows are linked by an **explicit string** `embedding_ref = "knowledge_chunk_embeddings:<rowid>"` — chosen over parallel-rowid coupling because parallel-rowid is silently desynchronized by an out-of-order delete or any rebuild that renumbers rowids. The explicit-string form keeps cascade-delete a single read-then-DELETE pair guarded by a string prefix check (see `src/db/knowledge.ts::upsertArticleChunks`). Plan §5.3 records the rationale; CHECK constraints on both `id` and `embedding_ref` formats (added at Stage 6) make the contract enforceable at the DB layer. The vec0 table is created with `distance_metric=cosine` (plan §5.2) so the `cosine_score = 1 - distance` mapping in `knowledge.ts::search` is well-defined.
+
 ### 2.7 Ingest pipeline
 
 ```

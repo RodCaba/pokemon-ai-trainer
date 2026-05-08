@@ -533,9 +533,11 @@ CREATE INDEX idx_knowledge_body_hash          ON knowledge_chunks (article_slug,
 -- documented exception to the "never hand-edit generated SQL" rule.
 -- The vec0 module ships with the sqlite-vec extension loaded at open() time.
 CREATE VIRTUAL TABLE knowledge_chunk_embeddings USING vec0(
-  embedding float[1024]
+  embedding float[1024] distance_metric=cosine
 );
 ```
+
+**Vec0 distance metric — pinned to cosine.** `distance_metric=cosine` is a required argument on the vec0 module — `knowledge.ts::search` maps `cosine_score = clamp(1 - distance, -1, 1)`, which only makes mathematical sense when `distance` is `1 - cos(θ)`. Under the vec0 default (squared Euclidean / L2), `1 - distance` is meaningless — VGC-T46 happens to pass under L2 only because the seeded vectors are unit-normalized. Pinning `cosine` makes the contract explicit and ports straight to non-normalized vectors when the corpus grows. (Stage 6 deviation §19.4 row a — the red migration shipped without the metric and was retroactively patched at green.)
 
 ### 5.3 Linking `knowledge_chunks` ↔ `knowledge_chunk_embeddings`
 
@@ -1107,3 +1109,56 @@ Answer: The explicit `embedding_ref` string is indeed the safer choice for ensur
 
 **Flow-doc gap (minor):** flow §2.5 notes the `voyageai` SDK "OpenAI-API-compatible request shape" but doesn't pin direct-fetch vs SDK. The plan picks direct fetch (§2 — `embed.ts`) for dep-tree minimization. Calling out so the flow can be updated alongside the plan approval.
 Answer: Direct fetch is a good choice for minimizing dependencies and keeping the implementation straightforward. Make sure to update the flow doc to clarify that we're using direct fetch for the embed client, and note the rationale for that choice.
+
+---
+
+## 19. Stage 6 outcomes
+
+### 19.1 Review summary
+
+Full review at [`docs/reviews/vgc-knowledge-base.md`](../reviews/vgc-knowledge-base.md). Verdict: ship-after-blockers. One BLOCKER (`SPEC.md` placeholder), six MAJORs, three MINORs, four NITs. All 11 items in §8 (Suggested refactor batch) applied at the `refactor: apply review — vgc-knowledge-base` commit. Six items deferred per §9 (tabulated in §19.3).
+
+### 19.2 Applied fixes
+
+1. `src/tools/vgcguide/SPEC.md` rewritten — seven sections per §4.2 + verbatim `.sqs-html-content` container-class invariant.
+2. VGC-T55–T58 strengthened to capture stdout, parse the JSON-line summary, and assert the expected failure-array contains the offending slug. (Previously asserted only `exit === 0`.)
+3. CHECK constraints on `knowledge_chunks.id` (`GLOB 'vgcguide:*'`) and `embedding_ref` (`GLOB 'knowledge_chunk_embeddings:*'`) added to `0006_knowledge_chunks.sql`.
+4. Process-level `ingestHashCache` + `lastMainUpserted` deleted from `scripts/data/ingest-vgcguide.ts`. VGC-T61 rewritten to share a temp file DB across two `main()` calls (matches VGC-T62's pattern). Net production code: -30 LOC.
+5. Plan §19 added (this section). §5.2 patched to pin `distance_metric=cosine` with rationale.
+6. Slug-keyword `inferSectionFromSlug` consolidated into `src/tools/vgcguide/section.ts`; both `extract-article.ts` and `ingest-vgcguide.ts` import from it.
+7. Cheerio walker types — `as unknown as never` casts replaced. `domhandler@^5.0.3` added as a direct dep so the `Element` type can be imported by name; the recursive walker now passes `DomElement` references straight to `$()` without coercion.
+8. `scripts/vgc-knowledge-demo.ts` short-circuits when `knowledge.list(db, { limit: 1 })` returns empty (avoids burning Voyage embeds on a fresh DB).
+9. `src/tools/knowledge/embed.ts` non-retryable 4xx path captures `await res.text()`, prefers Voyage's `{ detail }` field, truncates at 200 chars, and embeds in the `KnowledgeEmbeddingError` message.
+10. Per-article stderr progress logging in `ingest-vgcguide.ts` — `[ingest-vgcguide] <slug> <result_kind>`. Plan §13.5 promised this.
+11. Flow §2.6 backports the linkage decision: explicit `embedding_ref` string + rationale + cosine-metric note.
+
+### 19.3 Deferrals
+
+Per review §9; revisit when each precondition fires.
+
+| # | Item | Annotation site | Trigger to revisit |
+|---|---|---|---|
+| 1 | Larger over-fetch multiplier | `src/db/knowledge.ts:225-237` | Corpus > 5K chunks (currently ~750). |
+| 2 | `Buffer.from` byteOffset / slice ownership TSDoc | `src/db/knowledge.ts:106-113` | Cosmetic; revisit on next knowledge-repo refactor. |
+| 3 | `chunk.ts` token-count re-encode | `src/tools/vgcguide/chunk.ts:117-119` | Profile-driven; ingest hot-path turns CPU-bound. |
+| 4 | `sqlite-vec` named import | `src/db/sqlite-vec.ts:13` | Cosmetic; tied to upstream package style. |
+| 5 | Sitemap regex CDATA hardening | `src/tools/vgcguide/sitemap.ts:6` | vgcguide sitemap shape ever drifts (CDATA / comments). |
+| 6 | Reg M-A `format` literal in `KnowledgeSearchToolInput` | `src/schemas/knowledge.ts:113-114` | Multi-format (non-vgcguide) corpus ever lands. |
+
+Each annotation is an inline `// TODO(stage6-deferred):` comment at the cited line.
+
+### 19.4 Stage 4 / Stage 5 deviations now documented
+
+Mirror of review §7. These are decisions or oversights from the red and green commits that the plan did not previously record; they are now auditable.
+
+| # | Deviation | Where it lives | Resolution |
+|---|---|---|---|
+| a | `distance_metric=cosine` retroactively added at green; red migration shipped with vec0 L2 default | `src/db/migrations/0007_knowledge_vec0.sql:7` | §5.2 pinned to cosine; rationale recorded above. |
+| b | Process-level `ingestHashCache` + `lastMainUpserted` to bridge VGC-T61 vs VGC-T59/T60 | (deleted from `scripts/data/ingest-vgcguide.ts`) | Item 4 above — VGC-T61 rewritten against a file DB; cache deleted. |
+| c | `article_section` is inferred from slug keywords, not URL prefix as plan §2.2 originally claimed | `src/tools/vgcguide/section.ts` | Heuristic consolidated; plan §2.2 reading should treat URL-prefix as an aspirational note (the sitemap is flat). |
+| d | DB-level CHECK constraints on `id` + `embedding_ref` formats not in plan §5.1 | `src/db/migrations/0006_knowledge_chunks.sql:23-24` | Item 3 above — constraints landed; §5.1 implicitly covered. |
+| e | VGC-T36 (sqlite-vec wired in `open()`) Stage 4 deviation | de0e8b1 commit body | Disclosed in the red-commit message. |
+| f | VGC-T46 metric-coincidence vacuous green | (no longer vacuous post-pin) | Pinning cosine in §5.2 closes the coincidence; no per-test rewrite required. |
+| g | VGC-T50 no-tera vacuous-green disclosure | de0e8b1 commit body | Acceptable per CLAUDE.md §3 last paragraph (regression guard); recorded permanently here. |
+| h | VGC-T55–T58 weak assertions | (rewritten — Item 2) | Tests now read the run-summary JSON. |
+| i | SPEC.md placeholder | `src/tools/vgcguide/SPEC.md` | Item 1 above — full SPEC written. |

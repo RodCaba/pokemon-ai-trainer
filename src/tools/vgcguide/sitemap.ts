@@ -3,6 +3,7 @@
  * the canonical article URLs.
  */
 
+// TODO(stage6-deferred): harden against CDATA / comments if sitemap shape ever drifts
 const LOC_RE = /<loc>\s*([^<\s][^<]*?)\s*<\/loc>/g;
 
 /**

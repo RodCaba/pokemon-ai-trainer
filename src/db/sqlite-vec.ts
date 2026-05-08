@@ -10,6 +10,7 @@
  */
 
 import type { Database as SqliteDatabase } from "better-sqlite3";
+// TODO(stage6-deferred): switch to named import { load } from 'sqlite-vec'
 import * as sqliteVec from "sqlite-vec";
 import { KnowledgeStorageError } from "../schemas/errors";
 

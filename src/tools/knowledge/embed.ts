@@ -122,8 +122,29 @@ export function createEmbedClient(opts: EmbedClientOptions): EmbedClient {
       const retryable =
         res.status === 429 || (res.status >= 500 && res.status < 600);
       if (!retryable || attempt === maxRetries) {
+        // Capture the response body so operator debugging isn't blind on
+        // 4xx (validation errors, model-not-found, etc.). Per Stage 6
+        // review item 9. Truncate at 200 chars; prefer Voyage's
+        // structured `{ detail: "..." }` if parseable.
+        let bodySnippet = "";
+        try {
+          const raw = await res.text();
+          let detail: string | undefined;
+          try {
+            const parsed = JSON.parse(raw) as { detail?: unknown };
+            if (typeof parsed.detail === "string") detail = parsed.detail;
+          } catch {
+            /* not JSON; fall through to raw */
+          }
+          const text = detail ?? raw;
+          bodySnippet =
+            text.length > 200 ? text.slice(0, 200) + "…" : text;
+        } catch {
+          /* body read failed; ignore */
+        }
+        const suffix = bodySnippet.length > 0 ? ` — ${bodySnippet}` : "";
         throw new KnowledgeEmbeddingError(
-          `Voyage embed failed: HTTP ${lastStatus}`,
+          `Voyage embed failed: HTTP ${lastStatus}${suffix}`,
         );
       }
       const backoff = backoffBaseMs * 2 ** attempt;

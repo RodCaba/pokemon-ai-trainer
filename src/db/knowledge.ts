@@ -109,6 +109,7 @@ function vectorToBuffer(vec: Float32Array): Buffer {
       `vec dimension mismatch: got ${vec.length}, expected ${VECTOR_DIM}`,
     );
   }
+  // TODO(stage6-deferred): document slice ownership semantics in vectorToBuffer
   return Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength);
 }
 
@@ -218,6 +219,8 @@ export function search(
 
     const buf = vectorToBuffer(args.query_vector);
     // Over-fetch some to leave room for post-filter; cap at corpus size.
+    // TODO(stage6-deferred): bump multiplier when corpus > 5K chunks
+    // (currently 4×; battle-replay density makes 4× sufficient).
     const overFetch = Math.min(
       Math.max(args.k * 4, args.k + 16),
       count.c,

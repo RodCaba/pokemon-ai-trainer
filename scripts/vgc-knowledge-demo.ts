@@ -11,6 +11,7 @@
  */
 
 import { open } from "../src/db/open";
+import * as knowledge from "../src/db/knowledge";
 import { knowledgeSearch } from "../src/tools/knowledge/search";
 import { createEmbedClient } from "../src/tools/knowledge/embed";
 
@@ -37,6 +38,14 @@ export async function main(): Promise<number> {
   const dbPath = process.env.VGC_DB_PATH ?? "./data/db.sqlite";
   const db = open(dbPath, { readonly: true });
   try {
+    // Short-circuit on an empty corpus — avoid burning Voyage embed calls
+    // when there's no chance of a hit. Per Stage 6 review item 8.
+    if (knowledge.list(db, { limit: 1 }).length === 0) {
+      process.stdout.write(
+        "No knowledge chunks in DB. Run `pnpm data:ingest:vgcguide` first.\n",
+      );
+      return 0;
+    }
     const embedClient = createEmbedClient({
       apiKey,
       model: "voyage-3-lite",

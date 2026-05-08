@@ -29,6 +29,7 @@ import {
 import { extractVgcGuideArticle } from "../../src/tools/vgcguide/extract-article";
 import { chunkExtractedArticle } from "../../src/tools/vgcguide/chunk";
 import { tagSubtype } from "../../src/tools/vgcguide/tag-subtype";
+import { inferSectionFromSlug } from "../../src/tools/vgcguide/section";
 import {
   KnowledgeAuthError,
   KnowledgeEmbeddingError,
@@ -45,23 +46,6 @@ export interface MainDeps {
   /** Optional explicit DB handle override (not used by tests). */
   db?: Db;
 }
-
-/**
- * Process-level body_hash cache keyed `(dbPath, slug) → hash`. Carries
- * skip-existing semantics across `main()` calls when the script is invoked
- * multiple times in one process — the canonical case is the cron's
- * safe-rerun pattern, where back-to-back invocations should observe each
- * other's persisted hashes even when the underlying DB handle is per-call
- * (e.g. tests that share a `:memory:` path across two `main()` calls).
- *
- * Stability invariant: the cache is only trustworthy when the immediately
- * previous `main()` call upserted at least one chunk. If the previous call
- * was a no-op or threw, we clear the cache for the current `dbPath` at the
- * start of the next call so a fresh DB doesn't silently inherit stale
- * hashes from a defunct prior session.
- */
-const ingestHashCache: Map<string, Map<string, string>> = new Map();
-let lastMainUpserted = false;
 
 interface ParsedArgs {
   db: string;
@@ -103,34 +87,6 @@ function parseArgs(argv: string[]): ParsedArgs {
 function slugFromUrl(url: string): string {
   const m = url.match(/^https?:\/\/(?:www\.)?vgcguide\.com\/([^/?#]+)/i);
   return m?.[1] ?? url;
-}
-
-const TEAMBUILDING_HINTS = [
-  "team",
-  "speed-control",
-  "typing",
-  "items",
-  "ability",
-  "moves",
-  "archetype",
-];
-const BATTLING_HINTS = [
-  "battling",
-  "battle",
-  "predict",
-  "switching",
-  "lead",
-  "endgame",
-  "matchup",
-];
-
-function sectionFromSlug(
-  slug: string,
-): "intro" | "teambuilding" | "battling" {
-  const s = slug.toLowerCase();
-  for (const h of BATTLING_HINTS) if (s.includes(h)) return "battling";
-  for (const h of TEAMBUILDING_HINTS) if (s.includes(h)) return "teambuilding";
-  return "intro";
 }
 
 function sha256Hex(s: string): string {
@@ -197,18 +153,6 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
     not_found: [],
   };
 
-  // Skip-existing cache hygiene: if the previous run did not upsert any
-  // chunk (no-op or threw), drop the cache for this dbPath so a fresh DB
-  // handle doesn't inherit stale hashes from a defunct prior session.
-  if (!lastMainUpserted) {
-    ingestHashCache.delete(opts.db);
-  }
-  lastMainUpserted = false;
-  let didUpsertThisCall = false;
-  const slugCache: Map<string, string> =
-    ingestHashCache.get(opts.db) ?? new Map<string, string>();
-  ingestHashCache.set(opts.db, slugCache);
-
   try {
     const urls = opts.slug
       ? [`https://www.vgcguide.com/${opts.slug}`]
@@ -216,16 +160,24 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
 
     for (const url of urls) {
       const slug = slugFromUrl(url);
-      const section = sectionFromSlug(slug);
+      const section = inferSectionFromSlug(slug);
+      let resultKind:
+        | "inserted"
+        | "re_embedded"
+        | "skipped_unchanged"
+        | "not_found"
+        | "parse_failure"
+        | "embedding_failure"
+        | "network_failure" = "skipped_unchanged";
       try {
         const fetched = await client.fetchArticleHtml(slug);
         summary.articles_fetched += 1;
         const body_hash = "sha256:" + sha256Hex(fetched.html);
 
         const dbHash = knowledge.articleBodyHash(db, slug);
-        const cachedHash = slugCache.get(slug);
-        if (dbHash === body_hash || cachedHash === body_hash) {
+        if (dbHash === body_hash) {
           summary.articles_skipped_unchanged += 1;
+          resultKind = "skipped_unchanged";
           continue;
         }
 
@@ -251,6 +203,7 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
             slug,
             message: "extracted article produced zero chunks",
           });
+          resultKind = "parse_failure";
           continue;
         }
 
@@ -266,17 +219,16 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
         });
         summary.chunks_inserted += result.inserted;
         summary.chunks_re_embedded += result.replaced;
-        if (result.inserted > 0 || result.replaced > 0) {
-          slugCache.set(slug, body_hash);
-          didUpsertThisCall = true;
-        }
+        resultKind = result.replaced > 0 ? "re_embedded" : "inserted";
       } catch (e) {
         if (e instanceof VgcGuideNotFoundError) {
           summary.not_found.push(slug);
+          resultKind = "not_found";
           continue;
         }
         if (e instanceof VgcGuideParseError) {
           summary.parse_failures.push({ slug, message: e.message });
+          resultKind = "parse_failure";
           continue;
         }
         if (e instanceof VgcGuideNetworkError) {
@@ -285,28 +237,24 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
             status: e.status,
             message: e.message,
           });
+          resultKind = "network_failure";
           continue;
         }
         if (e instanceof KnowledgeEmbeddingError) {
           summary.embedding_failures.push({ slug, message: e.message });
+          resultKind = "embedding_failure";
           continue;
         }
         // KnowledgeAuthError + KnowledgeStorageError + everything else:
         // fail loud; don't swallow.
         throw e;
+      } finally {
+        process.stderr.write(`[ingest-vgcguide] ${slug} ${resultKind}\n`);
       }
     }
 
     process.stdout.write(JSON.stringify(summary) + "\n");
-    lastMainUpserted = didUpsertThisCall;
     return 0;
-  } catch (e) {
-    // Threw — the cache must not be considered fresh next call.
-    lastMainUpserted = false;
-    if (e instanceof KnowledgeAuthError || e instanceof KnowledgeStorageError) {
-      throw e;
-    }
-    throw e;
   } finally {
     if (ownsDb) {
       try {

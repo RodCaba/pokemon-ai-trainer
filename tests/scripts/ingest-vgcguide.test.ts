@@ -1,11 +1,16 @@
 /**
  * VGC-T55–VGC-T61 — `scripts/data/ingest-vgcguide.ts` orchestration.
- * Stage 4: every test fails because `main` throws "not implemented (Stage 5)".
+ *
+ * Per Stage 6 review item 2, T55–T58 capture stdout and inspect the
+ * run-summary JSON; per item 4, T61 shares a temp file DB across two
+ * `main()` calls (the prior `:memory:` form required a process-level
+ * cache shim that has since been deleted).
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { main } from "../../scripts/data/ingest-vgcguide";
 import type { VgcGuideClient } from "../../src/tools/vgcguide/client";
 import type { EmbedClient } from "../../src/tools/knowledge/embed";
@@ -82,47 +87,137 @@ function makeFakeEmbed(opts: { fail?: string } = {}): EmbedClient {
   };
 }
 
+interface RunSummary {
+  ok: true;
+  articles_fetched: number;
+  articles_skipped_unchanged: number;
+  chunks_inserted: number;
+  chunks_re_embedded: number;
+  embedding_failures: Array<{ slug: string; message: string }>;
+  network_failures: Array<{ slug: string; status?: number; message: string }>;
+  parse_failures: Array<{ slug: string; message: string }>;
+  not_found: string[];
+}
+
+/**
+ * Capture `process.stdout.write` invocations into a buffer and parse
+ * the trailing JSON line as the run summary. Per Stage 6 review item 2,
+ * the failure-mode tests must inspect the summary, not just exit code.
+ */
+function captureStdout(): { buffer: string[]; restore: () => void } {
+  const buffer: string[] = [];
+  const spy = vi
+    .spyOn(process.stdout, "write")
+    .mockImplementation((chunk: unknown) => {
+      buffer.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    });
+  return {
+    buffer,
+    restore: () => spy.mockRestore(),
+  };
+}
+
+function parseSummary(buffer: string[]): RunSummary {
+  const joined = buffer.join("");
+  // The summary line is the JSON-encoded RunSummary terminated by \n.
+  const lines = joined.split("\n").filter((l) => l.trim().length > 0);
+  const last = lines[lines.length - 1];
+  if (last === undefined) {
+    throw new Error("no stdout output captured");
+  }
+  return JSON.parse(last) as RunSummary;
+}
+
 describe("ingest-vgcguide (VGC-T55–VGC-T61)", () => {
+  // Suppress per-article stderr lines in test output.
+  let stderrSpy: { mockRestore: () => void } | null = null;
+  beforeEach(() => {
+    stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+  });
+  afterEach(() => {
+    stderrSpy?.mockRestore();
+    stderrSpy = null;
+  });
+
   it("VGC-T55. --no-network runs end-to-end on cached fixtures (3 articles)", async () => {
-    const exit = await main(
-      ["--no-network", "--db", ":memory:"],
-      { client: makeFakeClient(), embedClient: makeFakeEmbed() },
-    );
-    expect(exit).toBe(0);
+    const cap = captureStdout();
+    try {
+      const exit = await main(
+        ["--no-network", "--db", ":memory:"],
+        { client: makeFakeClient(), embedClient: makeFakeEmbed() },
+      );
+      expect(exit).toBe(0);
+      const summary = parseSummary(cap.buffer);
+      expect(summary.articles_fetched).toBe(3);
+      expect(summary.chunks_inserted).toBeGreaterThan(0);
+      expect(summary.not_found).toEqual([]);
+      expect(summary.parse_failures).toEqual([]);
+      expect(summary.embedding_failures).toEqual([]);
+    } finally {
+      cap.restore();
+    }
   });
 
   it("VGC-T56. logs not_found on 404 article", async () => {
-    const exit = await main(
-      ["--no-network", "--db", ":memory:"],
-      {
-        client: makeFakeClient({ notFound: ["typing"] }),
-        embedClient: makeFakeEmbed(),
-      },
-    );
-    expect(exit).toBe(0);
+    const cap = captureStdout();
+    try {
+      const exit = await main(
+        ["--no-network", "--db", ":memory:"],
+        {
+          client: makeFakeClient({ notFound: ["typing"] }),
+          embedClient: makeFakeEmbed(),
+        },
+      );
+      expect(exit).toBe(0);
+      const summary = parseSummary(cap.buffer);
+      expect(summary.not_found).toContain("typing");
+    } finally {
+      cap.restore();
+    }
   });
 
   it("VGC-T57. logs parse_failures on bad HTML", async () => {
-    const exit = await main(
-      ["--no-network", "--db", ":memory:"],
-      {
-        client: makeFakeClient({ badHtml: ["typing"] }),
-        embedClient: makeFakeEmbed(),
-      },
-    );
-    expect(exit).toBe(0);
+    const cap = captureStdout();
+    try {
+      const exit = await main(
+        ["--no-network", "--db", ":memory:"],
+        {
+          client: makeFakeClient({ badHtml: ["typing"] }),
+          embedClient: makeFakeEmbed(),
+        },
+      );
+      expect(exit).toBe(0);
+      const summary = parseSummary(cap.buffer);
+      expect(summary.parse_failures.map((f) => f.slug)).toContain("typing");
+    } finally {
+      cap.restore();
+    }
   });
 
   it("VGC-T58. logs embedding_failures on Voyage retry exhaustion (per article)", async () => {
-    const exit = await main(
-      ["--no-network", "--db", ":memory:"],
-      {
-        client: makeFakeClient(),
-        embedClient: makeFakeEmbed({ fail: "embedding" }),
-      },
-    );
-    // exit 0 because per-article failures are bounded; ingest continues.
-    expect(exit).toBe(0);
+    const cap = captureStdout();
+    try {
+      const exit = await main(
+        ["--no-network", "--db", ":memory:"],
+        {
+          client: makeFakeClient(),
+          embedClient: makeFakeEmbed({ fail: "embedding" }),
+        },
+      );
+      // exit 0 because per-article failures are bounded; ingest continues.
+      expect(exit).toBe(0);
+      const summary = parseSummary(cap.buffer);
+      const failedSlugs = summary.embedding_failures.map((f) => f.slug);
+      // Every article hit the synthetic embed failure.
+      for (const slug of SLUGS) {
+        expect(failedSlugs).toContain(slug);
+      }
+    } finally {
+      cap.restore();
+    }
   });
 
   it("VGC-T59. fails loud on KnowledgeAuthError", async () => {
@@ -167,19 +262,35 @@ describe("ingest-vgcguide (VGC-T55–VGC-T61)", () => {
   });
 
   it("VGC-T61. skip-existing on body_hash: rerunning produces zero embedding API calls", async () => {
-    const dbPath = ":memory:";
-    const embed1 = makeFakeEmbed();
-    const embed2 = makeFakeEmbed();
-    await main(["--no-network", "--db", dbPath], {
-      client: makeFakeClient(),
-      embedClient: embed1,
-    });
-    await main(["--no-network", "--db", dbPath], {
-      client: makeFakeClient(),
-      embedClient: embed2,
-    });
-    // Second run: body_hash matches → zero embedding calls.
-    const fn = embed2.embed as unknown as ReturnType<typeof vi.fn>;
-    expect(fn).not.toHaveBeenCalled();
+    // Per Stage 6 review item 4: share a *file* DB across two main() calls
+    // so the persisted body_hash is the only source of truth. The previous
+    // `:memory:` form needed a process-level cache shim, which has since
+    // been deleted.
+    const dir = mkdtempSync(join(tmpdir(), "vgcguide-t61-"));
+    const dbPath = join(dir, "db.sqlite");
+    try {
+      const embed1 = makeFakeEmbed();
+      const embed2 = makeFakeEmbed();
+      const cap = captureStdout();
+      try {
+        await main(["--no-network", "--db", dbPath], {
+          client: makeFakeClient(),
+          embedClient: embed1,
+        });
+        await main(["--no-network", "--db", dbPath], {
+          client: makeFakeClient(),
+          embedClient: embed2,
+        });
+      } finally {
+        cap.restore();
+      }
+      // First run embedded; second run: body_hash matches → zero calls.
+      const fn1 = embed1.embed as unknown as ReturnType<typeof vi.fn>;
+      const fn2 = embed2.embed as unknown as ReturnType<typeof vi.fn>;
+      expect(fn1).toHaveBeenCalled();
+      expect(fn2).not.toHaveBeenCalled();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

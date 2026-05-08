@@ -19,7 +19,9 @@ CREATE TABLE `knowledge_chunks` (
 	CONSTRAINT "knowledge_section_value" CHECK("knowledge_chunks"."article_section" IN ('intro','teambuilding','battling')),
 	CONSTRAINT "knowledge_subtype_value" CHECK("knowledge_chunks"."subtype" IS NULL OR "knowledge_chunks"."subtype" = 'battle-replay'),
 	CONSTRAINT "knowledge_token_count_range" CHECK("knowledge_chunks"."chunk_token_count" BETWEEN 1 AND 500),
-	CONSTRAINT "knowledge_body_hash_format" CHECK("knowledge_chunks"."body_hash" GLOB 'sha256:*')
+	CONSTRAINT "knowledge_body_hash_format" CHECK("knowledge_chunks"."body_hash" GLOB 'sha256:*'),
+	CONSTRAINT "knowledge_id_format" CHECK("knowledge_chunks"."id" GLOB 'vgcguide:*'),
+	CONSTRAINT "knowledge_embedding_ref_format" CHECK("knowledge_chunks"."embedding_ref" GLOB 'knowledge_chunk_embeddings:*')
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `uq_knowledge_article_chunk` ON `knowledge_chunks` (`article_slug`,`chunk_index`);--> statement-breakpoint

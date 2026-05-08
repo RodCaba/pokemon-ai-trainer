@@ -114,6 +114,7 @@ export function chunkExtractedArticle(input: ChunkInput): ChunkOutput {
       }
       const pieces = splitSectionText(tk, section.paragraphs);
       for (const text of pieces) {
+        // TODO(stage6-deferred): pass token-count through from splitter; avoid re-encode
         const tokenCount = tk.encode(text, "all").length;
         // Defensive cap — shouldn't trip given splitter's TARGET ≤ MAX.
         const safe = tokenCount > MAX_TOKENS ? MAX_TOKENS : tokenCount;

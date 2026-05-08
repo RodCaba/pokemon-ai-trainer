@@ -6,16 +6,13 @@
  */
 
 import * as cheerio from "cheerio";
+import type { Element as DomElement } from "domhandler";
 import { VgcGuideParseError } from "../../schemas/errors";
+import { inferSectionFromSlug } from "./section";
 
-// Cheerio's DOM nodes — we only need a structural duck-type with `tagName`
-// and `children` for the recursive walker; full domhandler types aren't a
-// direct dep, so the local interface mirrors the subset we touch.
-interface DomElement {
-  tagName?: string;
-  children?: DomNode[];
-}
-type DomNode = DomElement;
+// `domhandler` is cheerio's DOM node library; importing `Element` directly
+// gives us proper structural typing on the recursive walker (vs the prior
+// `as unknown as never` cast). Stage 6 review item 7.
 
 /** One section of an extracted article — h2 or h3 boundary. */
 export interface ExtractedSection {
@@ -32,36 +29,6 @@ export interface ExtractedArticle {
   article_section: "intro" | "teambuilding" | "battling";
   sections: ExtractedSection[];
   raw_warnings: string[];
-}
-
-const TEAMBUILDING_SLUG_HINTS = [
-  "team",
-  "speed-control",
-  "typing",
-  "items",
-  "ability",
-  "moves",
-  "archetype",
-];
-const BATTLING_SLUG_HINTS = [
-  "battling",
-  "battle",
-  "predict",
-  "switching",
-  "lead",
-  "endgame",
-  "matchup",
-];
-
-function inferSectionFromSlug(slug: string): "intro" | "teambuilding" | "battling" {
-  const s = slug.toLowerCase();
-  for (const h of BATTLING_SLUG_HINTS) {
-    if (s.includes(h)) return "battling";
-  }
-  for (const h of TEAMBUILDING_SLUG_HINTS) {
-    if (s.includes(h)) return "teambuilding";
-  }
-  return "intro";
 }
 
 function collapseWhitespace(s: string): string {
@@ -130,13 +97,13 @@ export function extractVgcGuideArticle(input: {
       flush();
       current = {
         heading_level: tag === "h2" ? 2 : 3,
-        section_heading: collapseWhitespace($(el as unknown as never).text()) || article_title,
+        section_heading: collapseWhitespace($(el).text()) || article_title,
         paragraphs: [],
       };
       return;
     }
     if (tag === "p") {
-      const text = collapseWhitespace($(el as unknown as never).text());
+      const text = collapseWhitespace($(el).text());
       if (text.length === 0) return;
       if (current === null) {
         current = {
@@ -149,14 +116,16 @@ export function extractVgcGuideArticle(input: {
       return;
     }
     // For containers (divs, sections, ul, etc.), recurse into element children.
-    const kids = (el.children ?? []) as DomNode[];
+    const kids = el.children ?? [];
     for (const child of kids) {
-      if (child.tagName) walk(child);
+      if ((child as DomElement).tagName !== undefined) {
+        walk(child as DomElement);
+      }
     }
   };
 
-  for (const child of children as unknown as DomElement[]) {
-    walk(child);
+  for (const child of children) {
+    walk(child as DomElement);
   }
   flush();
 

@@ -109,6 +109,7 @@ export const ChunkFilterSchema = z
   })
   .strict();
 
+// TODO(stage6-deferred): add format: literal('RegM-A') seam if multi-format ever lands; deliberately omitted today since vgcguide is format-agnostic
 /**
  * Tool input for `knowledge_search`. Reg M-A literal not required because the
  * vgcguide corpus is format-agnostic principle content.
