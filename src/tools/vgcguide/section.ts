@@ -65,3 +65,10 @@ export function inferSectionFromSlug(slug: string): ArticleSection {
   }
   return "intro";
 }
+
+// Scope filtering used to live here as either an allowlist (53 hardcoded
+// slugs) or a denylist (regex patterns). Both required hand-maintenance and
+// drifted on every site update. As of 2026-05-08 the ingest derives scope
+// from the site's own structural signals via `discover-scope.ts` —
+// nav∩sitemap intersection, zero hardcoded lists. This module now owns only
+// the slug → section inference used for tagging.

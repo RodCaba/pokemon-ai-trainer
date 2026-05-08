@@ -61,6 +61,7 @@ describe("ingest-vgcguide idempotency (VGC-T62)", () => {
       await main(["--no-network", "--db", tmp], {
         client: makeClient(),
         embedClient: makeEmbed(),
+        scope: new Set(["typing"]),
       });
       const db1 = open(tmp);
       const before = (
@@ -72,6 +73,7 @@ describe("ingest-vgcguide idempotency (VGC-T62)", () => {
       await main(["--no-network", "--db", tmp], {
         client: makeClient(),
         embedClient: makeEmbed(),
+        scope: new Set(["typing"]),
       });
       const db2 = open(tmp);
       const after = (

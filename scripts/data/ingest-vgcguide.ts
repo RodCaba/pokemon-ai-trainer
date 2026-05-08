@@ -30,6 +30,7 @@ import { extractVgcGuideArticle } from "../../src/tools/vgcguide/extract-article
 import { chunkExtractedArticle } from "../../src/tools/vgcguide/chunk";
 import { tagSubtype } from "../../src/tools/vgcguide/tag-subtype";
 import { inferSectionFromSlug } from "../../src/tools/vgcguide/section";
+import { discoverScope } from "../../src/tools/vgcguide/discover-scope";
 import {
   KnowledgeAuthError,
   KnowledgeEmbeddingError,
@@ -45,6 +46,13 @@ export interface MainDeps {
   embedClient?: EmbedClient;
   /** Optional explicit DB handle override (not used by tests). */
   db?: Db;
+  /**
+   * Optional pre-computed scope, bypassing the nav∩sitemap discovery via
+   * `discoverScope(client)`. Tests inject a synthetic small set so the
+   * mock client doesn't have to serve the 3 section landing pages.
+   * Production callers omit this — discovery runs against the live site.
+   */
+  scope?: Set<string>;
 }
 
 interface ParsedArgs {
@@ -154,9 +162,21 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
   };
 
   try {
-    const urls = opts.slug
-      ? [`https://www.vgcguide.com/${opts.slug}`]
-      : await client.fetchSitemap();
+    let urls: string[];
+    if (opts.slug) {
+      urls = [`https://www.vgcguide.com/${opts.slug}`];
+    } else {
+      // Site-author-driven scope: nav∩sitemap intersection. The 3 section
+      // landing pages declare what's in scope (their <main> content links);
+      // the sitemap intersection eliminates broken/cart/UUID links. New
+      // articles auto-include; new Spanish translations or event-logistics
+      // pages auto-exclude. See `src/tools/vgcguide/discover-scope.ts`.
+      // Tests inject `deps.scope` so the mock client doesn't need to serve
+      // the 3 section landing pages.
+      const scope = deps.scope ?? (await discoverScope(client));
+      const sitemapUrls = await client.fetchSitemap();
+      urls = sitemapUrls.filter((u) => scope.has(slugFromUrl(u)));
+    }
 
     for (const url of urls) {
       const slug = slugFromUrl(url);

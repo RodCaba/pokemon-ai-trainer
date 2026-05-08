@@ -28,6 +28,13 @@ const SLUGS = [
   "typing",
   "predictions",
 ];
+/**
+ * Synthetic scope injected via `MainDeps.scope` to bypass the live
+ * `discoverScope(client)` call (which would fetch /intro, /teambuilding,
+ * /battling — slugs the mock client doesn't serve). Tests need only the 3
+ * fixture articles in scope.
+ */
+const TEST_SCOPE = new Set(SLUGS);
 const FIXTURE_FILES: Record<string, string> = {
   "what-is-pokemon-showdown": "2026-05-06__intro__what-is-pokemon-showdown.html",
   typing: "2026-05-06__teambuilding__typing.html",
@@ -147,7 +154,7 @@ describe("ingest-vgcguide (VGC-T55–VGC-T61)", () => {
     try {
       const exit = await main(
         ["--no-network", "--db", ":memory:"],
-        { client: makeFakeClient(), embedClient: makeFakeEmbed() },
+        { client: makeFakeClient(), embedClient: makeFakeEmbed(), scope: TEST_SCOPE },
       );
       expect(exit).toBe(0);
       const summary = parseSummary(cap.buffer);
@@ -169,6 +176,7 @@ describe("ingest-vgcguide (VGC-T55–VGC-T61)", () => {
         {
           client: makeFakeClient({ notFound: ["typing"] }),
           embedClient: makeFakeEmbed(),
+          scope: TEST_SCOPE,
         },
       );
       expect(exit).toBe(0);
@@ -187,6 +195,7 @@ describe("ingest-vgcguide (VGC-T55–VGC-T61)", () => {
         {
           client: makeFakeClient({ badHtml: ["typing"] }),
           embedClient: makeFakeEmbed(),
+          scope: TEST_SCOPE,
         },
       );
       expect(exit).toBe(0);
@@ -205,6 +214,7 @@ describe("ingest-vgcguide (VGC-T55–VGC-T61)", () => {
         {
           client: makeFakeClient(),
           embedClient: makeFakeEmbed({ fail: "embedding" }),
+          scope: TEST_SCOPE,
         },
       );
       // exit 0 because per-article failures are bounded; ingest continues.
@@ -233,6 +243,7 @@ describe("ingest-vgcguide (VGC-T55–VGC-T61)", () => {
         {
           client: makeFakeClient(),
           embedClient: makeFakeEmbed({ fail: "auth" }),
+          scope: TEST_SCOPE,
         },
       );
     } catch (e) {
@@ -252,6 +263,7 @@ describe("ingest-vgcguide (VGC-T55–VGC-T61)", () => {
         {
           client: makeFakeClient(),
           embedClient: makeFakeEmbed({ fail: "storage" }),
+          scope: TEST_SCOPE,
         },
       );
     } catch (e) {
@@ -276,10 +288,12 @@ describe("ingest-vgcguide (VGC-T55–VGC-T61)", () => {
         await main(["--no-network", "--db", dbPath], {
           client: makeFakeClient(),
           embedClient: embed1,
+          scope: TEST_SCOPE,
         });
         await main(["--no-network", "--db", dbPath], {
           client: makeFakeClient(),
           embedClient: embed2,
+          scope: TEST_SCOPE,
         });
       } finally {
         cap.restore();
