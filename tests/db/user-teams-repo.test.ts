@@ -25,12 +25,14 @@ function fakeValidateDeps(opts: {
   errors?: Array<{ code: string; message: string; slot?: number | null }>;
   warnings?: Array<{ code: string; message: string; slot?: number | null }>;
 } = {}): ValidateDeps {
-  // Stage 5 will inject real ref-table repos; the tests below override
-  // the validator path via the repo's `setStatus(deps)` argument so we
-  // can assert behavior independent of the validator implementation.
-  void opts;
+  // Stage 5: real ref-table repos would be injected here; for a unit
+  // test of the repo's gate logic we instead carry the desired
+  // ValidationResult on a `_testOverride` field that the repo honours
+  // (only present on tests).
   const db = {} as ValidateDeps["db"];
-  return {
+  const deps: ValidateDeps & {
+    _testOverride?: { errors: unknown[]; warnings: unknown[] };
+  } = {
     db,
     speciesRepo: { has: () => true, get: () => ({ id: "x" }) },
     itemsRepo: { has: () => true },
@@ -40,6 +42,13 @@ function fakeValidateDeps(opts: {
     speciesAbilities: { legalFor: () => [] },
     speciesMovepool: { legalFor: () => [] },
   };
+  if (opts.errors !== undefined || opts.warnings !== undefined) {
+    deps._testOverride = {
+      errors: opts.errors ?? [],
+      warnings: opts.warnings ?? [],
+    };
+  }
+  return deps;
 }
 
 describe("userTeams repo (USR-T31..T36)", () => {

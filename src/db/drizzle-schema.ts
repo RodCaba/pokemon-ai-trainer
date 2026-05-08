@@ -492,10 +492,9 @@ export const userTeams = sqliteTable(
       "user_teams_origin_valid",
       sql`${t.origin} IN ('paste','builder','ai_prompt','duplicated_from_tournament')`,
     ),
-    check(
-      "user_teams_origin_tournament_consistency",
-      sql`(${t.origin} = 'duplicated_from_tournament') = (${t.sourceTournamentTeamId} IS NOT NULL)`,
-    ),
+    // Note: no CHECK on (origin, source_tournament_team_id) consistency —
+    // the FK is ON DELETE SET NULL, which contradicts a strict biconditional.
+    // See migration 0009 leading comment.
     index("idx_user_teams_status").on(t.status),
     index("idx_user_teams_origin").on(t.origin),
     index("idx_user_teams_updated_at_desc").on(t.updatedAt),
@@ -515,10 +514,11 @@ export const userTeamSets = sqliteTable(
       .notNull()
       .references(() => userTeams.id, { onDelete: "cascade" }),
     slot: integer("slot").notNull(),
-    speciesId: text("species_id").references(() => species.id),
+    // Soft references — validator-enforced (see migration 0009 comment).
+    speciesId: text("species_id"),
     nickname: text("nickname"),
-    itemId: text("item_id").references(() => items.id),
-    abilityId: text("ability_id").references(() => abilities.id),
+    itemId: text("item_id"),
+    abilityId: text("ability_id"),
     nature: text("nature"),
     hpSps: integer("hp_sps").notNull().default(0),
     atkSps: integer("atk_sps").notNull().default(0),
@@ -526,10 +526,10 @@ export const userTeamSets = sqliteTable(
     spaSps: integer("spa_sps").notNull().default(0),
     spdSps: integer("spd_sps").notNull().default(0),
     speSps: integer("spe_sps").notNull().default(0),
-    move1Id: text("move_1_id").references(() => moves.id),
-    move2Id: text("move_2_id").references(() => moves.id),
-    move3Id: text("move_3_id").references(() => moves.id),
-    move4Id: text("move_4_id").references(() => moves.id),
+    move1Id: text("move_1_id"),
+    move2Id: text("move_2_id"),
+    move3Id: text("move_3_id"),
+    move4Id: text("move_4_id"),
     notes: text("notes"),
   },
   (t) => [
@@ -561,9 +561,11 @@ export const userTeamRevisions = sqliteTable(
   },
   (t) => [
     primaryKey({ columns: [t.userTeamId, t.revisionNumber] }),
+    // Retention to 5 entries enforced at the repo layer (insert-and-evict);
+    // surviving revision_numbers can exceed 5 (USR-T39). See migration 0009.
     check(
-      "user_team_revisions_number_range",
-      sql`${t.revisionNumber} BETWEEN 1 AND 5`,
+      "user_team_revisions_number_positive",
+      sql`${t.revisionNumber} >= 1`,
     ),
     index("idx_user_team_revisions_team_created").on(
       t.userTeamId,

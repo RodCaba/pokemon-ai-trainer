@@ -146,27 +146,55 @@ export interface UserTeamsToolHandlers {
   validate(db: Db, input: UserTeamsValidateInput, deps: ValidateDeps): ValidationResult;
 }
 
+import * as userTeamsRepo from "../db/user-teams";
+import { validateTeam } from "../data/team-validate";
+import { UserTeamNotFoundError } from "../schemas/errors";
+
 /**
- * Default handlers (Stage-4 stubs).
+ * Default handlers wired to the user-teams repo and validator.
  *
  * **When to use it:** the agent loop's tool dispatcher pulls a handler
- * by tool name and invokes it. Tests inject this object verbatim.
+ * by tool name and invokes it.
  */
 export const userTeamsToolHandlers: UserTeamsToolHandlers = {
-  create(_db, _input): UserTeam {
-    throw new Error(
-      "not implemented (Stage 5): src/agents/user-teams-tools.ts::create",
+  create(db: Db, input: UserTeamsCreateInput): UserTeam {
+    const parsed = UserTeamsCreateToolInput.parse(input);
+    return userTeamsRepo.create(db, {
+      origin: parsed.origin,
+      name: parsed.name,
+      description: parsed.description ?? null,
+      win_condition: parsed.win_condition ?? null,
+      origin_payload: parsed.origin_payload ?? null,
+      source_tournament_team_id: parsed.source_tournament_team_id ?? null,
+    });
+  },
+  setStatus(
+    db: Db,
+    input: UserTeamsSetStatusInput,
+    deps: ValidateDeps,
+  ): UserTeam {
+    const parsed = UserTeamsSetStatusToolInput.parse(input);
+    return userTeamsRepo.setStatus(
+      db,
+      parsed.id,
+      parsed.status as UserTeamStatus,
+      deps,
     );
   },
-  setStatus(_db, _input, _deps): UserTeam {
-    void (null as unknown as UserTeamStatus);
-    throw new Error(
-      "not implemented (Stage 5): src/agents/user-teams-tools.ts::setStatus",
-    );
-  },
-  validate(_db, _input, _deps): ValidationResult {
-    throw new Error(
-      "not implemented (Stage 5): src/agents/user-teams-tools.ts::validate",
-    );
+  validate(
+    db: Db,
+    input: UserTeamsValidateInput,
+    deps: ValidateDeps,
+  ): ValidationResult {
+    const parsed = UserTeamsValidateToolInput.parse(input);
+    const team = userTeamsRepo.get(db, parsed.id);
+    if (!team) {
+      throw new UserTeamNotFoundError(`user_team ${parsed.id} not found`, {
+        team_id: parsed.id,
+      });
+    }
+    return validateTeam(team, deps, {
+      target_status: parsed.target_status,
+    });
   },
 };

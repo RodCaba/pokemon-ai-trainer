@@ -250,22 +250,27 @@ requires zero errors — a `setStatus('saved')` call with non-empty
 1. **Where does `validateTeam` live today?** I described it as if it
    exists, but I haven't grepped to confirm. The tech plan resolves
    this — either we use the existing module or scaffold it.
+   Answer: Seems it doesn't exist? 
 2. **Versioning.** When the user edits a saved team, do we overwrite or
    keep history? My proposal: overwrite (single-user, no audit need).
    Confirm or say "keep last N revisions."
+   Answer: Keep 5 revisions, with a `user_team_revisions` table. It's a nice-to-have for users to be able to revert to a prior version, and 5 revisions is a reasonable limit that balances functionality with storage concerns.
 3. **Pokepaste parser ownership.** `pokepaste-hook.ts` exists for labmaus
    ingest — is it factored such that we can reuse it cleanly, or does it
    need to be lifted into `src/tools/pokepaste/parse.ts` as a shared
    primitive? Tech plan resolves.
+   Answer: Let tech plan resolved, but we should be able to reuse every tool cleanly.
 4. **Tournament-team FK on delete.** If a tournament_team is ever deleted,
    should the user_team's `source_tournament_team_id` go NULL (preserve
    the team) or cascade-delete (lose the user team)? My proposal: SET
    NULL; the user team has its own life. Confirm.
+   Answer: SET NULL seems right; we don't want to lose user data just because a tournament team is removed, especially since the user team can be edited independently after duplication.
 5. **Species autocomplete: include unreleased / not-yet-legal Reg M-A
    species?** Champions occasionally adds species mid-format; do we let
    the user draft with a species that's not yet `is_legal=1`? My
    proposal: no, hard filter. Confirm.
+   Answer: Let's allow unreleased species in the autocomplete but flag them with a warning. This way, users can prepare for upcoming releases without being blocked, but they're also made aware of the legality status.
 
 ## 12. Reviewed-by
 
-Reviewed-by: _pending Stage 2_
+Reviewed-by: _Rodrigo Caballero_

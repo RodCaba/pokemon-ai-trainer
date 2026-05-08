@@ -5,6 +5,16 @@
 -- FK on `user_teams.source_tournament_team_id` → `tournament_teams.id`
 -- uses ON DELETE SET NULL (Stage-2 Q4). CASCADE applies on parent
 -- `user_teams` → `user_team_sets` and `user_team_revisions`.
+--
+-- Stage-5 deviation #2: the original plan §5 sketched a CHECK constraint
+-- `(origin = 'duplicated_from_tournament') = (source_tournament_team_id IS NOT NULL)`.
+-- That constraint contradicts the FK's SET NULL behavior — when a
+-- tournament_team is deleted, SQLite NULLs the FK on every referencing
+-- user_team, but the CHECK then rejects the row (origin is still
+-- 'duplicated_from_tournament'). USR-T8 captures the desired behavior:
+-- the user team must survive with FK NULLed. We therefore drop the CHECK.
+-- The origin enum membership is a historical marker; the FK can go NULL
+-- if the source is deleted.
 CREATE TABLE `user_teams` (
   `id` text PRIMARY KEY NOT NULL,
   `name` text NOT NULL,
@@ -21,10 +31,7 @@ CREATE TABLE `user_teams` (
   `updated_at` text NOT NULL,
   FOREIGN KEY (`source_tournament_team_id`) REFERENCES `tournament_teams`(`id`) ON DELETE SET NULL,
   CONSTRAINT "user_teams_status_valid" CHECK(`status` IN ('draft','saved','archived')),
-  CONSTRAINT "user_teams_origin_valid" CHECK(`origin` IN ('paste','builder','ai_prompt','duplicated_from_tournament')),
-  CONSTRAINT "user_teams_origin_tournament_consistency" CHECK(
-    (`origin` = 'duplicated_from_tournament') = (`source_tournament_team_id` IS NOT NULL)
-  )
+  CONSTRAINT "user_teams_origin_valid" CHECK(`origin` IN ('paste','builder','ai_prompt','duplicated_from_tournament'))
 );
 --> statement-breakpoint
 CREATE INDEX `idx_user_teams_status` ON `user_teams` (`status`);
@@ -56,13 +63,11 @@ CREATE TABLE `user_team_sets` (
   `notes` text,
   PRIMARY KEY (`user_team_id`, `slot`),
   FOREIGN KEY (`user_team_id`) REFERENCES `user_teams`(`id`) ON DELETE CASCADE,
-  FOREIGN KEY (`species_id`) REFERENCES `species`(`id`),
-  FOREIGN KEY (`item_id`) REFERENCES `items`(`id`),
-  FOREIGN KEY (`ability_id`) REFERENCES `abilities`(`id`),
-  FOREIGN KEY (`move_1_id`) REFERENCES `moves`(`id`),
-  FOREIGN KEY (`move_2_id`) REFERENCES `moves`(`id`),
-  FOREIGN KEY (`move_3_id`) REFERENCES `moves`(`id`),
-  FOREIGN KEY (`move_4_id`) REFERENCES `moves`(`id`),
+  -- Soft references to species/items/abilities/moves: the validator
+  -- (src/data/team-validate.ts) enforces existence per Champions Reg M-A.
+  -- Hard FKs would break drafts that name an unreleased species or a
+  -- pasted item that hasn't been backfilled into our ref tables (plan §5
+  -- "Species in roster | validator only").
   CONSTRAINT "user_team_sets_slot_range" CHECK(`slot` BETWEEN 0 AND 5),
   CONSTRAINT "user_team_sets_hp_sps_le_32" CHECK(`hp_sps` BETWEEN 0 AND 32),
   CONSTRAINT "user_team_sets_atk_sps_le_32" CHECK(`atk_sps` BETWEEN 0 AND 32),
@@ -80,7 +85,11 @@ CREATE TABLE `user_team_revisions` (
   `created_at` text NOT NULL,
   PRIMARY KEY (`user_team_id`, `revision_number`),
   FOREIGN KEY (`user_team_id`) REFERENCES `user_teams`(`id`) ON DELETE CASCADE,
-  CONSTRAINT "user_team_revisions_number_range" CHECK(`revision_number` BETWEEN 1 AND 5)
+  -- revision_number is monotonically increasing per team. Retention to 5
+  -- entries is enforced at the repo layer (insert-and-evict-oldest), not
+  -- via a CHECK constraint, because the repo never renumbers existing
+  -- revisions (USR-T39: after the 6th save, surviving numbers are 2..6).
+  CONSTRAINT "user_team_revisions_number_positive" CHECK(`revision_number` >= 1)
 );
 --> statement-breakpoint
 CREATE INDEX `idx_user_team_revisions_team_created` ON `user_team_revisions` (`user_team_id`,`created_at`);
