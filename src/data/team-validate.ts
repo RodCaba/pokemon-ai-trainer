@@ -156,28 +156,25 @@ export function validateTeam(
     }
   }
 
-  // sps_total_exceeded (whole-team) — sum across all sets.
-  let total = 0;
+  // sps_total_exceeded — PER-SET, not whole-team. Memory
+  // `regulation_m_a_stat_rules.md`: "SPS pool is 66 points total across all
+  // six stats" — meaning per Pokémon, not across the team. Each of the
+  // 6 sets has its own 66-point budget.
   for (const s of sets) {
-    total +=
+    const setTotal =
       (Number(s.hp_sps) || 0) +
       (Number(s.atk_sps) || 0) +
       (Number(s.def_sps) || 0) +
       (Number(s.spa_sps) || 0) +
       (Number(s.spd_sps) || 0) +
       (Number(s.spe_sps) || 0);
-  }
-  // Per the plan §4: total > 66 is a single whole-team error. But §4 Q
-  // says total ≤ 66 across **all six stats per slot** in Reg M-A; we
-  // mirror the per-slot semantics: any individual set's six-stat sum > 66
-  // is a violation. The original test (T17) injects 32+32+4 = 68 on one
-  // slot; pad rest empty -> total 68 across team. Either reading flags it.
-  if (total > 66) {
-    errors.push({
-      code: "sps_total_exceeded",
-      message: `total SPS ${total} > 66 across the team`,
-      slot: null,
-    });
+    if (setTotal > 66) {
+      errors.push({
+        code: "sps_total_exceeded",
+        message: `slot ${s.slot} total SPS ${setTotal} > 66`,
+        slot: s.slot,
+      });
+    }
   }
 
   for (const s of sets) {
@@ -271,12 +268,12 @@ export function validateTeam(
     }
 
     // move_not_legal — emit one entry per offending move. Compared
-    // case-insensitively because pokepaste authors typically write display
-    // names ("Earthquake") while species_movepool stores Showdown ids
-    // ("earthquake"). The user-teams adapter doesn't canonicalize moves
-    // (it does for species), so the validator handles the fold.
+    // canonical-form: lowercase + strip non-alphanumeric so user input
+    // ("Heat Wave") matches movepool storage ("heatwave"). species.movepool
+    // stores Showdown packed ids; pokepaste authors write display names.
+    const canonMove = (m: string): string => m.toLowerCase().replace(/[^a-z0-9]/g, "");
     const legalMoves = deps.speciesMovepool.legalFor(deps.db, speciesId);
-    const legalMovesLc = new Set(legalMoves.map((m) => m.toLowerCase()));
+    const legalMovesCanon = new Set(legalMoves.map(canonMove));
     const moves: Array<string | null | undefined> = [
       s.move_1_id,
       s.move_2_id,
@@ -284,7 +281,7 @@ export function validateTeam(
       s.move_4_id,
     ];
     for (const m of moves) {
-      if (m !== null && m !== undefined && !legalMovesLc.has(m.toLowerCase())) {
+      if (m !== null && m !== undefined && !legalMovesCanon.has(canonMove(m))) {
         errors.push({
           code: "move_not_legal",
           message: `${m} is not in ${speciesId}'s movepool`,

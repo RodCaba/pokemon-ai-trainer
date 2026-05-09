@@ -220,14 +220,15 @@ describe("validateTeam (USR-T10..T22)", () => {
     expect(codes).toContain("nature_unknown");
   });
 
-  it("USR-T17. emits sps_total_exceeded once for whole-team violation (slot null)", () => {
+  it("USR-T17. emits sps_total_exceeded per-set (memory regulation_m_a_stat_rules: 66 budget is per Pokémon, not whole team)", () => {
     const t = team([
       { ...legalSet(0, "garchomp"), hp_sps: 32, atk_sps: 32, def_sps: 4 },
     ]);
     const r = validateTeam(t, fakeDeps({}));
     const matched = r.errors.filter((e) => e.code === "sps_total_exceeded");
     expect(matched).toHaveLength(1);
-    expect(matched[0]?.slot ?? null).toBeNull();
+    expect(matched[0]?.slot).toBe(0);
+    expect(matched[0]?.message).toMatch(/68/);
   });
 
   it("USR-T18. emits sps_per_stat_exceeded with a per-slot annotation", () => {

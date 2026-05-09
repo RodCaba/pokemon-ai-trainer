@@ -134,6 +134,14 @@ export async function buildRegMA(
     const visited = new Set<string>();
     const queue: string[] = [sp.id];
 
+    // Accumulate moves across the entire ancestor chain — both form-base
+    // (`baseSpecies`: Kingambit → Kingambit; Charizard-Mega-Y → Charizard)
+    // AND evolution-prevo (`prevo`: Kingambit → Bisharp → Pawniard).
+    // `@pkmn/dex` stores moves on the species that *learns them at level-up
+    // or via egg/TM*, not on every evolution. Without prevo-walking,
+    // Kingambit loses Sucker Punch (learned by Pawniard), Bisharp loses
+    // Iron Defense, etc. We do NOT break on first non-empty learnset —
+    // every ancestor contributes.
     while (queue.length > 0) {
       const id = queue.shift();
       if (!id || visited.has(id)) continue;
@@ -145,10 +153,9 @@ export async function buildRegMA(
           if (championsMoveIds.has(moveId)) moves.add(moveId);
           else counts.movesDroppedFromMovepools++;
         }
-        if (moves.size > 0) break;
       }
 
-      // Enqueue baseSpecies candidates from BOTH sources.
+      // Enqueue baseSpecies (form root) AND prevo (evolution chain).
       const calcSp = champ.species.get(id as Parameters<typeof champ.species.get>[0]) as
         | { baseSpecies?: string; name?: string }
         | undefined;
@@ -162,6 +169,8 @@ export async function buildRegMA(
         if (dexSp.baseSpecies && dexSp.baseSpecies !== dexSp.name) {
           queue.push(toId(dexSp.baseSpecies));
         }
+        const prevo = (dexSp as { prevo?: string }).prevo;
+        if (prevo && prevo.length > 0) queue.push(toId(prevo));
       }
     }
     movepoolBySpecies.set(sp.id, moves);
