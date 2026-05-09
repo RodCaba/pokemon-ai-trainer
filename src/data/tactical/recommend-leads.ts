@@ -71,6 +71,7 @@ export function recommendLeads(
   // Score each of the 15 pairs. When scoring inputs are present, score-pair
   // uses the real `damage_calc` engine by default; otherwise the stub.
   const calcDeps = {
+    db: deps.db,
     ...(deps.scoring_team ? { scoring_team: deps.scoring_team } : { calc: () => ({}) }),
     ...(deps.scoring_panel ? { scoring_panel: deps.scoring_panel } : {}),
   };

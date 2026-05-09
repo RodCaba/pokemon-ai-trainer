@@ -247,3 +247,113 @@ export function userTeamToScoringTeam(db: Db, team: UserTeam): ScoringTeam {
   }
   return { sets: out };
 }
+
+/**
+ * Build a {@link ScoringThreat} for any species by reading the most-common
+ * (item, ability, nature, sps, moves) tuple from labmaus `team_sets`.
+ *
+ * **When to use it:** scenario-aware scoring needs ScoringSet data for
+ * any species named in `scenario.opposing_preview` — the 15-entry
+ * synthetic threat panel doesn't cover all Reg-M-A meta (Sinistcha,
+ * Ninetales-Alola, Sneasler, etc.). When a scenario's opposing leads
+ * aren't in the panel, fall back to this helper to materialize a real
+ * tournament-frequency set on demand.
+ *
+ * @param db — Open DB handle.
+ * @param speciesId — Canonical species roster id.
+ * @returns A {@link ScoringThreat} when the species has labmaus data;
+ *   `null` when there's no `team_sets` row for it. Weight is 0 (caller
+ *   sets a weight from the scenario context).
+ * @throws Never — DB / parse errors return `null`.
+ */
+export function labmausConsensusToScoringThreat(
+  db: Db,
+  speciesId: string,
+): ScoringThreat | null {
+  try {
+    // Most-common item + ability + nature for this species across all
+    // tournament sets. Pick each independently (mode per dimension)
+    // because joint-mode would over-fit on rare combos.
+    const itemRow = db.$client
+      .prepare(
+        `SELECT item, COUNT(*) AS n FROM team_sets
+          WHERE species_roster_id = ? AND item IS NOT NULL
+          GROUP BY item ORDER BY n DESC LIMIT 1`,
+      )
+      .get(speciesId) as { item: string | null; n: number } | undefined;
+    const abilityRow = db.$client
+      .prepare(
+        `SELECT ability, COUNT(*) AS n FROM team_sets
+          WHERE species_roster_id = ? AND ability IS NOT NULL
+          GROUP BY ability ORDER BY n DESC LIMIT 1`,
+      )
+      .get(speciesId) as { ability: string | null; n: number } | undefined;
+    const natureRow = db.$client
+      .prepare(
+        `SELECT nature, COUNT(*) AS n FROM team_sets
+          WHERE species_roster_id = ? AND nature IS NOT NULL
+          GROUP BY nature ORDER BY n DESC LIMIT 1`,
+      )
+      .get(speciesId) as { nature: string | null; n: number } | undefined;
+
+    // Most-common 4-move set serialized verbatim (joint mode here is
+    // acceptable — movesets cluster more than items/abilities).
+    const movesRow = db.$client
+      .prepare(
+        `SELECT moves_json, COUNT(*) AS n FROM team_sets
+          WHERE species_roster_id = ?
+          GROUP BY moves_json ORDER BY n DESC LIMIT 1`,
+      )
+      .get(speciesId) as { moves_json: string; n: number } | undefined;
+
+    if (!abilityRow?.ability || !movesRow?.moves_json) return null;
+
+    let parsedMoves: string[] = [];
+    try {
+      const arr = JSON.parse(movesRow.moves_json) as unknown;
+      if (Array.isArray(arr)) parsedMoves = arr.filter((m): m is string => typeof m === "string");
+    } catch {
+      return null;
+    }
+    while (parsedMoves.length < 4) parsedMoves.push(parsedMoves[0] ?? "Tackle");
+    const moves = parsedMoves.slice(0, 4) as [string, string, string, string];
+
+    // Pull display_name from the roster — engine prefers human-readable
+    // species. Fall back to the species id if the roster table is empty.
+    let display = speciesId;
+    try {
+      const pokemon = roster.get(db, speciesId, "RegM-A");
+      if (pokemon) display = pokemon.display_name;
+    } catch {
+      /* ignore — fall through to id */
+    }
+
+    // Default mixed-offensive SPS spread within Reg M-A's 66-point cap.
+    // 22/22/22 across attack/special-attack/speed gives a competitive-
+    // baseline opposing-lead model without favoring physical or special.
+    // Total = 66 (cap exact). Memory `regulation_m_a_stat_rules.md`.
+    const sps = { hp: 0, atk: 22, def: 0, spa: 22, spd: 0, spe: 22 };
+
+    const candidate = {
+      species: display,
+      level: 50 as const,
+      item: itemRow?.item ?? null,
+      ability: abilityRow.ability,
+      nature: ((natureRow?.nature ?? "Hardy") as PokemonSpec["nature"]),
+      sps,
+      moves,
+      statBoosts: { ...DEFAULT_BOOSTS },
+      status: "Healthy" as const,
+      hpPercent: 100,
+    };
+    const spec = PokemonSpecSchema.safeParse(candidate);
+    if (!spec.success) return null;
+    return {
+      species_roster_id: speciesId,
+      weight: 0,
+      spec: spec.data,
+    };
+  } catch {
+    return null;
+  }
+}

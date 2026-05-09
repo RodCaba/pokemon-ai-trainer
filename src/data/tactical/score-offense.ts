@@ -40,6 +40,10 @@ export interface CalcDeps {
   scoring_panel?: ScoringPanel;
   /** Override the field used for the engine loop (default: neutral doubles). */
   field?: Field;
+  /** Open DB handle. When set, score-pair / collectKeyCalcsForPair can
+   *  materialize ScoringThreats from labmaus team_sets for any species
+   *  named in `scenario.opposing_preview` that isn't in the panel. */
+  db?: import("../../db/open").Db;
 }
 
 interface PairOutcome {

@@ -11,8 +11,40 @@ import type { CalcCache, CalcCacheKey } from "./calc-cache";
 import { calcWithCache } from "./calc-cache";
 import type { CalcDeps } from "./score-offense";
 import { _hashSet, _fieldHash } from "./score-offense";
-import type { ScoringTeam, ScoringSet } from "./scoring-team";
-import { neutralField, scenarioFieldToCalcField } from "./scoring-team";
+import type { ScoringTeam, ScoringSet, ScoringThreat } from "./scoring-team";
+import { neutralField, scenarioFieldToCalcField, labmausConsensusToScoringThreat } from "./scoring-team";
+import type { Db } from "../../db/open";
+
+/**
+ * Resolve scenario opposing leads into ScoringThreats. For each species
+ * named in `previewIds`: prefer the panel entry (has weight + co-occur
+ * data); otherwise materialize from labmaus team_sets via consensus.
+ * If still missing (no labmaus data either), the species is dropped —
+ * caller falls back to panel top-2.
+ */
+function resolveOpposing(
+  previewIds: ReadonlyArray<string>,
+  panelEntries: ReadonlyArray<ScoringThreat>,
+  db: Db | undefined,
+): ScoringThreat[] {
+  const out: ScoringThreat[] = [];
+  for (const id of previewIds) {
+    const inPanel = panelEntries.find((e) => e.species_roster_id === id);
+    if (inPanel) {
+      out.push(inPanel);
+      continue;
+    }
+    if (db) {
+      const fromLabmaus = labmausConsensusToScoringThreat(db, id);
+      if (fromLabmaus) {
+        out.push(fromLabmaus);
+        continue;
+      }
+    }
+    // Drop silently — caller may fill from panel top-2.
+  }
+  return out;
+}
 import { damage_calc } from "../../tools/damage-calc";
 
 /** Offense weight (Q6 binding). */
@@ -72,19 +104,21 @@ function realScore(
   const field = sfTactical ? scenarioFieldToCalcField(sfTactical) : (deps.field ?? neutralField());
   const sets = deps.scoring_team!.sets;
 
-  // Scenario-aware opposing leads: prefer panel entries whose species_id is
-  // listed in `scenario.opposing_preview` (the scenario's chosen meta core).
-  // Fallback to panel top-2 when the preview species aren't available in the
-  // panel (so weakness-counter scenarios with niche species still score).
-  const previewIds = new Set(scenario.opposing_preview ?? []);
-  let opposing = deps.scoring_panel!.entries.filter((e) =>
-    previewIds.has(e.species_roster_id),
-  );
+  // Scenario-aware opposing leads: resolve scenario.opposing_preview
+  // species in this order — (a) panel entry, (b) labmaus team_sets
+  // consensus (via `deps.db`), (c) drop. Fallback to panel top-2 only
+  // when the scenario specifies fewer than 2 resolvable opposing leads.
+  // This makes "Rain" (vs pelipper+archaludon) score against ACTUAL
+  // Pelipper/Archaludon, not the panel's top-by-weight.
+  const previewIds = scenario.opposing_preview ?? [];
+  let opposing = resolveOpposing(previewIds, deps.scoring_panel!.entries, deps.db);
   if (opposing.length < 2) {
     const sorted = [...deps.scoring_panel!.entries].sort((a, b) => b.weight - a.weight);
     for (const e of sorted) {
       if (opposing.length >= 2) break;
-      if (!opposing.includes(e)) opposing.push(e);
+      if (!opposing.find((o) => o.species_roster_id === e.species_roster_id)) {
+        opposing.push(e);
+      }
     }
   }
   opposing = opposing.slice(0, Math.min(2, opposing.length));
@@ -199,15 +233,16 @@ export function collectKeyCalcsForPair(
   const sfTactical = scenario.field as ScenarioField | undefined;
   const field = sfTactical ? scenarioFieldToCalcField(sfTactical) : (deps.field ?? neutralField());
   const fieldSummary = `${field.weather}|${field.terrain}|${field.isTrickRoom ? "TR" : "-"}`;
-  const previewIds = new Set(scenario.opposing_preview ?? []);
-  let opposing = deps.scoring_panel.entries.filter((e) =>
-    previewIds.has(e.species_roster_id),
-  );
+  // Same scenario-aware resolution as scorePair — panel → labmaus → top-2.
+  const previewIds = scenario.opposing_preview ?? [];
+  let opposing = resolveOpposing(previewIds, deps.scoring_panel.entries, deps.db);
   if (opposing.length < 2) {
     const sorted = [...deps.scoring_panel.entries].sort((a, b) => b.weight - a.weight);
     for (const e of sorted) {
       if (opposing.length >= 2) break;
-      if (!opposing.includes(e)) opposing.push(e);
+      if (!opposing.find((o) => o.species_roster_id === e.species_roster_id)) {
+        opposing.push(e);
+      }
     }
   }
   opposing = opposing.slice(0, Math.min(2, opposing.length));
