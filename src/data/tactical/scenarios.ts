@@ -95,8 +95,8 @@ function describeScenario(
     }
     if (field.trick_room) {
       return (
-        "Trick Room archetype scenario. TR teams flip the speed order — slow attackers (base spe < 60) move first while fast Pokémon move last, for the 5 turns TR is active. " +
-        `Recommended leads are scored against typical TR-side leads (${oppList || "Porygon2, Farigiraf"}). Field has Trick Room active. Bring leads that can KO the setter before it sets up, or that thrive in inverted speed (your slowest hitters become priority threats while their fast attackers are stranded).`
+        "Trick Room archetype scenario. TR teams flip the speed order — slow attackers (base spe < 60) move first while fast Pokémon move last, for the 5 turns TR is active. The canonical Reg M-A TR setter is Farigiraf (Armor Tail) — its priority-blocking ability neutralizes Fake Out, Sucker Punch, and Quick Attack so the setter survives turn 1 and gets the room up. " +
+        `Recommended leads are scored against typical TR-side leads (${oppList || "Farigiraf + slow attacker"}). Field has Trick Room active. Bring leads that can KO the setter before it sets up — note Armor Tail blocks priority moves, so non-priority KOs only — or that thrive in inverted speed (your slowest hitters become first-movers while their fast attackers are stranded).`
       );
     }
     if (name === "Perish Trap") {
@@ -514,17 +514,45 @@ function archetypeFromLabmaus(
   let setter: string | null = null;
   try {
     if (archetype === "trick_room") {
-      const rows = db.$client
+      // TR setter selection priority:
+      //   1. Species with a priority-blocking ability (Armor Tail / Dazzling
+      //      / Queenly Majesty) AND Trick Room slotted — these are the
+      //      strategically distinguishing TR setters in Reg M-A. Farigiraf
+      //      (Armor Tail) blocks Fake Out + Sucker Punch + Quick Attack,
+      //      neutralizing the priority disruption TR teams hate.
+      //   2. Fallback to highest-count TR-move user when no priority-block
+      //      species exists in the data.
+      // Sinistcha (Hospitality, ~220 sets) and Farigiraf (Armor Tail, ~206
+      // sets) are near-tied by raw count; without the priority-block bias
+      // we'd pick Sinistcha, missing the canonical Reg M-A TR setter.
+      const PRIORITY_BLOCK = ["Armor Tail", "Dazzling", "Queenly Majesty"];
+      const ph = PRIORITY_BLOCK.map(() => "?").join(",");
+      const priorityRows = db.$client
         .prepare(
           `SELECT species_roster_id, COUNT(*) AS n
              FROM team_sets
-            WHERE moves_json LIKE '%Trick Room%' OR moves_json LIKE '%trickroom%'
+            WHERE (moves_json LIKE '%Trick Room%' OR moves_json LIKE '%trickroom%')
+              AND ability IN (${ph})
             GROUP BY species_roster_id
             ORDER BY n DESC
             LIMIT 1`,
         )
-        .all() as Array<{ species_roster_id: string; n: number }>;
-      setter = rows[0]?.species_roster_id ?? null;
+        .all(...PRIORITY_BLOCK) as Array<{ species_roster_id: string; n: number }>;
+      if (priorityRows[0]?.species_roster_id) {
+        setter = priorityRows[0].species_roster_id;
+      } else {
+        const rows = db.$client
+          .prepare(
+            `SELECT species_roster_id, COUNT(*) AS n
+               FROM team_sets
+              WHERE moves_json LIKE '%Trick Room%' OR moves_json LIKE '%trickroom%'
+              GROUP BY species_roster_id
+              ORDER BY n DESC
+              LIMIT 1`,
+          )
+          .all() as Array<{ species_roster_id: string; n: number }>;
+        setter = rows[0]?.species_roster_id ?? null;
+      }
     } else {
       let abilities: ReadonlySet<string>;
       if (archetype === "sun") abilities = SUN_ABILITIES;
