@@ -47,10 +47,11 @@ const NATURE_PLUS_SPE = new Set([
 const NATURE_MINUS_SPE = new Set([
   "Brave", "Relaxed", "Quiet", "Sassy",
 ]);
-const TR_SETTER_ABILITIES = new Set([
-  "screen-cleaner", "psychic-surge", "magic-bounce", "trace",
-]);
-const TR_SETTER_MOVES = new Set(["trick-room", "trick room"]);
+// No ability sets Trick Room. The earlier "screen-cleaner / psychic-surge /
+// magic-bounce / trace" set was incorrect — none of those abilities set TR.
+// TR is set exclusively via the move "Trick Room"; rely on TR_SETTER_MOVES.
+const TR_SETTER_ABILITIES: ReadonlySet<string> = new Set<string>();
+const TR_SETTER_MOVES = new Set(["trick-room", "trick room", "trickroom"]);
 
 /**
  * Compute final L50 speed: floor(((2*base + 31 + sps_spe) * 50) / 100) + 5,
@@ -250,7 +251,3 @@ function countSlowAttackers(
   return sets.filter((s) => typeof s.base_spe === "number" && s.base_spe < threshold).length;
 }
 
-/** No-op kept for back-compat with tests that import it. */
-export function _resetSpeedCounter(): void {
-  /* deprecated; speed scorer no longer uses a call counter */
-}

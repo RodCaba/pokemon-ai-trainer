@@ -109,11 +109,6 @@ function syntheticEntry(s: SyntheticSpec): ThreatEntry {
   };
 }
 
-/** Reset hook (no-op; kept for back-compat with tests). */
-export function _resetThreatPanelCounter(): void {
-  /* deprecated; threat-panel no longer uses a call counter */
-}
-
 /**
  * Filter synthetic species by legality against `roster_membership` if data
  * is available; otherwise return the input unchanged (test bypass).

@@ -97,16 +97,18 @@ function loadTeam(db: Db, teamId: string): UserTeam {
     if (t.status !== "saved") {
       throw new TacticalOverviewError("Team is not in 'saved' status", { team_id: teamId });
     }
-    const errs = (t as unknown as { validation_errors?: unknown[] }).validation_errors ?? [];
+    const errs = t.validation_errors ?? [];
     if (errs.length > 0) {
       throw new TacticalOverviewError("Team has validation errors", { team_id: teamId });
     }
     return t;
   }
-  // Test-only synthetic for the well-known fixture ULIDs.
+  // Test-only synthetic for the well-known fixture ULIDs. Gated on NODE_ENV
+  // so this branch can never fire in production. Vitest sets NODE_ENV=test
+  // by default.
   if (
-    teamId === TEST_TEAM_IDS.saved ||
-    teamId === TEST_TEAM_IDS.scarf
+    process.env.NODE_ENV === "test" &&
+    (teamId === TEST_TEAM_IDS.saved || teamId === TEST_TEAM_IDS.scarf)
   ) {
     return syntheticTeam(teamId);
   }

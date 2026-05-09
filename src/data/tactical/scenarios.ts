@@ -43,12 +43,36 @@ const PLACEHOLDER: Pick<
 > = {
   recommended_leads: ["incineroar", "amoonguss"],
   recommended_backline: ["rillaboom", "garchomp"],
-  rejected_bench: ["calyrex-shadow", "porygon2"],
+  rejected_bench: ["porygon2", "pelipper"],
   reasoning: "Filled by recommendLeads.",
   key_calcs: [],
   citations: [],
   pair_score: 0,
 };
+
+/**
+ * Pick the first N species ids from the threat panel; falls back to a small
+ * Reg-M-A-legal seed when the panel is empty (test paths). Memory
+ * `regulation_m_a_roster.md`: never hardcode SV/VGC species like
+ * urshifu-rapid-strike, calyrex-shadow, iron-hands.
+ */
+function previewFromPanel(
+  panel: ThreatPanel,
+  n: number,
+  seed: ReadonlyArray<string>,
+): string[] {
+  const out: string[] = [];
+  const entries = (panel as { entries?: ReadonlyArray<{ species_id?: string }> }).entries ?? [];
+  for (const e of entries) {
+    if (e.species_id) out.push(e.species_id);
+    if (out.length >= n) break;
+  }
+  for (const s of seed) {
+    if (out.length >= n) break;
+    if (!out.includes(s)) out.push(s);
+  }
+  return out.slice(0, n);
+}
 
 /**
  * Produce 5–7 scenario skeletons.
@@ -58,43 +82,53 @@ const PLACEHOLDER: Pick<
  * @throws TacticalScenarioError when fewer than 3 scenarios producible.
  */
 export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
+  const sunSeed = previewFromPanel(deps.panel, 2, ["torkoal", "venusaur"]);
+  const rainSeed = previewFromPanel(deps.panel, 2, ["pelipper", "barraskewda"]);
+  const trSeed = previewFromPanel(deps.panel, 2, ["porygon2", "farigiraf"]);
+  const indivSeed = previewFromPanel(deps.panel, 4, [
+    "incineroar", "amoonguss", "rillaboom", "garchomp",
+  ]);
+  // Always emit two distinct individual scenarios (or fall back to the seed).
+  const indiv1 = indivSeed[0] ?? "incineroar";
+  const indiv2 = indivSeed[1] ?? "amoonguss";
+
   const archetypes: ScenarioOverview[] = [
     {
       name: "Sun",
       type: "archetype",
       field: FIELD_SUN,
-      opposing_preview: ["torkoal", "venusaur"],
+      opposing_preview: sunSeed,
       ...PLACEHOLDER,
     },
     {
       name: "Rain",
       type: "archetype",
       field: FIELD_RAIN,
-      opposing_preview: ["pelipper", "urshifu-rapid-strike"],
+      opposing_preview: rainSeed,
       ...PLACEHOLDER,
     },
     {
       name: "Trick Room",
       type: "archetype",
       field: FIELD_TR,
-      opposing_preview: ["porygon2", "iron-hands"],
+      opposing_preview: trSeed,
       ...PLACEHOLDER,
     },
   ];
 
   const individuals: ScenarioOverview[] = [
     {
-      name: "vs Incineroar",
+      name: `vs ${indiv1}`,
       type: "individual",
       field: FIELD_NEUTRAL,
-      opposing_preview: ["incineroar"],
+      opposing_preview: [indiv1],
       ...PLACEHOLDER,
     },
     {
-      name: "vs Calyrex-Shadow",
+      name: `vs ${indiv2}`,
       type: "individual",
       field: FIELD_NEUTRAL,
-      opposing_preview: ["calyrex-shadow"],
+      opposing_preview: [indiv2],
       ...PLACEHOLDER,
     },
   ];

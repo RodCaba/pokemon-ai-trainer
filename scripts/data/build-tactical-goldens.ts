@@ -169,7 +169,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     teams: {
       "Pelipper Rain": [
         { species_roster_id: "pelipper", ability: "Drizzle" },
-        { species_roster_id: "urshifu-rapid-strike" },
+        { species_roster_id: "basculegion", ability: "Swift Swim" },
       ],
       Snow: [{ species_roster_id: "abomasnow", ability: "Snow Warning" }],
       Redirection: [{ species_roster_id: "amoonguss", moves: ["Rage Powder"] }],

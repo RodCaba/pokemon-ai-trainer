@@ -8,6 +8,7 @@ import type { UserTeam } from "../../schemas/user-teams";
 import type { CalcCache } from "./calc-cache";
 import type { ScoringTeam, ScoringPanel } from "./scoring-team";
 import { scorePair } from "./score-pair";
+import { TacticalOverviewError } from "../../schemas/errors";
 
 export interface RecommendDeps {
   db: Db;
@@ -18,10 +19,6 @@ export interface RecommendDeps {
   scoring_team?: ScoringTeam;
   scoring_panel?: ScoringPanel;
 }
-
-const DEFAULT_SLOT_IDS: ReadonlyArray<string> = [
-  "incineroar", "amoonguss", "rillaboom", "garchomp", "calyrex-shadow", "porygon2",
-];
 
 function pairs(): Array<[number, number]> {
   const out: Array<[number, number]> = [];
@@ -48,14 +45,27 @@ export function recommendLeads(
   deps: RecommendDeps,
 ): ScenarioOverview {
   const teamSets = (team as unknown as { sets?: Array<{ species_roster_id?: string; species_id?: string }> }).sets;
-  const slotIds = teamSets && teamSets.length === 6
-    ? teamSets.map((s, i) => s.species_roster_id ?? s.species_id ?? DEFAULT_SLOT_IDS[i] ?? `slot${i}`)
-    : deps.scoring_team
-      ? deps.scoring_team.sets.map((s, i) => s.species_roster_id ?? DEFAULT_SLOT_IDS[i] ?? `slot${i}`)
-      : [...DEFAULT_SLOT_IDS];
-
-  // Pad to 6 with placeholders so we always have 6 slots to choose from.
-  while (slotIds.length < 6) slotIds.push(`slot${slotIds.length}`);
+  // Resolve 6 slot ids. Prefer the scoring team (production) — it's already
+  // gated on the team being saved + validation-clean. Fallback to the raw
+  // user-team sets when scoring inputs are absent (legacy stub paths).
+  let slotIds: string[];
+  if (deps.scoring_team && deps.scoring_team.sets.length === 6) {
+    slotIds = deps.scoring_team.sets.map((s) => s.species_roster_id);
+  } else if (teamSets && teamSets.length === 6) {
+    slotIds = teamSets.map((s, i) => {
+      const id = s.species_roster_id ?? s.species_id;
+      if (!id) {
+        throw new TacticalOverviewError(
+          `team has < 6 filled slots; cannot recommend leads (slot ${i} empty)`,
+        );
+      }
+      return id;
+    });
+  } else {
+    throw new TacticalOverviewError(
+      "team has < 6 filled slots; cannot recommend leads",
+    );
+  }
 
   // Score each of the 15 pairs. When scoring inputs are present, score-pair
   // uses the real `damage_calc` engine by default; otherwise the stub.

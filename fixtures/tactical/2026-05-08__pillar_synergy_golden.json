@@ -7,6 +7,14 @@
       "Weather"
     ],
     "teammate_component_max": 60,
-    "archetype_component_max": 40
+    "archetype_component_max": 40,
+    "data_gaps": [
+      "garchomp",
+      "tyranitar",
+      "rotom-wash",
+      "whimsicott",
+      "excadrill",
+      "hydreigon"
+    ]
   }
 }

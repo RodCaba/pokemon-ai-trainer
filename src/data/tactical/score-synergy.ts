@@ -33,21 +33,24 @@ interface TeamView {
   moves: string[]; // canonical lowercase
 }
 
+// Sets are stored in canonical form (lowercase, hyphenated). All inputs
+// pass through `canon()` first, so no need to enumerate "sand stream" /
+// "sand-stream" variants.
 const WEATHER_ABILITIES = new Set([
-  "drizzle", "drought", "sand-stream", "sand stream",
-  "snow-warning", "snow warning", "primordial-sea", "desolate-land",
+  "drizzle", "drought", "sand-stream",
+  "snow-warning", "primordial-sea", "desolate-land",
   "orichalcum-pulse", "hadron-engine",
 ]);
 const WEATHER_BENEFICIARIES = new Set([
   "swift-swim", "chlorophyll", "sand-rush", "sand-force",
   "slush-rush", "snow-cloak",
 ]);
-const REDIRECTION_MOVES = new Set(["follow-me", "rage-powder", "follow me", "rage powder"]);
-const REDIRECTION_ABILITIES = new Set(["lightning-rod", "lightning rod", "storm-drain", "storm drain"]);
-const FAKE_OUT_MOVES = new Set(["fake-out", "fake out"]);
+const REDIRECTION_MOVES = new Set(["follow-me", "rage-powder"]);
+const REDIRECTION_ABILITIES = new Set(["lightning-rod", "storm-drain"]);
+const FAKE_OUT_MOVES = new Set(["fake-out"]);
 
 function canon(s: string | null | undefined): string {
-  return (s ?? "").toLowerCase().replace(/\s+/g, "-").trim();
+  return (s ?? "").toLowerCase().trim().replace(/\s+/g, "-");
 }
 
 function viewFromScoringTeam(team: ScoringTeam): TeamView {
@@ -111,11 +114,17 @@ function detectArchetypes(view: TeamView): string[] {
 
 /**
  * Sum pikalytics co-occurrence over each unordered pair (A,B) on our team.
- * Returns a 0..1 normalized value.
+ * Returns a 0..1 normalized value plus the list of species we couldn't find
+ * any pikalytics_snapshots data for (used as `data_gaps` evidence).
  */
-function teammateCoOccurrence(db: Db, view: TeamView): number {
+function teammateCoOccurrence(
+  db: Db,
+  view: TeamView,
+): { value: number; missing: string[] } {
   const ids = view.speciesIds;
-  if (ids.length < 2) return 0;
+  if (ids.length < 2) return { value: 0, missing: [...ids] };
+  // Track which species we found ANY snapshots for.
+  const sawData = new Set<string>();
   let total = 0;
   let pairs = 0;
   for (let i = 0; i < ids.length; i++) {
@@ -126,11 +135,13 @@ function teammateCoOccurrence(db: Db, view: TeamView): number {
       let pct = 0;
       try {
         const fromA = pikalytics.teammates(db, { format: "RegM-A", species: a, limit: 50 });
+        if (fromA.length > 0) sawData.add(a);
         const hit = fromA.find((t) => t.roster_id === b);
         if (hit) pct = Math.max(pct, hit.percent);
       } catch { /* skip */ }
       try {
         const fromB = pikalytics.teammates(db, { format: "RegM-A", species: b, limit: 50 });
+        if (fromB.length > 0) sawData.add(b);
         const hit = fromB.find((t) => t.roster_id === a);
         if (hit) pct = Math.max(pct, hit.percent);
       } catch { /* skip */ }
@@ -138,7 +149,8 @@ function teammateCoOccurrence(db: Db, view: TeamView): number {
       total += Math.min(1, pct / 100);
     }
   }
-  return pairs > 0 ? total / pairs : 0;
+  const missing = ids.filter((id) => !sawData.has(id));
+  return { value: pairs > 0 ? total / pairs : 0, missing };
 }
 
 /**
@@ -176,10 +188,13 @@ export function scoreSynergy(
 
   // Teammate co-occurrence component (0..1).
   let teammate01: number;
+  let dataGaps: string[] = [];
   if (!haveAnySignal) {
     teammate01 = 0; // empty team — neutral.
   } else {
-    teammate01 = teammateCoOccurrence(deps.db, view);
+    const { value, missing } = teammateCoOccurrence(deps.db, view);
+    teammate01 = value;
+    dataGaps = missing;
   }
   // Archetype component (0..1) — count distinct non-fallback archetypes.
   const archetypeReal = archetypes.filter((a) => a !== "Good Stuff").length;
@@ -190,14 +205,17 @@ export function scoreSynergy(
   if (!haveAnySignal) scoreFloat = 55;
   const score = Math.max(0, Math.min(100, Math.round(scoreFloat)));
 
+  const evidence: Record<string, unknown> = {
+    archetypes,
+    teammate_component_max: teammateMax,
+    archetype_component_max: archetypeMax,
+  };
+  if (dataGaps.length > 0) evidence.data_gaps = dataGaps;
+
   return {
     pillar: "synergy",
     score,
     tier: tierFor(score),
-    evidence: {
-      archetypes,
-      teammate_component_max: teammateMax,
-      archetype_component_max: archetypeMax,
-    },
+    evidence,
   };
 }

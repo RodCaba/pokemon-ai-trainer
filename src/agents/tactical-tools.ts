@@ -68,6 +68,7 @@ export interface TacticalToolDeps extends OverviewDeps {
 }
 
 import { buildOverview } from "../data/tactical/overview";
+import { TacticalOverviewError } from "../schemas/errors";
 
 /**
  * Handler for `score_pillars`. Returns the four-pillar bundle for the team.
@@ -105,10 +106,14 @@ export function handleRecommendLeads(
   const ov = buildOverview(input.team_id, deps);
   if (input.scenario_name) {
     const match = ov.scenarios.find((s) => s.name === input.scenario_name);
-    return {
-      team_id: input.team_id,
-      scenarios: match ? [match] : [ov.scenarios[0]!],
-    };
+    if (!match) {
+      const available = ov.scenarios.map((s) => s.name).join(", ");
+      throw new TacticalOverviewError(
+        `scenario '${input.scenario_name}' not found; available: ${available}`,
+        { team_id: input.team_id },
+      );
+    }
+    return { team_id: input.team_id, scenarios: [match] };
   }
   return { team_id: input.team_id, scenarios: ov.scenarios };
 }

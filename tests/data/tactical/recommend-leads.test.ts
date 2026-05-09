@@ -36,7 +36,6 @@ afterEach(() => {
 });
 
 const TEAM = {} as UserTeam;
-const SCENARIO = {} as ScenarioOverview;
 
 interface TeamFixture { sets: FixtureSet[] }
 interface PanelFixture { entries: Array<FixtureSet & { weight: number }> }
@@ -103,7 +102,29 @@ describe("recommendLeads (TAC-T28..T30)", () => {
   it("TAC-T29. back pair = next-best 2 from remaining 4; rejected = remaining 2", () => {
     const db = open(":memory:"); opened = db;
     const cache = createCalcCache();
-    const result = recommendLeads(TEAM, SCENARIO, cache, { db });
+    const { team, panel } = loadGoldenInputs();
+    const neutralScenario: ScenarioOverview = {
+      name: "neutral",
+      type: "individual",
+      field: {
+        weather: "none", terrain: "none", trick_room: false,
+        tailwind_ours: false, tailwind_theirs: false,
+        light_screen: false, reflect: false, gravity: false,
+      },
+      opposing_preview: ["incineroar"],
+      recommended_leads: ["a", "b"],
+      recommended_backline: ["c", "d"],
+      rejected_bench: ["e", "f"],
+      reasoning: "",
+      key_calcs: [],
+      citations: [],
+      pair_score: 0,
+    };
+    const result = recommendLeads(TEAM, neutralScenario, cache, {
+      db,
+      scoring_team: team,
+      scoring_panel: panel,
+    });
     const all = new Set([
       ...result.recommended_leads,
       ...result.recommended_backline,
