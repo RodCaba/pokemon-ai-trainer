@@ -292,19 +292,23 @@ The two surfaces complement: `knowledge.search` returns the *context*
    metadata + caption tracks). Proposal: `youtube-transcript` for v1
    (no key needed); upgrade to Data API when we hit rate limits or
    need richer metadata (description, tags, channel info).
+   Answer: youtube-transcript is a good choice.
 
 2. **Window size**: 90s with 15s overlap (= 13 chunks for a 20-min
    video) vs 60s with 10s overlap (= 20 chunks). Smaller windows
    produce more atomic insights but cost more Haiku calls. Proposal:
    **90s/15s** for v1 — extraction quality matters more than chunk
    count.
+   Answer: 90s/15s is a good starting point. We can experiment with smaller windows in the future if we find that the insights are often too broad or contain multiple distinct claims.
 
 3. **Insight verbosity per chunk**: cap at 5 insights per chunk?
    2-3? Some chunks have multiple claims. Proposal: **prompt
    instructs ≤ 5, no minimum** (many chunks produce 0 — that's fine).
+    Answer: Capping at 5 insights per chunk seems reasonable to balance between capturing multiple claims and keeping the output manageable. The prompt should clearly instruct the model to prioritize the most salient claims if there are more than 5, and it's perfectly fine for some chunks to yield 0 insights if they don't contain any clear claims.
 
 4. **`extracted_by_prompt_version`** — versioning scheme. Proposal:
    semver-like `"v1.0"`. Bump major when prompt structure changes.
+   Answer: Using a semver-like versioning scheme for the prompt makes sense.
 
 5. **Citation surface in tactical-overview**: when an Insight
    matches the scenario's species, should `cite.ts` return it
@@ -313,12 +317,14 @@ The two surfaces complement: `knowledge.search` returns the *context*
    on `ScenarioOverview` so the agent can format them differently
    ("the author of the team explains: …" vs "per the metavgc guide
    …"). Adds a schema field; non-breaking.
+   Answer: Adding a distinct field for insights in the citation surface is a good idea to allow the agent to differentiate between general context and specific claims. This way, the agent can choose to highlight insights in its response when they are particularly relevant to the user's question, while still providing the broader context from the knowledge chunks.
 
 6. **Hallucination guard**: Haiku might fabricate species names that
    weren't in the chunk. Proposal: **reject any insight whose
    `subjects.pokemon[]` includes a species not literally present
    in the chunk text** (substring match). Adds a post-extraction
    filter; rejects ~5% of insights based on initial estimates.
+   Answer: Implementing a hallucination guard that checks for the presence of species names in the original chunk text is a good way to improve the precision of our insights.
 
 7. **Idempotency key**: re-running the ingest on the same video id
    produces… what? Proposal: **skip-existing on
@@ -326,18 +332,21 @@ The two surfaces complement: `knowledge.search` returns the *context*
    metavgc's `body_hash` pattern). Skip-existing on
    (chunk_id + claim) for insights (mirrors knowledge_chunk_species_tags
    composite-PK pattern).
+   Answer: Using a skip-existing pattern based on (source_url + chunk_index) for transcript chunks and (chunk_id + claim) for insights is a solid approach to ensure idempotency while allowing for updates if the video content changes.
 
 8. **Live retrieval cost**: Insight search via vec0 cosine over a
    growing corpus — at what corpus size do we need to add a payload
    filter pre-cosine? Proposal: defer, profile when we hit ~10K
    insights.
+   Answer: Let the tech lead this decision.
 
 9. **Multi-language**: video title + description may be Spanish /
    Japanese / etc. Pokémon names typically stay English in the
    transcript even when the speaker isn't English. Proposal:
    **detect transcript language; only extract from English captions
    in v1.** Spanish/Japanese support is a separate slice.
+   Answer: Only English captions for v1 is a good approach to keep the scope manageable.
 
 ## 12. Reviewed-by
 
-Reviewed-by: _pending Stage 2_
+Reviewed-by: _Rodrigo Caballero_
