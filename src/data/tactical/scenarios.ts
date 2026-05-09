@@ -38,6 +38,8 @@ const FIELD_NEUTRAL: ScenarioField = {
 
 const FIELD_SUN: ScenarioField = { ...FIELD_NEUTRAL, weather: "sun" };
 const FIELD_RAIN: ScenarioField = { ...FIELD_NEUTRAL, weather: "rain" };
+const FIELD_SAND: ScenarioField = { ...FIELD_NEUTRAL, weather: "sand" };
+const FIELD_SNOW: ScenarioField = { ...FIELD_NEUTRAL, weather: "snow" };
 const FIELD_TR: ScenarioField = { ...FIELD_NEUTRAL, trick_room: true };
 
 const PLACEHOLDER: Pick<
@@ -77,6 +79,18 @@ function describeScenario(
       return (
         "Rain archetype scenario. Rain teams pair a Drizzle setter (Pelipper) with Swift Swim / Hydration sweepers that benefit from 1.5× Water damage and 100%-accurate Hurricane / Thunder. " +
         `Recommended leads are scored against representative rain-side leads (${oppList || "Pelipper, Barraskewda"}). Field is rain. Bring leads that pressure the setter or that resist the rain-boosted Water/Electric attacks; Choice Scarf users are especially valuable to win speed once swimmers double.`
+      );
+    }
+    if (field.weather === "sand") {
+      return (
+        "Sand archetype scenario. Sand teams pair a Sand Stream setter (Tyranitar, Hippowdon) with Sand Rush abusers (Excadrill) that double their speed in sand and benefit from the chip damage on non-Rock/Ground/Steel opponents. " +
+        `Recommended leads are scored against representative sand-side leads (${oppList || "Tyranitar, Excadrill"}). Field is sand, ¹⁄₁₆ chip damage every turn for non-immune Pokémon, Rock-types get 1.5× SpD. Bring leads that resist the chip or that can break the setter on turn 1.`
+      );
+    }
+    if (field.weather === "snow") {
+      return (
+        "Snow archetype scenario. Snow teams pair a Snow Warning setter (Ninetales-Alola, Vanilluxe, Abomasnow) with Slush Rush abusers and ice-type attackers. Aurora Veil is the load-bearing benefit — halves damage from both physical and special attacks while snow is up. " +
+        `Recommended leads are scored against representative snow-side leads (${oppList || "Ninetales-Alola, Abomasnow"}). Field is snow, Ice-types get 1.5× Defense. Bring leads that can break Aurora Veil quickly (Brick Break, Defog) or that out-pressure the setter before it sets up.`
       );
     }
     if (field.trick_room) {
@@ -287,6 +301,80 @@ function archetypeFromPikalytics(
 }
 
 /**
+ * Fallback archetype lookup against labmaus tournament data when pikalytics
+ * is sparse. Reads `team_sets` for the setter ability (or Trick Room move),
+ * picks the most-common species, then finds its top teammate by counting
+ * `tournament_team_id` co-occurrence across the entire tournament corpus.
+ *
+ * Returns `[setter, top_teammate]` when the labmaus corpus has data for
+ * the archetype; `null` otherwise.
+ *
+ * Memory `regulation_m_a_roster.md`: every species id surfaced here comes
+ * from real `team_sets` rows that are themselves Reg-M-A tournament data,
+ * so legality is upheld transitively.
+ */
+function archetypeFromLabmaus(
+  db: Db,
+  archetype: "sun" | "rain" | "sand" | "snow" | "trick_room",
+): [string, string] | null {
+  let setter: string | null = null;
+  try {
+    if (archetype === "trick_room") {
+      const rows = db.$client
+        .prepare(
+          `SELECT species_roster_id, COUNT(*) AS n
+             FROM team_sets
+            WHERE moves_json LIKE '%Trick Room%' OR moves_json LIKE '%trickroom%'
+            GROUP BY species_roster_id
+            ORDER BY n DESC
+            LIMIT 1`,
+        )
+        .all() as Array<{ species_roster_id: string; n: number }>;
+      setter = rows[0]?.species_roster_id ?? null;
+    } else {
+      let abilities: ReadonlySet<string>;
+      if (archetype === "sun") abilities = SUN_ABILITIES;
+      else if (archetype === "rain") abilities = RAIN_ABILITIES;
+      else if (archetype === "sand") abilities = SAND_ABILITIES;
+      else abilities = SNOW_ABILITIES;
+      const ph = [...abilities].map(() => "?").join(",");
+      const rows = db.$client
+        .prepare(
+          `SELECT species_roster_id, COUNT(*) AS n
+             FROM team_sets
+            WHERE ability IN (${ph})
+            GROUP BY species_roster_id
+            ORDER BY n DESC
+            LIMIT 1`,
+        )
+        .all(...abilities) as Array<{ species_roster_id: string; n: number }>;
+      setter = rows[0]?.species_roster_id ?? null;
+    }
+    if (!setter) return null;
+
+    // Top teammate by tournament co-occurrence: count distinct team ids
+    // where the setter and another species both appear.
+    const teammateRows = db.$client
+      .prepare(
+        `SELECT t.species_roster_id AS teammate, COUNT(DISTINCT t.tournament_team_id) AS shared
+           FROM team_sets t
+           JOIN team_sets s ON s.tournament_team_id = t.tournament_team_id
+          WHERE s.species_roster_id = ?
+            AND t.species_roster_id != ?
+          GROUP BY t.species_roster_id
+          ORDER BY shared DESC
+          LIMIT 1`,
+      )
+      .all(setter, setter) as Array<{ teammate: string; shared: number }>;
+    const teammate = teammateRows[0]?.teammate;
+    if (!teammate) return [setter, setter];
+    return [setter, teammate];
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Produce 5–7 scenario skeletons.
  *
  * @param deps - DB handle, threat panel, team, calc cache + weakness tunable.
@@ -305,28 +393,33 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
   // Fallback for the 4 weather archetypes: when pikalytics returns null,
   // try the panel's archetype filter (in case the panel has data even if
   // pikalytics doesn't). If the panel also yields nothing, drop.
-  const sunPreview =
-    archetypeFromPikalytics(deps.db, "sun") ??
-    (() => {
-      const p = previewFromPanel(deps.panel, 2, [], (e) =>
-        fitsArchetype(e, SUN_ABILITIES, SUN_BENEFICIARIES),
-      );
-      return p.length === 2 ? ([p[0], p[1]] as [string, string]) : null;
-    })();
-  const rainPreview =
-    archetypeFromPikalytics(deps.db, "rain") ??
-    (() => {
-      const p = previewFromPanel(deps.panel, 2, [], (e) =>
-        fitsArchetype(e, RAIN_ABILITIES, RAIN_BENEFICIARIES),
-      );
-      return p.length === 2 ? ([p[0], p[1]] as [string, string]) : null;
-    })();
-  const trPreview =
-    archetypeFromPikalytics(deps.db, "trick_room") ??
-    (() => {
-      const p = previewFromPanel(deps.panel, 2, [], fitsTrickRoom);
-      return p.length === 2 ? ([p[0], p[1]] as [string, string]) : null;
-    })();
+  // Source order per archetype: pikalytics_snapshots (has co-occurrence
+  // baked in) → labmaus team_sets (8.7K tournament rows, ground truth
+  // when pikalytics is sparse) → panel filter (synthetic fallback) → null.
+  const archetypePreview = (
+    archetype: "sun" | "rain" | "sand" | "snow" | "trick_room",
+    panelAccept: (e: PanelEntryLike) => boolean,
+  ): [string, string] | null => {
+    const fromPika = archetypeFromPikalytics(deps.db, archetype);
+    if (fromPika) return fromPika;
+    const fromLabmaus = archetypeFromLabmaus(deps.db, archetype);
+    if (fromLabmaus) return fromLabmaus;
+    const p = previewFromPanel(deps.panel, 2, [], panelAccept);
+    return p.length === 2 ? ([p[0], p[1]] as [string, string]) : null;
+  };
+  const sunPreview = archetypePreview("sun", (e) =>
+    fitsArchetype(e, SUN_ABILITIES, SUN_BENEFICIARIES),
+  );
+  const rainPreview = archetypePreview("rain", (e) =>
+    fitsArchetype(e, RAIN_ABILITIES, RAIN_BENEFICIARIES),
+  );
+  const sandPreview = archetypePreview("sand", (e) =>
+    fitsArchetype(e, SAND_ABILITIES, SAND_BENEFICIARIES),
+  );
+  const snowPreview = archetypePreview("snow", (e) =>
+    fitsArchetype(e, SNOW_ABILITIES, SNOW_BENEFICIARIES),
+  );
+  const trPreview = archetypePreview("trick_room", fitsTrickRoom);
   const archetypes: ScenarioOverview[] = [];
   if (sunPreview) {
     archetypes.push({
@@ -345,6 +438,26 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
       field: FIELD_RAIN,
       opposing_preview: [...rainPreview],
       description: describeScenario("Rain", "archetype", FIELD_RAIN, [...rainPreview]),
+      ...PLACEHOLDER,
+    });
+  }
+  if (sandPreview) {
+    archetypes.push({
+      name: "Sand",
+      type: "archetype",
+      field: FIELD_SAND,
+      opposing_preview: [...sandPreview],
+      description: describeScenario("Sand", "archetype", FIELD_SAND, [...sandPreview]),
+      ...PLACEHOLDER,
+    });
+  }
+  if (snowPreview) {
+    archetypes.push({
+      name: "Snow",
+      type: "archetype",
+      field: FIELD_SNOW,
+      opposing_preview: [...snowPreview],
+      description: describeScenario("Snow", "archetype", FIELD_SNOW, [...snowPreview]),
       ...PLACEHOLDER,
     });
   }
