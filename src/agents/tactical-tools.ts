@@ -39,7 +39,7 @@ export const scorePillarsTool: Tool = {
 export const recommendLeadsTool: Tool = {
   name: "recommend_leads",
   description:
-    "Generate scenario-specific lead recommendations for a saved user team. Returns the recommended lead pair, backline pair, rejected bench, ≤ 3 supporting damage calcs, and ≤ 3 knowledge_chunk citations per scenario. With scenario_name set, returns one scenario; without, returns all 5–7. Use AFTER score_pillars — this tool is more expensive (~10–15s for all scenarios) and the scores tell you which scenario the user's actual question maps to. Do NOT use to compare two teams (out of scope v1).",
+    "Generate scenario-specific lead recommendations for a saved user team. Returns the recommended lead pair, backline pair, rejected bench, a `description` (1–2 paragraphs explaining what the scenario tests), `reasoning` (short rationale citing the top damage roll), `key_calcs` (≤ 3 CalcResultRefs from the engine), `citations` (≤ 3 knowledge_chunks tagged with the scenario species), `pair_score`, and `confidence` ('low'|'medium'|'high'). With scenario_name set, returns one scenario; without, returns all 5–7. Use AFTER score_pillars — this tool is more expensive (~10–15s for all scenarios) and the scores tell you which scenario the user's actual question maps to. **CONFIDENCE PROTOCOL:** when a scenario's `confidence='low'`, supplement with a `web_search` for the species/scenario before quoting the recommendation — our internal corpus may be incomplete. `'medium'` is acceptable to quote directly; `'high'` is strong enough to recommend without further research. Do NOT use to compare two teams (out of scope v1).",
   input_schema: {
     type: "object",
     properties: {

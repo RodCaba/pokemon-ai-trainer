@@ -5,7 +5,7 @@
  */
 
 import type { CalcInput, CalcResult } from "../../schemas/calc";
-import type { ScenarioField, ScenarioOverview } from "../../schemas/tactical";
+import type { CalcResultRef, ScenarioField, ScenarioOverview } from "../../schemas/tactical";
 import type { UserTeam } from "../../schemas/user-teams";
 import type { CalcCache, CalcCacheKey } from "./calc-cache";
 import { calcWithCache } from "./calc-cache";
@@ -165,6 +165,98 @@ function realScore(
   const speed = speedAcc / count;
   const defenseLoss = defenseLossAcc / count;
   return ALPHA * offense + BETA * speed - GAMMA * defenseLoss;
+}
+
+/**
+ * Collect the top-3 most-impactful damage calcs for a given lead pair under
+ * the scenario's field state. Used to populate `ScenarioOverview.key_calcs`
+ * after recommend-leads picks the winning pair. Cache makes this near-free
+ * because the same calls were already issued during scoring.
+ *
+ * **When to use it:** the recommend-leads orchestrator calls this once for
+ * the top-scoring pair to attach evidence; do NOT call it inside the per-pair
+ * scoring loop (would 15× the work).
+ *
+ * @param leads — Indices [a, b] of the chosen leads on `deps.scoring_team`.
+ * @param scenario — Source of `field` + `opposing_preview`.
+ * @param cache — Process-scoped calc cache (Q3 binding).
+ * @param deps — Calc engine DI.
+ * @returns Up to 3 {@link CalcResultRef}s, sorted by `max_roll_pct` desc.
+ *   Empty array when no `damage_calc` ran cleanly.
+ * @throws Never — engine throws are trapped per-call.
+ */
+export function collectKeyCalcsForPair(
+  leads: [number, number],
+  scenario: ScenarioOverview,
+  cache: CalcCache,
+  deps: CalcDeps,
+): CalcResultRef[] {
+  if (!deps.scoring_team || !deps.scoring_panel || deps.scoring_panel.entries.length === 0) {
+    return [];
+  }
+  const calc: (input: CalcInput) => CalcResult =
+    (deps.calc as unknown as (input: CalcInput) => CalcResult) ?? damage_calc;
+  const sfTactical = scenario.field as ScenarioField | undefined;
+  const field = sfTactical ? scenarioFieldToCalcField(sfTactical) : (deps.field ?? neutralField());
+  const fieldSummary = `${field.weather}|${field.terrain}|${field.isTrickRoom ? "TR" : "-"}`;
+  const previewIds = new Set(scenario.opposing_preview ?? []);
+  let opposing = deps.scoring_panel.entries.filter((e) =>
+    previewIds.has(e.species_roster_id),
+  );
+  if (opposing.length < 2) {
+    const sorted = [...deps.scoring_panel.entries].sort((a, b) => b.weight - a.weight);
+    for (const e of sorted) {
+      if (opposing.length >= 2) break;
+      if (!opposing.includes(e)) opposing.push(e);
+    }
+  }
+  opposing = opposing.slice(0, Math.min(2, opposing.length));
+  const ourPair = leads
+    .map((idx) => deps.scoring_team!.sets[idx])
+    .filter((s): s is ScoringSet => Boolean(s));
+
+  const refs: CalcResultRef[] = [];
+  for (const ours of ourPair) {
+    for (const them of opposing) {
+      // Best of 4 moves for this attacker/defender pairing.
+      let best: { move: string; max: number; ko: number } | null = null;
+      for (const moveName of ours.spec.moves) {
+        const input: CalcInput = {
+          schema_version: 1,
+          gen: 9,
+          format: "RegM-A",
+          attacker: ours.spec,
+          defender: them.spec,
+          move: { name: moveName, isCrit: false },
+          field,
+        };
+        const key: CalcCacheKey = {
+          attacker_set_hash: _hashSet(ours.spec),
+          defender_set_hash: _hashSet(them.spec),
+          field_hash: _fieldHash(field),
+          move_id: moveName,
+        };
+        const r = calcWithCache(cache, input, key, calc);
+        if (!r.ok) continue;
+        const mp = (r.result as { max_percent?: number; ko_chance?: { chance?: number } }).max_percent;
+        const ko = (r.result as { ko_chance?: { chance?: number } }).ko_chance?.chance ?? 0;
+        if (typeof mp !== "number") continue;
+        if (!best || mp > best.max) best = { move: moveName, max: mp, ko };
+      }
+      if (best) {
+        refs.push({
+          attacker_species_id: ours.species_roster_id,
+          defender_species_id: them.species_roster_id,
+          move_id: best.move,
+          max_roll_pct: best.max,
+          ko_chance_desc:
+            best.ko >= 1 ? "guaranteed OHKO" : best.ko >= 0.5 ? "high OHKO chance" : best.ko > 0 ? "possible OHKO" : "no OHKO",
+          field_summary: fieldSummary,
+        });
+      }
+    }
+  }
+  return refs.sort((a, b) => b.max_roll_pct - a.max_roll_pct).slice(0, 3);
 }
 
 const NATURE_PLUS_SPE = new Set(["Timid", "Hasty", "Jolly", "Naive"]);

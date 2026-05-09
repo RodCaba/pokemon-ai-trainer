@@ -142,10 +142,20 @@ export const ScenarioOverviewSchema = z
     recommended_leads: z.tuple([RosterId, RosterId]),
     recommended_backline: z.tuple([RosterId, RosterId]),
     rejected_bench: z.tuple([RosterId, RosterId]),
+    /** 1–2 paragraph natural-language description of what the scenario
+     *  tests, why it matters in Reg M-A, and the high-level shape of the
+     *  recommended response. Authored at orchestration time from the
+     *  scenario field + opposing preview + pillar context. */
+    description: z.string().max(800).optional(),
     reasoning: z.string().max(400),
     key_calcs: z.array(CalcResultRefSchema).min(0).max(3),
     citations: z.array(TacticalCitationSchema).min(0).max(3),
     pair_score: z.number(),
+    /** Confidence signal for the agent loop (Stage 8). When `"low"`, the
+     *  agent SHOULD chain a web_search before quoting the recommendation
+     *  to the user. `"medium"` is the default. `"high"` indicates strong
+     *  citation backing AND a clear pair_score margin over alternatives. */
+    confidence: z.enum(["low", "medium", "high"]).optional(),
   })
   .strict();
 
