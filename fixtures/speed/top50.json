@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-05-08",
+  "entries": [
+    {
+      "species_id": "garchomp",
+      "base_spe": 102,
+      "usage_pct": 0.18,
+      "nature_variants": [
+        { "nature": "Jolly", "share": 0.65, "weighted_speed": 169 },
+        { "nature": "Adamant", "share": 0.35, "weighted_speed": 139 }
+      ],
+      "primary_weighted_speed": 169
+    },
+    {
+      "species_id": "incineroar",
+      "base_spe": 60,
+      "usage_pct": 0.32,
+      "nature_variants": [
+        { "nature": "Careful", "share": 0.7, "weighted_speed": 91 },
+        { "nature": "Sassy", "share": 0.3, "weighted_speed": 83 }
+      ],
+      "primary_weighted_speed": 91
+    },
+    {
+      "species_id": "amoonguss",
+      "base_spe": 30,
+      "usage_pct": 0.21,
+      "nature_variants": [
+        { "nature": "Sassy", "share": 1.0, "weighted_speed": 51 }
+      ],
+      "primary_weighted_speed": 51
+    },
+    {
+      "species_id": "rillaboom",
+      "base_spe": 85,
+      "usage_pct": 0.15,
+      "nature_variants": [
+        { "nature": "Adamant", "share": 0.6, "weighted_speed": 122 },
+        { "nature": "Jolly", "share": 0.4, "weighted_speed": 134 }
+      ],
+      "primary_weighted_speed": 122
+    },
+    {
+      "species_id": "indeedee-f",
+      "base_spe": 85,
+      "usage_pct": 0.12,
+      "nature_variants": [
+        { "nature": "Bold", "share": 0.55, "weighted_speed": 105 },
+        { "nature": "Calm", "share": 0.45, "weighted_speed": 105 }
+      ],
+      "primary_weighted_speed": 105
+    },
+    {
+      "species_id": "calyrex-shadow",
+      "base_spe": 150,
+      "usage_pct": 0.09,
+      "nature_variants": [
+        { "nature": "Timid", "share": 0.95, "weighted_speed": 222 },
+        { "nature": "Modest", "share": 0.05, "weighted_speed": 182 }
+      ],
+      "primary_weighted_speed": 222
+    }
+  ]
+}

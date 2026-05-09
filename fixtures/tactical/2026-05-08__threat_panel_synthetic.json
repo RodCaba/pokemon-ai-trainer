@@ -1,0 +1,442 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-05-08",
+  "generated_at": "2026-05-08T00:00:00",
+  "entries": [
+    {
+      "species_id": "incineroar",
+      "weight": 0.17999999999999997,
+      "set": {
+        "species_id": "incineroar",
+        "level": 50,
+        "ability": "Intimidate",
+        "item": "Sitrus Berry",
+        "nature": "Adamant",
+        "sps": {
+          "hp": 32,
+          "atk": 32,
+          "def": 0,
+          "spa": 0,
+          "spd": 2,
+          "spe": 0
+        },
+        "moves": [
+          "Flare Blitz",
+          "Knock Off",
+          "Fake Out",
+          "Parting Shot"
+        ]
+      },
+      "source": {
+        "type": "pikalytics",
+        "as_of": "2026-05-08"
+      }
+    },
+    {
+      "species_id": "amoonguss",
+      "weight": 0.12999999999999998,
+      "set": {
+        "species_id": "amoonguss",
+        "level": 50,
+        "ability": "Regenerator",
+        "item": "Rocky Helmet",
+        "nature": "Sassy",
+        "sps": {
+          "hp": 32,
+          "atk": 0,
+          "def": 16,
+          "spa": 0,
+          "spd": 18,
+          "spe": 0
+        },
+        "moves": [
+          "Spore",
+          "Rage Powder",
+          "Sludge Bomb",
+          "Pollen Puff"
+        ]
+      },
+      "source": {
+        "type": "pikalytics",
+        "as_of": "2026-05-08"
+      }
+    },
+    {
+      "species_id": "rillaboom",
+      "weight": 0.09999999999999998,
+      "set": {
+        "species_id": "rillaboom",
+        "level": 50,
+        "ability": "Grassy Surge",
+        "item": "Assault Vest",
+        "nature": "Adamant",
+        "sps": {
+          "hp": 16,
+          "atk": 32,
+          "def": 0,
+          "spa": 0,
+          "spd": 16,
+          "spe": 2
+        },
+        "moves": [
+          "Wood Hammer",
+          "Grassy Glide",
+          "U-turn",
+          "Fake Out"
+        ]
+      },
+      "source": {
+        "type": "pikalytics",
+        "as_of": "2026-05-08"
+      }
+    },
+    {
+      "species_id": "garchomp",
+      "weight": 0.08999999999999998,
+      "set": {
+        "species_id": "garchomp",
+        "level": 50,
+        "ability": "Rough Skin",
+        "item": "Choice Scarf",
+        "nature": "Jolly",
+        "sps": {
+          "hp": 0,
+          "atk": 32,
+          "def": 0,
+          "spa": 0,
+          "spd": 2,
+          "spe": 32
+        },
+        "moves": [
+          "Earthquake",
+          "Dragon Claw",
+          "Stone Edge",
+          "Iron Head"
+        ]
+      },
+      "source": {
+        "type": "pikalytics",
+        "as_of": "2026-05-08"
+      }
+    },
+    {
+      "species_id": "rotom-wash",
+      "weight": 0.07999999999999999,
+      "set": {
+        "species_id": "rotom-wash",
+        "level": 50,
+        "ability": "Levitate",
+        "item": "Sitrus Berry",
+        "nature": "Modest",
+        "sps": {
+          "hp": 16,
+          "atk": 0,
+          "def": 4,
+          "spa": 32,
+          "spd": 4,
+          "spe": 10
+        },
+        "moves": [
+          "Hydro Pump",
+          "Thunderbolt",
+          "Will-O-Wisp",
+          "Protect"
+        ]
+      },
+      "source": {
+        "type": "pikalytics",
+        "as_of": "2026-05-08"
+      }
+    },
+    {
+      "species_id": "tyranitar",
+      "weight": 0.06999999999999999,
+      "set": {
+        "species_id": "tyranitar",
+        "level": 50,
+        "ability": "Sand Stream",
+        "item": "Black Glasses",
+        "nature": "Adamant",
+        "sps": {
+          "hp": 16,
+          "atk": 32,
+          "def": 0,
+          "spa": 0,
+          "spd": 16,
+          "spe": 2
+        },
+        "moves": [
+          "Crunch",
+          "Stone Edge",
+          "Earthquake",
+          "Ice Punch"
+        ]
+      },
+      "source": {
+        "type": "pikalytics",
+        "as_of": "2026-05-08"
+      }
+    },
+    {
+      "species_id": "whimsicott",
+      "weight": 0.059999999999999984,
+      "set": {
+        "species_id": "whimsicott",
+        "level": 50,
+        "ability": "Prankster",
+        "item": "Focus Sash",
+        "nature": "Timid",
+        "sps": {
+          "hp": 0,
+          "atk": 0,
+          "def": 4,
+          "spa": 32,
+          "spd": 0,
+          "spe": 30
+        },
+        "moves": [
+          "Moonblast",
+          "Energy Ball",
+          "Tailwind",
+          "Helping Hand"
+        ]
+      },
+      "source": {
+        "type": "pikalytics",
+        "as_of": "2026-05-08"
+      }
+    },
+    {
+      "species_id": "excadrill",
+      "weight": 0.04999999999999999,
+      "set": {
+        "species_id": "excadrill",
+        "level": 50,
+        "ability": "Sand Rush",
+        "item": "Focus Sash",
+        "nature": "Jolly",
+        "sps": {
+          "hp": 0,
+          "atk": 32,
+          "def": 0,
+          "spa": 0,
+          "spd": 2,
+          "spe": 32
+        },
+        "moves": [
+          "Earthquake",
+          "Iron Head",
+          "Rock Slide",
+          "Protect"
+        ]
+      },
+      "source": {
+        "type": "pikalytics",
+        "as_of": "2026-05-08"
+      }
+    },
+    {
+      "species_id": "hydreigon",
+      "weight": 0.04999999999999999,
+      "set": {
+        "species_id": "hydreigon",
+        "level": 50,
+        "ability": "Levitate",
+        "item": "Charcoal",
+        "nature": "Modest",
+        "sps": {
+          "hp": 0,
+          "atk": 0,
+          "def": 0,
+          "spa": 32,
+          "spd": 2,
+          "spe": 32
+        },
+        "moves": [
+          "Dark Pulse",
+          "Draco Meteor",
+          "Earth Power",
+          "Protect"
+        ]
+      },
+      "source": {
+        "type": "pikalytics",
+        "as_of": "2026-05-08"
+      }
+    },
+    {
+      "species_id": "talonflame",
+      "weight": 0.04999999999999999,
+      "set": {
+        "species_id": "talonflame",
+        "level": 50,
+        "ability": "Gale Wings",
+        "item": "Charcoal",
+        "nature": "Jolly",
+        "sps": {
+          "hp": 0,
+          "atk": 32,
+          "def": 0,
+          "spa": 0,
+          "spd": 2,
+          "spe": 32
+        },
+        "moves": [
+          "Brave Bird",
+          "Flare Blitz",
+          "U-turn",
+          "Protect"
+        ]
+      },
+      "source": {
+        "type": "pikalytics",
+        "as_of": "2026-05-08"
+      }
+    },
+    {
+      "species_id": "gardevoir",
+      "weight": 0.039999999999999994,
+      "set": {
+        "species_id": "gardevoir",
+        "level": 50,
+        "ability": "Trace",
+        "item": "Leftovers",
+        "nature": "Modest",
+        "sps": {
+          "hp": 16,
+          "atk": 0,
+          "def": 4,
+          "spa": 32,
+          "spd": 4,
+          "spe": 10
+        },
+        "moves": [
+          "Moonblast",
+          "Psychic",
+          "Dazzling Gleam",
+          "Protect"
+        ]
+      },
+      "source": {
+        "type": "labmaus_consensus",
+        "as_of": "2026-05-08"
+      }
+    },
+    {
+      "species_id": "abomasnow",
+      "weight": 0.029999999999999992,
+      "set": {
+        "species_id": "abomasnow",
+        "level": 50,
+        "ability": "Snow Warning",
+        "item": "Life Orb",
+        "nature": "Modest",
+        "sps": {
+          "hp": 4,
+          "atk": 0,
+          "def": 0,
+          "spa": 32,
+          "spd": 4,
+          "spe": 26
+        },
+        "moves": [
+          "Blizzard",
+          "Energy Ball",
+          "Ice Shard",
+          "Protect"
+        ]
+      },
+      "source": {
+        "type": "labmaus_consensus",
+        "as_of": "2026-05-08"
+      }
+    },
+    {
+      "species_id": "pelipper",
+      "weight": 0.029999999999999992,
+      "set": {
+        "species_id": "pelipper",
+        "level": 50,
+        "ability": "Drizzle",
+        "item": "Damp Rock",
+        "nature": "Modest",
+        "sps": {
+          "hp": 32,
+          "atk": 0,
+          "def": 4,
+          "spa": 30,
+          "spd": 0,
+          "spe": 0
+        },
+        "moves": [
+          "Hurricane",
+          "Hydro Pump",
+          "Tailwind",
+          "Protect"
+        ]
+      },
+      "source": {
+        "type": "labmaus_consensus",
+        "as_of": "2026-05-08"
+      }
+    },
+    {
+      "species_id": "farigiraf",
+      "weight": 0.019999999999999997,
+      "set": {
+        "species_id": "farigiraf",
+        "level": 50,
+        "ability": "Armor Tail",
+        "item": "Sitrus Berry",
+        "nature": "Sassy",
+        "sps": {
+          "hp": 32,
+          "atk": 0,
+          "def": 0,
+          "spa": 0,
+          "spd": 32,
+          "spe": 0
+        },
+        "moves": [
+          "Foul Play",
+          "Trick Room",
+          "Helping Hand",
+          "Protect"
+        ]
+      },
+      "source": {
+        "type": "labmaus_consensus",
+        "as_of": "2026-05-08"
+      }
+    },
+    {
+      "species_id": "porygon2",
+      "weight": 0.019999999999999997,
+      "set": {
+        "species_id": "porygon2",
+        "level": 50,
+        "ability": "Download",
+        "item": "Eviolite",
+        "nature": "Sassy",
+        "sps": {
+          "hp": 32,
+          "atk": 0,
+          "def": 0,
+          "spa": 26,
+          "spd": 8,
+          "spe": 0
+        },
+        "moves": [
+          "Ice Beam",
+          "Tri Attack",
+          "Recover",
+          "Trick Room"
+        ]
+      },
+      "source": {
+        "type": "labmaus_consensus",
+        "as_of": "2026-05-08"
+      }
+    }
+  ]
+}

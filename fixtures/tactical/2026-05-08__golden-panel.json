@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "name": "Golden Threat Panel — 6 synthetic threats",
+  "as_of": "2026-05-08",
+  "entries": [
+    {
+      "species_roster_id": "incineroar",
+      "weight": 0.30,
+      "species": "Incineroar",
+      "item": "Sitrus Berry",
+      "ability": "Intimidate",
+      "nature": "Adamant",
+      "sps": { "hp": 32, "atk": 32, "def": 0, "spa": 0, "spd": 2, "spe": 0 },
+      "moves": ["Flare Blitz", "Knock Off", "Fake Out", "Parting Shot"]
+    },
+    {
+      "species_roster_id": "garchomp",
+      "weight": 0.20,
+      "species": "Garchomp",
+      "item": "Choice Scarf",
+      "ability": "Rough Skin",
+      "nature": "Jolly",
+      "sps": { "hp": 0, "atk": 32, "def": 0, "spa": 0, "spd": 2, "spe": 32 },
+      "moves": ["Earthquake", "Dragon Claw", "Stone Edge", "Iron Head"]
+    },
+    {
+      "species_roster_id": "rotom-wash",
+      "weight": 0.18,
+      "species": "Rotom-Wash",
+      "item": "Sitrus Berry",
+      "ability": "Levitate",
+      "nature": "Modest",
+      "sps": { "hp": 16, "atk": 0, "def": 4, "spa": 32, "spd": 4, "spe": 10 },
+      "moves": ["Hydro Pump", "Thunderbolt", "Will-O-Wisp", "Protect"]
+    },
+    {
+      "species_roster_id": "tyranitar",
+      "weight": 0.12,
+      "species": "Tyranitar",
+      "item": "Black Glasses",
+      "ability": "Sand Stream",
+      "nature": "Adamant",
+      "sps": { "hp": 16, "atk": 32, "def": 0, "spa": 0, "spd": 16, "spe": 2 },
+      "moves": ["Crunch", "Stone Edge", "Earthquake", "Ice Punch"]
+    },
+    {
+      "species_roster_id": "gardevoir",
+      "weight": 0.10,
+      "species": "Gardevoir",
+      "item": "Leftovers",
+      "ability": "Trace",
+      "nature": "Modest",
+      "sps": { "hp": 16, "atk": 0, "def": 4, "spa": 32, "spd": 4, "spe": 10 },
+      "moves": ["Moonblast", "Psychic", "Dazzling Gleam", "Protect"]
+    },
+    {
+      "species_roster_id": "talonflame",
+      "weight": 0.10,
+      "species": "Talonflame",
+      "item": "Charcoal",
+      "ability": "Gale Wings",
+      "nature": "Jolly",
+      "sps": { "hp": 0, "atk": 32, "def": 0, "spa": 0, "spd": 2, "spe": 32 },
+      "moves": ["Brave Bird", "Flare Blitz", "U-turn", "Protect"]
+    }
+  ]
+}

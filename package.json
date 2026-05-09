@@ -14,7 +14,10 @@
     "tool:roster": "tsx src/cli/tool-roster.ts",
     "data:ingest:metavgc": "tsx scripts/data/ingest-metavgc.ts",
     "data:backfill:vgcguide-species-tags": "tsx scripts/data/backfill-vgcguide-species-tags.ts",
-    "data:user-teams": "tsx scripts/data/user-teams.ts"
+    "data:user-teams": "tsx scripts/data/user-teams.ts",
+    "data:tactical": "tsx scripts/data/tactical.ts",
+    "data:build:speed-table": "tsx scripts/data/build-speed-table.ts",
+    "data:build:tactical-goldens": "tsx scripts/data/build-tactical-goldens.ts"
   },
   "dependencies": {
     "@anthropic-ai/tokenizer": "^0.0.4",

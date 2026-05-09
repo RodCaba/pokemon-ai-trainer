@@ -1,0 +1,20 @@
+{
+  "pillar": "synergy",
+  "score": 20,
+  "tier": "Weak",
+  "evidence": {
+    "archetypes": [
+      "Weather"
+    ],
+    "teammate_component_max": 60,
+    "archetype_component_max": 40,
+    "data_gaps": [
+      "garchomp",
+      "tyranitar",
+      "rotom-wash",
+      "whimsicott",
+      "excadrill",
+      "hydreigon"
+    ]
+  }
+}

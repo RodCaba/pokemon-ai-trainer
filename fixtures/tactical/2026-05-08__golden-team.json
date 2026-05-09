@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "name": "Golden Team — synthetic Reg M-A test team",
+  "as_of": "2026-05-08",
+  "sets": [
+    {
+      "species_roster_id": "garchomp",
+      "species": "Garchomp",
+      "item": "Soft Sand",
+      "ability": "Rough Skin",
+      "nature": "Jolly",
+      "sps": { "hp": 0, "atk": 32, "def": 0, "spa": 0, "spd": 2, "spe": 32 },
+      "moves": ["Earthquake", "Dragon Claw", "Stone Edge", "Protect"]
+    },
+    {
+      "species_roster_id": "tyranitar",
+      "species": "Tyranitar",
+      "item": "Black Glasses",
+      "ability": "Sand Stream",
+      "nature": "Adamant",
+      "sps": { "hp": 16, "atk": 32, "def": 0, "spa": 0, "spd": 16, "spe": 2 },
+      "moves": ["Crunch", "Stone Edge", "Earthquake", "Ice Punch"]
+    },
+    {
+      "species_roster_id": "rotom-wash",
+      "species": "Rotom-Wash",
+      "item": "Sitrus Berry",
+      "ability": "Levitate",
+      "nature": "Modest",
+      "sps": { "hp": 16, "atk": 0, "def": 4, "spa": 32, "spd": 4, "spe": 10 },
+      "moves": ["Hydro Pump", "Thunderbolt", "Will-O-Wisp", "Protect"]
+    },
+    {
+      "species_roster_id": "whimsicott",
+      "species": "Whimsicott",
+      "item": "Focus Sash",
+      "ability": "Prankster",
+      "nature": "Timid",
+      "sps": { "hp": 0, "atk": 0, "def": 4, "spa": 32, "spd": 0, "spe": 30 },
+      "moves": ["Moonblast", "Energy Ball", "Tailwind", "Helping Hand"]
+    },
+    {
+      "species_roster_id": "excadrill",
+      "species": "Excadrill",
+      "item": "Focus Sash",
+      "ability": "Sand Rush",
+      "nature": "Jolly",
+      "sps": { "hp": 0, "atk": 32, "def": 0, "spa": 0, "spd": 2, "spe": 32 },
+      "moves": ["Earthquake", "Iron Head", "Rock Slide", "Protect"]
+    },
+    {
+      "species_roster_id": "hydreigon",
+      "species": "Hydreigon",
+      "item": "Charcoal",
+      "ability": "Levitate",
+      "nature": "Modest",
+      "sps": { "hp": 0, "atk": 0, "def": 0, "spa": 32, "spd": 2, "spe": 32 },
+      "moves": ["Dark Pulse", "Draco Meteor", "Earth Power", "Protect"]
+    }
+  ]
+}
