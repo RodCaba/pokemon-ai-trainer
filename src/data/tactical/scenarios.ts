@@ -63,7 +63,7 @@ const PLACEHOLDER: Pick<
  */
 function describeScenario(
   name: string,
-  type: "archetype" | "individual" | "weakness_counter",
+  type: "archetype" | "individual" | "weakness_counter" | "meta_team",
   field: ScenarioField,
   opposing_preview: ReadonlyArray<string>,
 ): string {
@@ -99,6 +99,12 @@ function describeScenario(
         `Recommended leads are scored against typical TR-side leads (${oppList || "Porygon2, Farigiraf"}). Field has Trick Room active. Bring leads that can KO the setter before it sets up, or that thrive in inverted speed (your slowest hitters become priority threats while their fast attackers are stranded).`
       );
     }
+    if (name === "Perish Trap") {
+      return (
+        "Perish Trap archetype scenario. Mega Gengar's Shadow Tag locks the opponent into the field while a teammate (or Gengar itself) sets Perish Song — three turns later, every Pokémon on the field faints unless it switches out. The trap is to pin two attackers in then stall via Protect / Substitute while the counter ticks down. " +
+        `Recommended leads are scored against the labmaus-attested setter pair (${oppList || "Gengar, Politoed"}). Bring fast offense that KOs the Shadow Tag user before it traps you, OR a teammate with U-turn / Volt Switch that can dodge the trap by triggering its own switch (the Pokémon that switched in is no longer trapped if Mega Gengar is KO'd before its next move). Status moves like Taunt also disable Perish Song.`
+      );
+    }
     return (
       `Archetype scenario "${name}". Tests how the team holds up against representative meta-core opposing leads (${oppList}). Use the recommended leads as a default opener; the backline pair covers second-pivots after one or both leads has answered the immediate threat.`
     );
@@ -107,6 +113,12 @@ function describeScenario(
     return (
       `Weakness-counter scenario. The detector flagged ${oppList || "an unnamed niche threat"} as a species that OHKOs ≥ 50% of your team's slots — a structural hole worth a contingency plan. ` +
       `The recommended leads are the team's best answer to this specific threat: typically a fast attacker that can KO before the threat moves, plus a teammate that absorbs a hit. Treat this scenario as a build-time signal: if you can't comfortably address it, consider swapping a slot.`
+    );
+  }
+  if (type === "meta_team") {
+    return (
+      `Tournament-meta team scenario. ${name.replace(/^vs /, "")} is one of the most-frequent 6-species compositions appearing in Reg M-A tournament play — multiple teams have run this exact lineup at recent events. ` +
+      `Recommended leads are scored against the two visible front-runners of the composition (${oppList}); the broader team includes the other 4 species that may rotate in. Treat this as a likely matchup at any open-bracket tournament; the more-frequent the composition, the higher the chance you face it.`
     );
   }
   // individual
@@ -179,6 +191,129 @@ function fitsTrickRoom(entry: PanelEntryLike): boolean {
   return moves.some(
     (m) => m.toLowerCase().replace(/[^a-z]/g, "") === "trickroom",
   );
+}
+
+/**
+ * Detect a Perish Trap setter from labmaus team_sets:
+ *   any species with `Shadow Tag` ability and at least one teammate
+ *   running `Perish Song`. Returns `[setter, perish_song_user]` or `null`.
+ *
+ * In current Reg M-A, Mega Gengar is the only Shadow Tag user; Politoed
+ * and Gengar itself are top Perish Song movers (29 + 19 sets).
+ */
+function perishTrapFromLabmaus(db: Db): [string, string] | null {
+  try {
+    const setterRow = db.$client
+      .prepare(
+        `SELECT species_roster_id, COUNT(*) AS n
+           FROM team_sets
+          WHERE ability = 'Shadow Tag'
+          GROUP BY species_roster_id
+          ORDER BY n DESC LIMIT 1`,
+      )
+      .get() as { species_roster_id: string; n: number } | undefined;
+    if (!setterRow) return null;
+    // Pick the most-common Perish Song teammate sharing tournament_team_id.
+    const songRow = db.$client
+      .prepare(
+        `SELECT t.species_roster_id AS partner, COUNT(DISTINCT t.tournament_team_id) AS shared
+           FROM team_sets s
+           JOIN team_sets t ON t.tournament_team_id = s.tournament_team_id
+          WHERE s.species_roster_id = ?
+            AND t.species_roster_id != ?
+            AND t.moves_json LIKE '%Perish Song%'
+          GROUP BY t.species_roster_id
+          ORDER BY shared DESC LIMIT 1`,
+      )
+      .all(setterRow.species_roster_id, setterRow.species_roster_id) as Array<{ partner: string; shared: number }>;
+    const partner = songRow[0]?.partner;
+    if (partner) return [setterRow.species_roster_id, partner];
+    // Fallback: setter itself runs Perish Song too (Gengar typically does).
+    const selfPerish = db.$client
+      .prepare(
+        `SELECT 1 AS ok FROM team_sets
+          WHERE species_roster_id = ? AND moves_json LIKE '%Perish Song%' LIMIT 1`,
+      )
+      .get(setterRow.species_roster_id) as { ok: number } | undefined;
+    if (selfPerish) {
+      // Pair the setter with its top tournament teammate (whatever they are).
+      const tmRow = db.$client
+        .prepare(
+          `SELECT t.species_roster_id AS partner, COUNT(DISTINCT t.tournament_team_id) AS shared
+             FROM team_sets s
+             JOIN team_sets t ON t.tournament_team_id = s.tournament_team_id
+            WHERE s.species_roster_id = ?
+              AND t.species_roster_id != ?
+            GROUP BY t.species_roster_id
+            ORDER BY shared DESC LIMIT 1`,
+        )
+        .all(setterRow.species_roster_id, setterRow.species_roster_id) as Array<{ partner: string; shared: number }>;
+      const tmPartner = tmRow[0]?.partner;
+      if (tmPartner) return [setterRow.species_roster_id, tmPartner];
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Find top-frequency 6-species tournament team compositions, excluding
+ * any composition that's substantively the same as the user's own team
+ * (≥ 5 of 6 species shared — handles the mega-form mismatch where the
+ * user's team stores the pre-mega base id while labmaus stores the
+ * battle-form id, e.g. floette-eternal vs floettemega).
+ *
+ * @param db — Open DB.
+ * @param userSpecies — User's team species ids (base or mega form).
+ * @param limit — Max compositions to return.
+ * @returns Array of `{ species: [a,b,c,d,e,f], frequency }` clusters.
+ */
+function topMetaTeams(
+  db: Db,
+  userSpecies: ReadonlyArray<string>,
+  limit: number,
+): Array<{ species: string[]; frequency: number }> {
+  try {
+    const rows = db.$client
+      .prepare(
+        `WITH compositions AS (
+           SELECT tournament_team_id, GROUP_CONCAT(species_roster_id, ',') AS species_set
+             FROM (SELECT tournament_team_id, species_roster_id FROM team_sets ORDER BY species_roster_id)
+            GROUP BY tournament_team_id
+         )
+         SELECT species_set, COUNT(*) AS team_count
+           FROM compositions
+          WHERE species_set NOT NULL
+          GROUP BY species_set
+         HAVING team_count >= 5
+          ORDER BY team_count DESC LIMIT ?`,
+      )
+      .all(limit * 4) as Array<{ species_set: string; team_count: number }>;
+    // Normalize user species: strip Mega-form-base equivalences. Treat
+    // floette-eternal ≡ floettemega ≡ floette for similarity purposes.
+    const normalizeId = (id: string): string =>
+      id
+        .replace(/-(eternal|alola|galar|hisui|paldea(-\w+)?)$/, "")
+        .replace(/(megax|megay|mega)$/, "");
+    const userNormalized = new Set(userSpecies.map(normalizeId));
+    const matches: Array<{ species: string[]; frequency: number }> = [];
+    for (const r of rows) {
+      const cluster = r.species_set.split(",");
+      const clusterNormalized = new Set(cluster.map(normalizeId));
+      // Compute intersection size on normalized ids.
+      let shared = 0;
+      for (const n of userNormalized) if (clusterNormalized.has(n)) shared++;
+      // Skip clusters that are substantively the user's own team
+      // (5+ of 6 species shared after mega-form normalization).
+      if (shared >= 5) continue;
+      matches.push({ species: cluster, frequency: r.team_count });
+      if (matches.length >= limit) break;
+    }
+    return matches;
+  } catch {
+    return [];
+  }
 }
 
 /** Top-N species ids from `pikalytics_snapshots` ordered by `usage_percent
@@ -471,6 +606,20 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
       ...PLACEHOLDER,
     });
   }
+  // Perish Trap (Mega Gengar Shadow Tag + Perish Song teammate). Only
+  // emits when labmaus has both a Shadow Tag user AND a Perish Song
+  // teammate in the same tournament team.
+  const perishPreview = perishTrapFromLabmaus(deps.db);
+  if (perishPreview) {
+    archetypes.push({
+      name: "Perish Trap",
+      type: "archetype",
+      field: FIELD_NEUTRAL,
+      opposing_preview: [...perishPreview],
+      description: describeScenario("Perish Trap", "archetype", FIELD_NEUTRAL, [...perishPreview]),
+      ...PLACEHOLDER,
+    });
+  }
 
   // Individual scenarios — backfill to compensate when archetypes are
   // sparse (e.g. current Reg M-A meta has only Sun via Charizard-Mega-Y;
@@ -528,9 +677,45 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
     ...PLACEHOLDER,
   }));
 
-  const all = [...archetypes, ...individuals, ...counterScenarios];
-  // Trim to max 7.
-  const trimmed = all.slice(0, 7);
+  // Tournament-meta team scenarios — top-frequency 6-species compositions
+  // from labmaus tournament_teams. Exclude the user's own composition so
+  // they don't see "vs your team." When the slice runs short on archetypes
+  // (≤ 2), surface up to 2 meta-team scenarios so the user gets exposure
+  // to the actual tournament archetypes they'll face.
+  const userSpecies = deps.scoring_team
+    ? deps.scoring_team.sets.map((s) => s.species_roster_id)
+    : [];
+  const metaTeamLimit = archetypes.length <= 2 ? 3 : 2;
+  const metaTeams = topMetaTeams(deps.db, userSpecies, metaTeamLimit);
+  const metaTeamScenarios: ScenarioOverview[] = metaTeams.map((cluster) => {
+    // Top 2 species by labmaus tournament-frequency become the visible
+    // opposing leads. (For now: arbitrary top-2 from the sorted set; a
+    // future pass could rank by intra-cluster usage.)
+    const preview: [string, string] = [
+      cluster.species[0] ?? "incineroar",
+      cluster.species[1] ?? "garchomp",
+    ];
+    // Name the scenario after the two visible leads + the team-frequency
+    // count, e.g. "vs Pelipper+Sinistcha core (24×)".
+    const name = `vs ${preview[0]} + ${preview[1]} core (${cluster.frequency}×)`;
+    return {
+      name,
+      type: "meta_team" as const,
+      field: FIELD_NEUTRAL,
+      opposing_preview: cluster.species.slice(0, 6),
+      description: describeScenario(name, "meta_team", FIELD_NEUTRAL, cluster.species),
+      ...PLACEHOLDER,
+    };
+  });
+
+  const all = [
+    ...archetypes,
+    ...metaTeamScenarios,
+    ...individuals,
+    ...counterScenarios,
+  ];
+  // Trim to max 10 (was 7 before adding Perish Trap + meta_team scenarios).
+  const trimmed = all.slice(0, 10);
   if (trimmed.length < 3) {
     throw new TacticalScenarioError("Insufficient data to generate ≥ 3 scenarios");
   }

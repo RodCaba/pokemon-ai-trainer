@@ -99,11 +99,16 @@ export const PillarBundleSchema = z
   })
   .strict();
 
-/** Discriminator for ScenarioOverview kind. */
+/** Discriminator for ScenarioOverview kind.
+ *  - `archetype`: Sun / Rain / Sand / Snow / Trick Room / Perish Trap
+ *  - `individual`: top-usage threat by species
+ *  - `weakness_counter`: auto-generated for structural team weakness
+ *  - `meta_team`: top-frequency 6-species tournament team composition */
 export const ScenarioTypeSchema = z.enum([
   "archetype",
   "individual",
   "weakness_counter",
+  "meta_team",
 ]);
 
 /** Citation pulled from `knowledge_chunks` for a scenario. */
@@ -167,7 +172,7 @@ export const TeamTacticalOverviewSchema = z
     generated_at: ISODateTime,
     threat_panel_as_of: ISODate,
     pillars: PillarBundleSchema,
-    scenarios: z.array(ScenarioOverviewSchema).min(5).max(8),
+    scenarios: z.array(ScenarioOverviewSchema).min(5).max(10),
   })
   .strict();
 
