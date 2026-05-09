@@ -13,6 +13,7 @@ import type { UserTeam } from "../../schemas/user-teams";
 import type { CalcCache } from "./calc-cache";
 import { detectWeaknessCounters } from "./weakness-detect";
 import { TacticalScenarioError } from "../../schemas/errors";
+import type { ScoringTeam } from "./scoring-team";
 
 export interface ScenarioGenDeps {
   db: Db;
@@ -20,6 +21,8 @@ export interface ScenarioGenDeps {
   team: UserTeam;
   calcCache: CalcCache;
   weakness_ohko_ratio?: number;
+  /** Scoring team for engine-driven weakness detection (Stage 7). */
+  scoring_team?: ScoringTeam;
 }
 
 const FIELD_NEUTRAL: ScenarioField = {
@@ -134,7 +137,8 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
   ];
 
   const counters = detectWeaknessCounters(deps.team, deps.panel, deps.calcCache, {
-    calc: () => ({}),
+    db: deps.db,
+    scoring_team: deps.scoring_team,
     weakness_ohko_ratio: deps.weakness_ohko_ratio,
   });
   const counterScenarios: ScenarioOverview[] = counters.slice(0, 2).map((c) => ({

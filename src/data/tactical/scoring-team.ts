@@ -97,6 +97,37 @@ export function neutralField(): Field {
   });
 }
 
+/** Convert tactical-schema {@link ScenarioField} → calc-engine {@link Field}. */
+export function scenarioFieldToCalcField(
+  sf: { weather?: string; terrain?: string; trick_room?: boolean; tailwind_ours?: boolean; tailwind_theirs?: boolean; light_screen?: boolean; reflect?: boolean; gravity?: boolean } | null | undefined,
+): Field {
+  const base = neutralField();
+  if (!sf) return base;
+  const weatherMap: Record<string, "None" | "Sun" | "Rain" | "Sand" | "Snow"> = {
+    none: "None", sun: "Sun", rain: "Rain", sand: "Sand", snow: "Snow",
+  };
+  const terrainMap: Record<string, "None" | "Electric" | "Grassy" | "Misty" | "Psychic"> = {
+    none: "None", electric: "Electric", grassy: "Grassy", misty: "Misty", psychic: "Psychic",
+  };
+  return FieldSchema.parse({
+    ...base,
+    weather: weatherMap[(sf.weather ?? "none").toLowerCase()] ?? "None",
+    terrain: terrainMap[(sf.terrain ?? "none").toLowerCase()] ?? "None",
+    isTrickRoom: !!sf.trick_room,
+    isGravity: !!sf.gravity,
+    attackerSide: {
+      ...base.attackerSide,
+      tailwind: !!sf.tailwind_ours,
+      reflect: !!sf.reflect,
+      lightScreen: !!sf.light_screen,
+    },
+    defenderSide: {
+      ...base.defenderSide,
+      tailwind: !!sf.tailwind_theirs,
+    },
+  });
+}
+
 /**
  * Fixture row shape — what golden harness JSON files use.
  */

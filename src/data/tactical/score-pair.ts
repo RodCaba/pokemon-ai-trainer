@@ -5,14 +5,14 @@
  */
 
 import type { CalcInput, CalcResult } from "../../schemas/calc";
-import type { ScenarioOverview } from "../../schemas/tactical";
+import type { ScenarioField, ScenarioOverview } from "../../schemas/tactical";
 import type { UserTeam } from "../../schemas/user-teams";
 import type { CalcCache, CalcCacheKey } from "./calc-cache";
 import { calcWithCache } from "./calc-cache";
 import type { CalcDeps } from "./score-offense";
 import { _hashSet, _fieldHash } from "./score-offense";
 import type { ScoringTeam, ScoringSet } from "./scoring-team";
-import { neutralField } from "./scoring-team";
+import { neutralField, scenarioFieldToCalcField } from "./scoring-team";
 import { damage_calc } from "../../tools/damage-calc";
 
 /** Offense weight (Q6 binding). */
@@ -40,12 +40,12 @@ export function scorePair(
   _team: UserTeam,
   leads: [number, number],
   _back: [number, number],
-  _scenario: ScenarioOverview,
+  scenario: ScenarioOverview,
   calcCache: CalcCache,
   deps: CalcDeps,
 ): number {
   if (deps.scoring_team && deps.scoring_panel && deps.scoring_panel.entries.length > 0) {
-    return realScore(leads, calcCache, deps);
+    return realScore(leads, scenario, calcCache, deps);
   }
   // Deterministic stub for tests with empty inputs.
   const offense = 70 - leads[0] * 5 - leads[1] * 3;
@@ -56,16 +56,38 @@ export function scorePair(
 
 function realScore(
   leads: [number, number],
+  scenario: ScenarioOverview,
   cache: CalcCache,
   deps: CalcDeps,
 ): number {
   const calc: (input: CalcInput) => CalcResult =
     (deps.calc as unknown as (input: CalcInput) => CalcResult) ?? damage_calc;
-  const field = deps.field ?? neutralField();
+  // Scenario-aware: prefer the scenario's own field state (Sun / Rain / TR /
+  // tailwind), falling back to deps then to neutral. Different scenarios MUST
+  // produce different damage outcomes when the field changes the calc (e.g.
+  // Solar Beam in Sun ignores charge turn, Hydro Pump in Rain hits 1.5×).
+  // ScenarioField uses lowercase keys ("sun"/"rain"); the calc engine wants
+  // capitalized ("Sun"/"Rain") — convert via the scoring-team helper.
+  const sfTactical = scenario.field as ScenarioField | undefined;
+  const field = sfTactical ? scenarioFieldToCalcField(sfTactical) : (deps.field ?? neutralField());
   const sets = deps.scoring_team!.sets;
-  // Top-2 panel entries (by weight) used as the "opposing leads".
-  const sorted = [...deps.scoring_panel!.entries].sort((a, b) => b.weight - a.weight);
-  const opposing = sorted.slice(0, Math.min(2, sorted.length));
+
+  // Scenario-aware opposing leads: prefer panel entries whose species_id is
+  // listed in `scenario.opposing_preview` (the scenario's chosen meta core).
+  // Fallback to panel top-2 when the preview species aren't available in the
+  // panel (so weakness-counter scenarios with niche species still score).
+  const previewIds = new Set(scenario.opposing_preview ?? []);
+  let opposing = deps.scoring_panel!.entries.filter((e) =>
+    previewIds.has(e.species_roster_id),
+  );
+  if (opposing.length < 2) {
+    const sorted = [...deps.scoring_panel!.entries].sort((a, b) => b.weight - a.weight);
+    for (const e of sorted) {
+      if (opposing.length >= 2) break;
+      if (!opposing.includes(e)) opposing.push(e);
+    }
+  }
+  opposing = opposing.slice(0, Math.min(2, opposing.length));
   if (opposing.length === 0) return 0;
 
   const ourPair: ScoringSet[] = [];

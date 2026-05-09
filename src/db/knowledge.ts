@@ -203,6 +203,73 @@ export function get(db: Db, id: string): KnowledgeChunk | null {
   });
 }
 
+/** One result row from {@link listBySpeciesTags}. */
+export interface ChunkWithSpeciesTags {
+  chunk: KnowledgeChunk;
+  /** All species ids tagged on this chunk via `knowledge_chunk_species_tags`. */
+  species_tags: string[];
+}
+
+/**
+ * List ≤ `limit` `knowledge_chunks` whose `knowledge_chunk_species_tags`
+ * intersect `speciesIds`. Sorted by `fetched_at DESC` then chunk id (stable
+ * tiebreaker) so the most-recent chunks surface first.
+ *
+ * **When to use it:** citation lookup for the tactical-overview slice and
+ * any future feature that needs "show me chunks that mention these species"
+ * without semantic relevance ranking. For semantic relevance use
+ * {@link search} (vec0 cosine).
+ *
+ * @param db — Open Drizzle DB handle.
+ * @param speciesIds — Species ids to filter on. Empty array → empty result.
+ * @param limit — Max rows to return. Must be ≥ 1.
+ * @returns ≤ `limit` chunks with their full species-tag set attached.
+ *   Empty array when no chunk matches.
+ * @throws {RosterDbError} On SQLite I/O failure.
+ *
+ * @example
+ *   const cites = listBySpeciesTags(db, ["incineroar", "sneasler"], 3);
+ *   for (const c of cites) console.log(c.chunk.article_title, c.species_tags);
+ */
+export function listBySpeciesTags(
+  db: Db,
+  speciesIds: ReadonlyArray<string>,
+  limit: number,
+): ChunkWithSpeciesTags[] {
+  return wrapDb("listBySpeciesTags", () => {
+    if (speciesIds.length === 0 || limit < 1) return [];
+    const placeholders = speciesIds.map(() => "?").join(",");
+    const rows = db.$client
+      .prepare(
+        `SELECT DISTINCT kc.* FROM knowledge_chunks kc
+           INNER JOIN knowledge_chunk_species_tags t ON t.chunk_id = kc.id
+          WHERE t.species_id IN (${placeholders})
+          ORDER BY kc.fetched_at DESC, kc.id ASC
+          LIMIT ?`,
+      )
+      .all(...speciesIds, limit) as KnowledgeRow[];
+    if (rows.length === 0) return [];
+    const chunkIds = rows.map((r) => r.id);
+    const tagPh = chunkIds.map(() => "?").join(",");
+    const tagRows = db.$client
+      .prepare(
+        `SELECT chunk_id, species_id FROM knowledge_chunk_species_tags
+          WHERE chunk_id IN (${tagPh})`,
+      )
+      .all(...chunkIds) as Array<{ chunk_id: string; species_id: string }>;
+    const tagsByChunk = new Map<string, string[]>();
+    for (const t of tagRows) {
+      const list = tagsByChunk.get(t.chunk_id) ?? [];
+      list.push(t.species_id);
+      tagsByChunk.set(t.chunk_id, list);
+    }
+    return rows.map((r) => ({
+      chunk: rowToChunk(r),
+      species_tags: (tagsByChunk.get(r.id) ?? []).sort(),
+    }));
+  });
+}
+
 /**
  * Top-k semantic search via the vec0 sidecar with cosine distance.
  * `exclude_subtypes` and `article_section_filter` are applied post-vec
