@@ -63,7 +63,7 @@ const PLACEHOLDER: Pick<
  */
 function describeScenario(
   name: string,
-  type: "archetype" | "individual" | "weakness_counter" | "meta_team",
+  type: "archetype" | "individual" | "weakness_counter" | "meta_team" | "mirror_match",
   field: ScenarioField,
   opposing_preview: ReadonlyArray<string>,
 ): string {
@@ -119,6 +119,12 @@ function describeScenario(
     return (
       `Tournament-meta team scenario. ${name.replace(/^vs /, "")} is one of the most-frequent 6-species compositions appearing in Reg M-A tournament play — multiple teams have run this exact lineup at recent events. ` +
       `Recommended leads are scored against the two visible front-runners of the composition (${oppList}); the broader team includes the other 4 species that may rotate in. Treat this as a likely matchup at any open-bracket tournament; the more-frequent the composition, the higher the chance you face it.`
+    );
+  }
+  if (type === "mirror_match") {
+    return (
+      `Mirror match scenario. Your team's 6-species composition matches one of the most-frequent tournament archetypes in current Reg M-A — you WILL face this exact lineup at open-bracket events. ` +
+      `Both sides bring identical species; the matchup comes down to (a) lead prediction — guessing what your opponent leads and bringing the counter-lead, (b) item / SPS spread differences (your specific build may differ from theirs), and (c) turn-1 priority plays (Fake Out, Tailwind, Sucker Punch). Recommended leads are scored against the canonical labmaus consensus build of your own composition — the spread that the typical mirror runs. Bring leads that win the speed tier and KO their counterpart on turn 1.`
     );
   }
   // individual
@@ -250,6 +256,59 @@ function perishTrapFromLabmaus(db: Db): [string, string] | null {
         .all(setterRow.species_roster_id, setterRow.species_roster_id) as Array<{ partner: string; shared: number }>;
       const tmPartner = tmRow[0]?.partner;
       if (tmPartner) return [setterRow.species_roster_id, tmPartner];
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Detect whether the user's 6-species composition matches a high-
+ * frequency tournament cluster. Returns the matched cluster (with
+ * frequency) when found — caller emits a `mirror_match` scenario so
+ * the user knows they're on a meta team and will face mirrors.
+ *
+ * Threshold: ≥ 3 tournament teams running the same composition (after
+ * mega-form normalization). Below 3 the user's team is unique enough
+ * that mirror matches aren't probable.
+ *
+ * @param db — Open DB.
+ * @param userSpecies — User's team species ids.
+ * @returns `{ species, frequency }` of the matched cluster, or null.
+ */
+function findMirrorCluster(
+  db: Db,
+  userSpecies: ReadonlyArray<string>,
+): { species: string[]; frequency: number } | null {
+  if (userSpecies.length < 6) return null;
+  const normalizeId = (id: string): string =>
+    id
+      .replace(/-(eternal|alola|galar|hisui|paldea(-\w+)?)$/, "")
+      .replace(/(megax|megay|mega)$/, "");
+  const userNormalized = new Set(userSpecies.map(normalizeId));
+  try {
+    const rows = db.$client
+      .prepare(
+        `WITH compositions AS (
+           SELECT tournament_team_id, GROUP_CONCAT(species_roster_id, ',') AS species_set
+             FROM (SELECT tournament_team_id, species_roster_id FROM team_sets ORDER BY species_roster_id)
+            GROUP BY tournament_team_id
+         )
+         SELECT species_set, COUNT(*) AS team_count
+           FROM compositions
+          WHERE species_set NOT NULL
+          GROUP BY species_set
+         HAVING team_count >= 3
+          ORDER BY team_count DESC LIMIT 50`,
+      )
+      .all() as Array<{ species_set: string; team_count: number }>;
+    for (const r of rows) {
+      const cluster = r.species_set.split(",");
+      const clusterNormalized = new Set(cluster.map(normalizeId));
+      let shared = 0;
+      for (const n of userNormalized) if (clusterNormalized.has(n)) shared++;
+      if (shared >= 6) return { species: cluster, frequency: r.team_count };
     }
     return null;
   } catch {
@@ -685,6 +744,31 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
   const userSpecies = deps.scoring_team
     ? deps.scoring_team.sets.map((s) => s.species_roster_id)
     : [];
+  // Mirror match — detect whether user's composition matches a high-
+  // frequency tournament cluster (≥ 3 teams running the same 6 species
+  // after mega-form normalization). If so, emit before meta_team so the
+  // user sees "you're on a meta team, expect mirrors" up front.
+  const mirrorCluster = findMirrorCluster(deps.db, userSpecies);
+  const mirrorScenarios: ScenarioOverview[] = [];
+  if (mirrorCluster) {
+    const preview: [string, string] = [
+      mirrorCluster.species[0] ?? "incineroar",
+      mirrorCluster.species[1] ?? "garchomp",
+    ];
+    const name = `Mirror match (${mirrorCluster.frequency}× tournament-meta team)`;
+    mirrorScenarios.push({
+      name,
+      type: "mirror_match" as const,
+      field: FIELD_NEUTRAL,
+      opposing_preview: mirrorCluster.species.slice(0, 6),
+      description: describeScenario(name, "mirror_match", FIELD_NEUTRAL, mirrorCluster.species),
+      ...PLACEHOLDER,
+      // Use a slightly different placeholder preview hint by overriding
+      // recommended_leads via PLACEHOLDER spread (recommendLeads will
+      // overwrite at orchestration time).
+      recommended_leads: [preview[0], preview[1]] as [string, string],
+    });
+  }
   const metaTeamLimit = archetypes.length <= 2 ? 3 : 2;
   const metaTeams = topMetaTeams(deps.db, userSpecies, metaTeamLimit);
   const metaTeamScenarios: ScenarioOverview[] = metaTeams.map((cluster) => {
@@ -710,6 +794,7 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
 
   const all = [
     ...archetypes,
+    ...mirrorScenarios,
     ...metaTeamScenarios,
     ...individuals,
     ...counterScenarios,

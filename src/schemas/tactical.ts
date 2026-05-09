@@ -103,12 +103,16 @@ export const PillarBundleSchema = z
  *  - `archetype`: Sun / Rain / Sand / Snow / Trick Room / Perish Trap
  *  - `individual`: top-usage threat by species
  *  - `weakness_counter`: auto-generated for structural team weakness
- *  - `meta_team`: top-frequency 6-species tournament team composition */
+ *  - `meta_team`: top-frequency 6-species tournament team composition
+ *  - `mirror_match`: emitted when user's own composition matches a
+ *    high-frequency tournament cluster — the user WILL face this team
+ *    at events, and mirror dynamics are distinct from generic meta_team. */
 export const ScenarioTypeSchema = z.enum([
   "archetype",
   "individual",
   "weakness_counter",
   "meta_team",
+  "mirror_match",
 ]);
 
 /** Citation pulled from `knowledge_chunks` for a scenario. */
