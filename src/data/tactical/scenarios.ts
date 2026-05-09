@@ -167,6 +167,125 @@ function fitsTrickRoom(entry: PanelEntryLike): boolean {
   );
 }
 
+/** Top-N species ids from `pikalytics_snapshots` ordered by `usage_percent
+ *  DESC`. When `usage_percent` is null (current 8-snapshot data state),
+ *  falls back to the natural row order. Returns `[]` on DB failure. */
+function pikalyticsTopUsage(db: Db, n: number): string[] {
+  try {
+    const rows = db.$client
+      .prepare(
+        `SELECT species_roster_id FROM pikalytics_snapshots
+          ORDER BY usage_percent DESC NULLS LAST, species_roster_id ASC
+          LIMIT ?`,
+      )
+      .all(n) as Array<{ species_roster_id: string }>;
+    return rows.map((r) => r.species_roster_id);
+  } catch {
+    return [];
+  }
+}
+
+/** One row from `pikalytics_snapshots` joined to `species_abilities` —
+ *  used by `archetypeFromPikalytics` to find real-meta setters/abusers. */
+interface PikaArchetypeRow {
+  species_id: string;
+  ability_name: string;
+  teammates_json: string;
+}
+
+/**
+ * Build an archetype `opposing_preview` from real pikalytics data —
+ * returns `[setter, top_co-occurring_teammate]` when the format actually
+ * has a setter for this archetype; `null` when no setter species exists
+ * in `pikalytics_snapshots`. Fallback handling is the caller's job.
+ *
+ * For Rain/Sand/Snow/TR: in the current 8-snapshot Reg M-A meta there
+ * are no setters → returns null, scenario should be skipped rather than
+ * faked with non-meta species (Barraskewda / Porygon2 / etc).
+ *
+ * @param db — Open DB handle.
+ * @param archetype — `"sun" | "rain" | "sand" | "snow" | "trick_room"`.
+ * @returns A 2-element preview or `null`.
+ * @throws Never — DB errors swallowed (caller treats as "no data").
+ */
+function archetypeFromPikalytics(
+  db: Db,
+  archetype: "sun" | "rain" | "sand" | "snow" | "trick_room",
+): [string, string] | null {
+  let abilities: ReadonlySet<string>;
+  let beneficiaries: ReadonlySet<string>;
+  if (archetype === "sun") { abilities = SUN_ABILITIES; beneficiaries = SUN_BENEFICIARIES; }
+  else if (archetype === "rain") { abilities = RAIN_ABILITIES; beneficiaries = RAIN_BENEFICIARIES; }
+  else if (archetype === "sand") { abilities = SAND_ABILITIES; beneficiaries = SAND_BENEFICIARIES; }
+  else if (archetype === "snow") { abilities = SNOW_ABILITIES; beneficiaries = SNOW_BENEFICIARIES; }
+  else { abilities = new Set(); beneficiaries = new Set(); }
+
+  try {
+    let setter: PikaArchetypeRow | null = null;
+    if (archetype === "trick_room") {
+      // TR setters carry the move "Trick Room" in their pikalytics moves_json.
+      const rows = db.$client
+        .prepare(
+          `SELECT species_roster_id AS species_id, '' AS ability_name, teammates_json, moves_json
+             FROM pikalytics_snapshots`,
+        )
+        .all() as Array<PikaArchetypeRow & { moves_json: string }>;
+      for (const r of rows) {
+        let moves: Array<{ name?: string; move_id?: string }> = [];
+        try {
+          moves = JSON.parse(r.moves_json) as Array<{ name?: string; move_id?: string }>;
+        } catch {
+          continue;
+        }
+        const has = moves.some((m) => {
+          const id = (m.name ?? m.move_id ?? "").toLowerCase().replace(/[^a-z]/g, "");
+          return id === "trickroom";
+        });
+        if (has) {
+          setter = r;
+          break;
+        }
+      }
+    } else {
+      const placeholders = [...abilities].map(() => "?").join(",") || "''";
+      const rows = db.$client
+        .prepare(
+          `SELECT ps.species_roster_id AS species_id, sa.ability_name, ps.teammates_json
+             FROM pikalytics_snapshots ps
+             JOIN species_abilities sa ON sa.species_id = ps.species_roster_id
+            WHERE sa.ability_name IN (${placeholders})
+            LIMIT 1`,
+        )
+        .all(...abilities) as PikaArchetypeRow[];
+      setter = rows[0] ?? null;
+    }
+    if (!setter) return null;
+
+    // Pick the highest-co-occurrence teammate. Optionally bias toward an
+    // abuser (matching beneficiaries) but accept whoever's most-used since
+    // the meta-relationship matters more than archetype theory.
+    let teammates: Array<{ roster_id: string; percent: number }> = [];
+    try {
+      teammates = JSON.parse(setter.teammates_json) as Array<{ roster_id: string; percent: number }>;
+    } catch {
+      return null;
+    }
+    if (teammates.length === 0) return [setter.species_id, setter.species_id];
+    // Pick the highest-co-occurrence teammate — that's the realistic
+    // partner the setter is actually paired with in tournament play, not
+    // a theoretical archetype-fitting abuser. (Earlier version filtered
+    // by beneficiary ability; in practice that picked low-usage edge
+    // cases over the meta truth.)
+    const sorted = [...teammates].sort((a, b) => b.percent - a.percent);
+    const top = sorted[0];
+    if (!top) return [setter.species_id, setter.species_id];
+    void beneficiaries; // intentional: not used for ranking, kept in scope so the ability table stays the source of truth for setter detection
+    return [setter.species_id, top.roster_id];
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Produce 5–7 scenario skeletons.
  *
@@ -175,82 +294,107 @@ function fitsTrickRoom(entry: PanelEntryLike): boolean {
  * @throws TacticalScenarioError when fewer than 3 scenarios producible.
  */
 export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
-  // Archetype previews: filter panel entries by ability / move signal so
-  // a Rain scenario surfaces Pelipper-shaped opponents (not the meta's
-  // most-popular mons regardless of weather). Falls back to the seed when
-  // no panel entry fits — keeps the scenario defensible on a thin panel.
-  const sunSeed = previewFromPanel(
-    deps.panel,
-    2,
-    ["torkoal", "venusaur"],
-    (e) => fitsArchetype(e, SUN_ABILITIES, SUN_BENEFICIARIES),
-  );
-  const rainSeed = previewFromPanel(
-    deps.panel,
-    2,
-    ["pelipper", "barraskewda"],
-    (e) => fitsArchetype(e, RAIN_ABILITIES, RAIN_BENEFICIARIES),
-  );
-  const trSeed = previewFromPanel(
-    deps.panel,
-    2,
-    ["porygon2", "farigiraf"],
-    fitsTrickRoom,
-  );
-  // Individual scenarios: top-usage mons, no archetype filter (we want the
-  // most popular threats regardless of style).
-  const indivSeed = previewFromPanel(deps.panel, 4, [
-    "incineroar", "amoonguss", "rillaboom", "garchomp",
-  ]);
-  // Always emit two distinct individual scenarios (or fall back to the seed).
-  const indiv1 = indivSeed[0] ?? "incineroar";
-  const indiv2 = indivSeed[1] ?? "amoonguss";
-
-  const archetypes: ScenarioOverview[] = [
-    {
+  // Archetype previews — REAL META sourced from pikalytics_snapshots
+  // (setter ability + top co-occurring teammate). When the current meta
+  // has no setter for an archetype (e.g. Rain in current Reg M-A), the
+  // archetype scenario is DROPPED rather than faked with a hardcoded
+  // species not in the meta. This is the honest signal — the user
+  // shouldn't see "Rain" with Barraskewda when no one runs Barraskewda
+  // in tournament play.
+  //
+  // Fallback for the 4 weather archetypes: when pikalytics returns null,
+  // try the panel's archetype filter (in case the panel has data even if
+  // pikalytics doesn't). If the panel also yields nothing, drop.
+  const sunPreview =
+    archetypeFromPikalytics(deps.db, "sun") ??
+    (() => {
+      const p = previewFromPanel(deps.panel, 2, [], (e) =>
+        fitsArchetype(e, SUN_ABILITIES, SUN_BENEFICIARIES),
+      );
+      return p.length === 2 ? ([p[0], p[1]] as [string, string]) : null;
+    })();
+  const rainPreview =
+    archetypeFromPikalytics(deps.db, "rain") ??
+    (() => {
+      const p = previewFromPanel(deps.panel, 2, [], (e) =>
+        fitsArchetype(e, RAIN_ABILITIES, RAIN_BENEFICIARIES),
+      );
+      return p.length === 2 ? ([p[0], p[1]] as [string, string]) : null;
+    })();
+  const trPreview =
+    archetypeFromPikalytics(deps.db, "trick_room") ??
+    (() => {
+      const p = previewFromPanel(deps.panel, 2, [], fitsTrickRoom);
+      return p.length === 2 ? ([p[0], p[1]] as [string, string]) : null;
+    })();
+  const archetypes: ScenarioOverview[] = [];
+  if (sunPreview) {
+    archetypes.push({
       name: "Sun",
       type: "archetype",
       field: FIELD_SUN,
-      opposing_preview: sunSeed,
-      description: describeScenario("Sun", "archetype", FIELD_SUN, sunSeed),
+      opposing_preview: [...sunPreview],
+      description: describeScenario("Sun", "archetype", FIELD_SUN, [...sunPreview]),
       ...PLACEHOLDER,
-    },
-    {
+    });
+  }
+  if (rainPreview) {
+    archetypes.push({
       name: "Rain",
       type: "archetype",
       field: FIELD_RAIN,
-      opposing_preview: rainSeed,
-      description: describeScenario("Rain", "archetype", FIELD_RAIN, rainSeed),
+      opposing_preview: [...rainPreview],
+      description: describeScenario("Rain", "archetype", FIELD_RAIN, [...rainPreview]),
       ...PLACEHOLDER,
-    },
-    {
+    });
+  }
+  if (trPreview) {
+    archetypes.push({
       name: "Trick Room",
       type: "archetype",
       field: FIELD_TR,
-      opposing_preview: trSeed,
-      description: describeScenario("Trick Room", "archetype", FIELD_TR, trSeed),
+      opposing_preview: [...trPreview],
+      description: describeScenario("Trick Room", "archetype", FIELD_TR, [...trPreview]),
       ...PLACEHOLDER,
-    },
-  ];
+    });
+  }
 
-  const individuals: ScenarioOverview[] = [
-    {
-      name: `vs ${indiv1}`,
-      type: "individual",
-      field: FIELD_NEUTRAL,
-      opposing_preview: [indiv1],
-      description: describeScenario(`vs ${indiv1}`, "individual", FIELD_NEUTRAL, [indiv1]),
-      ...PLACEHOLDER,
-    },
-    {
-      name: `vs ${indiv2}`,
-      type: "individual",
-      field: FIELD_NEUTRAL,
-      opposing_preview: [indiv2],
-      description: describeScenario(`vs ${indiv2}`, "individual", FIELD_NEUTRAL, [indiv2]),
-      ...PLACEHOLDER,
-    },
+  // Individual scenarios — backfill to compensate when archetypes are
+  // sparse (e.g. current Reg M-A meta has only Sun via Charizard-Mega-Y;
+  // no Drizzle / Sand / Snow / TR setters in the snapshotted species).
+  // Target: 2 individuals when 3+ archetypes present, up to 5 when 0-1.
+  const individualTarget = Math.max(2, 5 - archetypes.length);
+  // Reg-M-A-legal fallback shortlist (used only when both pikalytics + panel
+  // are empty — tests and fresh DBs). Memory `regulation_m_a_roster.md`:
+  // every name here must exist in the Reg M-A roster.
+  const FALLBACK_INDIV_SEED = [
+    "incineroar", "amoonguss", "rillaboom", "garchomp", "pelipper",
   ];
+  // Order: real meta from pikalytics first, then panel (which may include
+  // synthetic-but-not-meta entries), then hardcoded fallback. Pikalytics-
+  // first ensures Tyranitar/Whimsicott don't surface as "individual top
+  // threats" when current Reg M-A doesn't have them snapshotted.
+  const pikaTop = pikalyticsTopUsage(deps.db, individualTarget);
+  const seenIndiv = new Set<string>(pikaTop);
+  const panelFill = previewFromPanel(
+    deps.panel,
+    individualTarget,
+    FALLBACK_INDIV_SEED,
+  ).filter((s) => !seenIndiv.has(s));
+  const individualSeeds = [
+    ...pikaTop,
+    ...panelFill,
+  ].slice(0, individualTarget);
+  const individuals: ScenarioOverview[] = individualSeeds
+    .slice(0, individualTarget)
+    .map((sp) => ({
+      name: `vs ${sp}`,
+      type: "individual" as const,
+      field: FIELD_NEUTRAL,
+      opposing_preview: [sp],
+      description: describeScenario(`vs ${sp}`, "individual", FIELD_NEUTRAL, [sp]),
+      ...PLACEHOLDER,
+    }));
 
   const counters = detectWeaknessCounters(deps.team, deps.panel, deps.calcCache, {
     db: deps.db,
