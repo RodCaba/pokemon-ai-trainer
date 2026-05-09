@@ -425,6 +425,50 @@ export class UserTeamRevisionNotFoundError extends UserTeamError {
  */
 export class UserTeamStorageError extends UserTeamError {}
 
+/**
+ * Base class for every error thrown by the team-tactical-overview slice
+ * (`src/data/tactical/*`, `src/agents/tactical-tools.ts`).
+ *
+ * Carries `.cause` and optional `.team_id` so callers and tests can grep
+ * for the offending team without `.message` string-sniffing.
+ */
+export class TacticalError extends Error {
+  override readonly cause?: unknown;
+  readonly team_id?: string;
+  constructor(msg: string, opts?: { cause?: unknown; team_id?: string }) {
+    super(msg);
+    this.name = this.constructor.name;
+    this.cause = opts?.cause;
+    this.team_id = opts?.team_id;
+  }
+}
+
+/**
+ * Thrown by `buildOverview` / `score_pillars` / `recommend_leads` when the
+ * team isn't in a scoreable state — `status='draft'`, has any
+ * `validation_errors`, or is unknown.
+ */
+export class TacticalOverviewError extends TacticalError {}
+
+/**
+ * Thrown by `buildThreatPanel` when both pikalytics_snapshots and
+ * labmaus team_sets are empty for the format. Not recoverable in-process
+ * — needs ingest.
+ */
+export class TacticalThreatPanelError extends TacticalError {}
+
+/**
+ * Thrown by `generateScenarios` when fewer than 3 scenarios can be
+ * produced (insufficient labmaus / pikalytics data).
+ */
+export class TacticalScenarioError extends TacticalError {}
+
+/**
+ * Thrown when the `damage_calc` engine fails systemically (> 50% of
+ * pairs throw). Distinct from per-pair skip-and-continue.
+ */
+export class TacticalCalcEngineError extends TacticalError {}
+
 export class NotImplementedError extends Error {
   constructor(method: string) {
     super(`v1 stub: ${method} is not yet implemented; vector tier lands in a later milestone`);
