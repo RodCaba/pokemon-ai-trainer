@@ -28,9 +28,63 @@ function tierFor(score: number): "Weak" | "OK" | "Good" | "Strong" {
 
 interface TeamView {
   speciesIds: string[];
+  /** Per-slot alias list: aliases[i] is the species_ids to try when looking
+   *  up slot i in pikalytics. First entry is the primary id; subsequent
+   *  entries are mega-evolved forms when the held item is a Mega Stone.
+   *  Pikalytics ingests by battle-form id (`charizardmegay`, `floettemega`),
+   *  while user teams store the pre-Mega base (`charizard`, `floette-eternal`)
+   *  — without alias resolution we'd report "data gap" on every Mega user.
+   */
+  aliases: string[][];
   abilities: string[]; // canonical lowercase
   items: string[];
   moves: string[]; // canonical lowercase
+}
+
+/** True when an item id looks like a Mega Stone — matches `*ite`,
+ *  `*itex`/`*itey` (packed), or `*ite-x`/`*ite-y` (canon-from-display). */
+function isMegaStoneId(canonItemId: string): boolean {
+  return /^[a-z0-9-]+ite(-?[xy])?$/.test(canonItemId);
+}
+
+/** Strip trailing form-suffixes from a species id so we can derive the
+ *  mega-form id by appending "mega". Floette-Eternal → floette;
+ *  Tauros-Paldea-Aqua → tauros; Charizard → charizard. Conservative — only
+ *  strips suffixes we know mark non-mega regional/special forms. */
+function megaBaseStripForms(speciesId: string): string {
+  const KNOWN_FORM_SUFFIXES = [
+    "-eternal", "-paldea-aqua", "-paldea-blaze", "-paldea-combat",
+    "-alola", "-galar", "-hisui", "-paldea",
+  ];
+  for (const sfx of KNOWN_FORM_SUFFIXES) {
+    if (speciesId.endsWith(sfx)) return speciesId.slice(0, -sfx.length);
+  }
+  return speciesId;
+}
+
+/** Resolve the mega-form alias(es) for a (species, item) pair, verifying
+ *  each candidate exists in the species table. Returns `[]` when the item
+ *  isn't a Mega Stone or no mega form is known. */
+function resolveMegaAliases(
+  db: Db,
+  speciesId: string,
+  itemId: string,
+): string[] {
+  if (!itemId || !isMegaStoneId(itemId)) return [];
+  const base = megaBaseStripForms(speciesId);
+  const candidates = [`${base}mega`, `${base}megax`, `${base}megay`];
+  const aliases: string[] = [];
+  for (const c of candidates) {
+    try {
+      const row = db.$client
+        .prepare("SELECT 1 AS ok FROM species WHERE id = ? LIMIT 1")
+        .get(c) as { ok: number } | undefined;
+      if (row) aliases.push(c);
+    } catch {
+      /* no species table — bypass */
+    }
+  }
+  return aliases;
 }
 
 // Sets are stored in canonical form (lowercase, hyphenated). All inputs
@@ -53,22 +107,29 @@ function canon(s: string | null | undefined): string {
   return (s ?? "").toLowerCase().trim().replace(/\s+/g, "-");
 }
 
-function viewFromScoringTeam(team: ScoringTeam): TeamView {
+function viewFromScoringTeam(team: ScoringTeam, db: Db): TeamView {
   const speciesIds: string[] = [];
+  const aliases: string[][] = [];
   const abilities: string[] = [];
   const items: string[] = [];
   const moves: string[] = [];
   for (const s of team.sets) {
     speciesIds.push(s.species_roster_id);
+    const itemCanon = canon(s.spec.item);
+    aliases.push([
+      s.species_roster_id,
+      ...resolveMegaAliases(db, s.species_roster_id, itemCanon),
+    ]);
     abilities.push(canon(s.spec.ability));
-    items.push(canon(s.spec.item));
+    items.push(itemCanon);
     for (const m of s.spec.moves) moves.push(canon(m));
   }
-  return { speciesIds, abilities, items, moves };
+  return { speciesIds, aliases, abilities, items, moves };
 }
 
-function viewFromUserTeam(team: UserTeam): TeamView {
+function viewFromUserTeam(team: UserTeam, db: Db): TeamView {
   const speciesIds: string[] = [];
+  const aliases: string[][] = [];
   const abilities: string[] = [];
   const items: string[] = [];
   const moves: string[] = [];
@@ -84,14 +145,18 @@ function viewFromUserTeam(team: UserTeam): TeamView {
   }> }).sets ?? [];
   for (const s of sets) {
     const id = s.species_id ?? s.species_roster_id;
-    if (id) speciesIds.push(id);
+    const itemCanon = canon(s.item_id);
+    if (id) {
+      speciesIds.push(id);
+      aliases.push([id, ...resolveMegaAliases(db, id, itemCanon)]);
+    }
     abilities.push(canon(s.ability_id));
-    items.push(canon(s.item_id));
+    items.push(itemCanon);
     for (const m of [s.move_1_id, s.move_2_id, s.move_3_id, s.move_4_id]) {
       if (m) moves.push(canon(m));
     }
   }
-  return { speciesIds, abilities, items, moves };
+  return { speciesIds, aliases, abilities, items, moves };
 }
 
 function detectArchetypes(view: TeamView): string[] {
@@ -122,9 +187,33 @@ function teammateCoOccurrence(
   view: TeamView,
 ): { value: number; missing: string[] } {
   const ids = view.speciesIds;
+  const aliases = view.aliases;
   if (ids.length < 2) return { value: 0, missing: [...ids] };
-  // Track which species we found ANY snapshots for.
+  // For each species, accumulate teammate data across ALL its aliases
+  // (base form + mega form when held item is a Mega Stone). pikalytics
+  // ingests by battle-form id, so a base-form team-set must alias-resolve
+  // to its mega-form id for synergy lookup to succeed.
+  const teammateMapBySpecies = new Map<string, Map<string, number>>();
   const sawData = new Set<string>();
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i]!;
+    const aliasList = aliases[i] ?? [id];
+    const merged = new Map<string, number>();
+    for (const alias of aliasList) {
+      try {
+        const tms = pikalytics.teammates(db, { format: "RegM-A", species: alias, limit: 50 });
+        if (tms.length > 0) sawData.add(id);
+        for (const tm of tms) {
+          // Keep the highest co-occurrence percent across aliases.
+          const prev = merged.get(tm.roster_id) ?? 0;
+          if (tm.percent > prev) merged.set(tm.roster_id, tm.percent);
+        }
+      } catch { /* skip */ }
+    }
+    teammateMapBySpecies.set(id, merged);
+  }
+  // Score pairs: for (A, B) take max co-occurrence as seen from either side.
+  // A's teammates list may name B by either B's base or mega id; check both.
   let total = 0;
   let pairs = 0;
   for (let i = 0; i < ids.length; i++) {
@@ -132,20 +221,23 @@ function teammateCoOccurrence(
       pairs++;
       const a = ids[i]!;
       const b = ids[j]!;
+      const aliasesB = aliases[j] ?? [b];
+      const aliasesA = aliases[i] ?? [a];
       let pct = 0;
-      try {
-        const fromA = pikalytics.teammates(db, { format: "RegM-A", species: a, limit: 50 });
-        if (fromA.length > 0) sawData.add(a);
-        const hit = fromA.find((t) => t.roster_id === b);
-        if (hit) pct = Math.max(pct, hit.percent);
-      } catch { /* skip */ }
-      try {
-        const fromB = pikalytics.teammates(db, { format: "RegM-A", species: b, limit: 50 });
-        if (fromB.length > 0) sawData.add(b);
-        const hit = fromB.find((t) => t.roster_id === a);
-        if (hit) pct = Math.max(pct, hit.percent);
-      } catch { /* skip */ }
-      // pct is a Pikalytics percentage 0..100 (most likely); normalize.
+      const fromA = teammateMapBySpecies.get(a);
+      if (fromA) {
+        for (const idB of aliasesB) {
+          const hit = fromA.get(idB);
+          if (hit !== undefined && hit > pct) pct = hit;
+        }
+      }
+      const fromB = teammateMapBySpecies.get(b);
+      if (fromB) {
+        for (const idA of aliasesA) {
+          const hit = fromB.get(idA);
+          if (hit !== undefined && hit > pct) pct = hit;
+        }
+      }
       total += Math.min(1, pct / 100);
     }
   }
@@ -172,8 +264,8 @@ export function scoreSynergy(
   const archetypeMax = Math.round(aw * 100);
 
   const view = deps.scoring_team
-    ? viewFromScoringTeam(deps.scoring_team)
-    : viewFromUserTeam(team);
+    ? viewFromScoringTeam(deps.scoring_team, deps.db)
+    : viewFromUserTeam(team, deps.db);
 
   // Detect archetypes; if no signal at all (empty test team), report all.
   const haveAnySignal =
