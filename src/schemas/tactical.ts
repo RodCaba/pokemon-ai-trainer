@@ -113,6 +113,10 @@ export const TacticalCitationSchema = z
     excerpt: z.string().max(500),
     source_url: z.string().url(),
     species_ids: z.array(RosterId),
+    /** `'vgcguide' | 'metavgc'` — surfaces the publisher of the chunk. */
+    source_site: z.string().min(1).optional(),
+    /** Article title from `knowledge_chunks.article_title`. */
+    article_title: z.string().optional(),
   })
   .strict();
 

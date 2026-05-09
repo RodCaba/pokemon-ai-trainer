@@ -248,6 +248,7 @@ export function buildOverview(
     panel,
     team,
     calcCache,
+    ...(scoringTeamFinal ? { scoring_team: scoringTeamFinal } : {}),
   });
 
   const pillars = scoreAllPillars(team, panel, scenarios, calcCache, {
