@@ -722,19 +722,85 @@ Each marked inline `// TODO(stage6-deferred): <slug>` per memory `labmaus_pokepa
 ## 15. Open questions for plan review
 
 1. **`ScenarioOverview` vs CLAUDE.md §7 `LeadPlan`.** §7 defines a single-scenario `LeadPlan` (one primary + 3–4 alternatives, all against ONE opponent preview). This slice's `ScenarioOverview` is multi-scenario (one entry per scenario, no internal "alternatives"). **Proposal: keep them parallel** — `ScenarioOverview` is per-scenario; `LeadPlan` is the agent-loop's single-game-prep output. A future slice composes them. Confirm or push back.
+Answer: Yeah, let's keep them parallel for clarity. `ScenarioOverview` is the data shape for each scenario's analysis; `LeadPlan` is the agent's synthesized recommendation for a single scenario. We can compose them in a future slice when we build the agent's overall recommendation flow. This keeps the tactical slice focused on analysis and the agent slice focused on synthesis. Confirmed.
 
 2. **Golden fixture generation cadence.** Goldens lock specific score values. When the calc engine is upgraded or our threat panel changes, goldens drift. **Proposal: regenerate goldens on every threat-panel change** (deterministic given inputs); commit the diff for review. Reviewer can spot suspicious shifts. Confirm.
+Answer: Agreed.
 
 3. **Cache scope on tool re-invocation.** If the agent calls `score_pillars` then `recommend_leads` for the same team, both build their own cache (per Q5 "per-call"). That's ~5–8s × 2 = 10–16s total vs. ~12s if shared. Cross-call cache adds invalidation complexity — defer (§12.8) or address now? **Proposal: defer.** Confirm.
+Answer: Address now.
 
 4. **Weakness-counter scenario naming.** Scenarios surface as strings like `"vs Mega Charizard Y"`. Weakness-counters could surface as `"weakness: Mega Glimmora"` or just `"vs Mega Glimmora"`. **Proposal: `"vs <species> (counter)"` for weakness-detected, plain `"vs <species>"` for top-usage individuals.** Stage 4 tests pin the convention. Confirm.
+Answer: Yeah, let's go with `"vs <species> (counter)"` for weakness-detected scenarios. This makes it clear to the user that this scenario is highlighting a specific vulnerability in their team, rather than just a common opponent. The "(counter)" suffix signals that this is a scenario they should be particularly concerned about. Confirmed.
 
 5. **Speed-table format.** `top50.json` could be flat array or keyed-by-species map. **Proposal: flat array sorted desc by `usage_weighted_speed = base_spe × usage_pct_normalized`.** Each entry: `{ species_id, base_spe, common_nature, usage_pct, weighted_speed }`. Confirm or propose alternate.
+Answer: Flat array sorted by `usage_weighted_speed` makes sense for our use case, since we'll often want to quickly find the top N fastest species. It's important that we can consider an scenario were a species has a different natures to consider, for instance Garchomp with Jolly vs Adamant. We can include the `common_nature` field to help with that. Confirmed.
 
 6. **Insights vs `knowledge_chunks` for citations.** The flow §3 says "knowledge_chunks for citations." CLAUDE.md §6 specifies `Insight` as the canonical citation primitive. **Proposal: cite `knowledge_chunks` directly in v1** since the Insight extraction pipeline doesn't exist yet (deferred to its own slice); migrate to `Insight` once it lands. The tool-output schema names the field `citations: KnowledgeCitation[]` so a future swap is non-breaking. Confirm.
+Answer: Citing `knowledge_chunks` directly in v1 is a pragmatic choice given that the Insight extraction pipeline isn't ready yet. 
 
 7. **TR inversion: which abilities count as "TR setter"?** Proposal: hardcoded list `{ Indeedee-* with Psychic Surge variants, Farigiraf with Armor Tail (per the metavgc article), any species with Trick Room in its movepool that the team actually slotted }`. The third clause is the safest signal; the first two are anti-redundancy bets. Confirm or specify a different rule.
+Answer: The proposed rule seems reasonable. The presence of Trick Room in the movepool combined with actually slotting it is a strong signal that the team is designed to use Trick Room. 
 
 ---
 
-**Reviewed-by:** _pending Stage 2_
+**Reviewed-by:** _Rodrigo Caballero_
+
+
+---
+
+## 16. Stage-3 review answers — plan amendments (2026-05-08)
+
+The §15 answers from Rodrigo bind the implementation. Two real overrides shift §10 + §5:
+
+### 16.1 Q3 override — cross-call calc cache ships in v1
+
+§10.3 said "per-call scope only." Q3 answer says **address now**. Updated design:
+
+- `src/data/tactical/calc-cache.ts` exposes a **module-scoped** cache (process-lifetime, in-memory only — no SQLite persistence; that stays Stage-6 §12.1).
+- Cache key: `${our_set_hash}:${panel_set_hash}:${field_hash}` (sha256 of canonical-JSON inputs).
+- Invalidation: a `revalidate(deps)` helper called by both agent-tool handlers and the CLI orchestrator at the start of every overview/pillar/recommend call. It computes:
+  - `current.team_updated_at = userTeams.get(team_id).updated_at`
+  - `current.panel_as_of = threatPanel.as_of`
+  - If different from the cache's `last_seen` for that team/panel, drop only the keys touching the changed inputs.
+- Tests TAC-T33–T35 (cache hit / set mutation invalidates / scope) extend to cover **cross-call** behavior:
+  - **TAC-T33 (revised):** two consecutive `score_pillars` calls for the same `(team, panel_as_of)` → second call hits cache, calc engine called only on the first.
+  - **TAC-T34 (revised):** mutate one set on the team between calls → only the rows touching that set are recomputed; ~85% cache survival.
+  - **New TAC-T35a:** advancing the threat panel `as_of` (new pikalytics snapshot) drops all panel-related entries for every team.
+- Stage-6 §12.8 ("cross-call cache") is **removed** from the deferred list.
+
+Cost: cache is a `Map` on the heap, bounded by `unique_teams × unique_panel_setups × ≤1080` ≈ a few MB at realistic scale. Stage-5 reviewer should check memory bounds + add an LRU eviction stub if `Map.size > 100_000`.
+
+### 16.2 Q5 amendment — speed table supports nature variants
+
+§5.9 + §10.5 said "flat array sorted desc by `usage_weighted_speed = base_spe × usage_pct_normalized`." Q5 answer says species like Garchomp split usage between Jolly and Adamant, and **both natures matter** at distinct speed tiers. Updated design:
+
+- Each `top50.json` entry carries `nature_variants: Array<{nature, share, weighted_speed}>` instead of a single `common_nature`.
+- The flat array sort key remains `usage_weighted_speed` of the **dominant** nature (entry's primary tier), but the speed-pillar scorer uses the variant distribution: the score weights "outspeed dominant Garchomp" by `share` and "outspeed alternate Garchomp" by `1 - share`.
+- Entry shape (zod):
+  ```ts
+  { species_id: string,
+    base_spe: number,
+    usage_pct: number,                      // normalized ~0..1
+    nature_variants: Array<{
+      nature: string,                       // "Jolly" | "Adamant" | …
+      share: number,                        // 0..1, sum to 1.0 across variants
+      weighted_speed: number,               // base_spe × nature_modifier × share
+    }>,
+    primary_weighted_speed: number,         // sort key
+  }
+  ```
+- TAC-T46 extends to assert that for at least one species (e.g. Garchomp) the entry carries ≥ 2 nature variants summing to share=1.0.
+- The speed-table generator (`scripts/data/build-speed-table.ts`) reads pikalytics `*_json` columns to extract per-nature share when available; falls back to single-variant when only one nature appears in the snapshot.
+
+### 16.3 Other answers (no override)
+
+- Q1 (LeadPlan parallel) ✓ as in §3.
+- Q2 (regen goldens on threat-panel change) ✓ — `scripts/data/build-tactical-goldens.ts` already designed for this.
+- Q4 (weakness scenario naming `"vs <species> (counter)"`) ✓ — TAC-T26 will assert the suffix.
+- Q6 (cite `knowledge_chunks` v1) ✓.
+- Q7 (TR setter rule) ✓.
+
+---
+
+**Reviewed-by:** Rodrigo Caballero (2026-05-08, see §15 + §16)
