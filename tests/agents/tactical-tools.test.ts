@@ -67,11 +67,15 @@ describe("tactical agent tool surface (TAC-T41..T43)", () => {
     );
     expect(all.scenarios.length).toBeGreaterThanOrEqual(5);
 
+    // Pick the first scenario that's actually emitted — archetype set is
+    // data-driven now (Sun isn't guaranteed without a Drought setter in
+    // pikalytics). Use the actual name from `all.scenarios[0]`.
+    const targetName = all.scenarios[0]!.name;
     const single = tacticalToolHandlers.recommend_leads(
-      { team_id: "01H000000000000000000000T0", scenario_name: "Sun" },
+      { team_id: "01H000000000000000000000T0", scenario_name: targetName },
       makeDeps(db),
     );
     expect(single.scenarios.length).toBe(1);
-    expect(single.scenarios[0]!.name).toBe("Sun");
+    expect(single.scenarios[0]!.name).toBe(targetName);
   });
 });
