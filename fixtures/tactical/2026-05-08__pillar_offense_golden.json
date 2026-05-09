@@ -1,12 +1,51 @@
 {
   "pillar": "offense",
-  "score": 70,
-  "tier": "Good",
+  "score": 98,
+  "tier": "Strong",
   "evidence": {
-    "top_species": [
-      "incineroar",
-      "amoonguss",
-      "rillaboom"
+    "top": [
+      {
+        "threat": "incineroar",
+        "attacker": "garchomp",
+        "attacker_slot": 0,
+        "best_move": "Earthquake",
+        "ko_chance": 1,
+        "max_roll_pct": 99
+      },
+      {
+        "threat": "garchomp",
+        "attacker": "garchomp",
+        "attacker_slot": 0,
+        "best_move": "Dragon Claw",
+        "ko_chance": 1,
+        "max_roll_pct": 92.8
+      },
+      {
+        "threat": "rotom-wash",
+        "attacker": "tyranitar",
+        "attacker_slot": 1,
+        "best_move": "Stone Edge",
+        "ko_chance": 1,
+        "max_roll_pct": 74.4
+      }
+    ],
+    "worst": [
+      {
+        "threat": "gardevoir",
+        "attacker": "garchomp",
+        "attacker_slot": 0,
+        "best_move": "Earthquake",
+        "ko_chance": 1,
+        "max_roll_pct": 77.3
+      },
+      {
+        "threat": "talonflame",
+        "attacker": "garchomp",
+        "attacker_slot": 0,
+        "best_move": "Stone Edge",
+        "ko_chance": 1,
+        "max_roll_pct": 235.2
+      }
     ]
   }
 }

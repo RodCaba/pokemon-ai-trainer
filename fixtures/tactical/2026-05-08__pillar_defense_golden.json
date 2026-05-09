@@ -1,8 +1,16 @@
 {
   "pillar": "defense",
-  "score": 60,
-  "tier": "OK",
+  "score": 97,
+  "tier": "Strong",
   "evidence": {
-    "weakest_slot": 3
+    "weakest_slot": 4,
+    "ohko_by_threat": {
+      "incineroar": 1,
+      "garchomp": 0.938,
+      "rotom-wash": 1,
+      "tyranitar": 0.892,
+      "gardevoir": 1,
+      "talonflame": 1
+    }
   }
 }
