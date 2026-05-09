@@ -135,12 +135,13 @@ describe("tactical schemas (TAC-T1..T6)", () => {
     ).toThrow();
   });
 
-  it("TAC-T3. ScenarioOverview carries archetype | individual | weakness_counter | meta_team discriminator", () => {
+  it("TAC-T3. ScenarioOverview carries archetype | individual | weakness_counter | meta_team | mirror_match discriminator", () => {
     expect(ScenarioTypeSchema.options).toEqual([
       "archetype",
       "individual",
       "weakness_counter",
       "meta_team",
+      "mirror_match",
     ]);
     const sc = ScenarioOverviewSchema.parse({
       ...VALID_SCENARIO,
