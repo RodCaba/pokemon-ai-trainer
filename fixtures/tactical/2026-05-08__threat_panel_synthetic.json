@@ -9,19 +9,22 @@
       "set": {
         "species_id": "incineroar",
         "level": 50,
-        "ability": "Pressure",
-        "item": "Leftovers",
-        "nature": "Modest",
+        "ability": "Intimidate",
+        "item": "Sitrus Berry",
+        "nature": "Adamant",
         "sps": {
-          "hp": 4,
-          "atk": 0,
+          "hp": 32,
+          "atk": 32,
           "def": 0,
-          "spa": 31,
-          "spd": 0,
-          "spe": 31
+          "spa": 0,
+          "spd": 2,
+          "spe": 0
         },
         "moves": [
-          "Protect"
+          "Flare Blitz",
+          "Knock Off",
+          "Fake Out",
+          "Parting Shot"
         ]
       },
       "source": {
@@ -35,19 +38,22 @@
       "set": {
         "species_id": "amoonguss",
         "level": 50,
-        "ability": "Pressure",
-        "item": "Leftovers",
-        "nature": "Modest",
+        "ability": "Regenerator",
+        "item": "Rocky Helmet",
+        "nature": "Sassy",
         "sps": {
-          "hp": 4,
+          "hp": 32,
           "atk": 0,
-          "def": 0,
-          "spa": 31,
-          "spd": 0,
-          "spe": 31
+          "def": 16,
+          "spa": 0,
+          "spd": 18,
+          "spe": 0
         },
         "moves": [
-          "Protect"
+          "Spore",
+          "Rage Powder",
+          "Sludge Bomb",
+          "Pollen Puff"
         ]
       },
       "source": {
@@ -61,71 +67,22 @@
       "set": {
         "species_id": "rillaboom",
         "level": 50,
-        "ability": "Pressure",
-        "item": "Leftovers",
-        "nature": "Modest",
+        "ability": "Grassy Surge",
+        "item": "Assault Vest",
+        "nature": "Adamant",
         "sps": {
-          "hp": 4,
-          "atk": 0,
+          "hp": 16,
+          "atk": 32,
           "def": 0,
-          "spa": 31,
-          "spd": 0,
-          "spe": 31
+          "spa": 0,
+          "spd": 16,
+          "spe": 2
         },
         "moves": [
-          "Protect"
-        ]
-      },
-      "source": {
-        "type": "pikalytics",
-        "as_of": "2026-05-08"
-      }
-    },
-    {
-      "species_id": "calyrex-shadow",
-      "weight": 0.08999999999999998,
-      "set": {
-        "species_id": "calyrex-shadow",
-        "level": 50,
-        "ability": "Pressure",
-        "item": "Leftovers",
-        "nature": "Modest",
-        "sps": {
-          "hp": 4,
-          "atk": 0,
-          "def": 0,
-          "spa": 31,
-          "spd": 0,
-          "spe": 31
-        },
-        "moves": [
-          "Protect"
-        ]
-      },
-      "source": {
-        "type": "pikalytics",
-        "as_of": "2026-05-08"
-      }
-    },
-    {
-      "species_id": "indeedee-f",
-      "weight": 0.07999999999999999,
-      "set": {
-        "species_id": "indeedee-f",
-        "level": 50,
-        "ability": "Pressure",
-        "item": "Leftovers",
-        "nature": "Modest",
-        "sps": {
-          "hp": 4,
-          "atk": 0,
-          "def": 0,
-          "spa": 31,
-          "spd": 0,
-          "spe": 31
-        },
-        "moves": [
-          "Protect"
+          "Wood Hammer",
+          "Grassy Glide",
+          "U-turn",
+          "Fake Out"
         ]
       },
       "source": {
@@ -135,22 +92,54 @@
     },
     {
       "species_id": "garchomp",
-      "weight": 0.06999999999999999,
+      "weight": 0.08999999999999998,
       "set": {
         "species_id": "garchomp",
         "level": 50,
-        "ability": "Pressure",
-        "item": "Leftovers",
-        "nature": "Modest",
+        "ability": "Rough Skin",
+        "item": "Choice Scarf",
+        "nature": "Jolly",
         "sps": {
-          "hp": 4,
-          "atk": 0,
+          "hp": 0,
+          "atk": 32,
           "def": 0,
-          "spa": 31,
-          "spd": 0,
-          "spe": 31
+          "spa": 0,
+          "spd": 2,
+          "spe": 32
         },
         "moves": [
+          "Earthquake",
+          "Dragon Claw",
+          "Stone Edge",
+          "Iron Head"
+        ]
+      },
+      "source": {
+        "type": "pikalytics",
+        "as_of": "2026-05-08"
+      }
+    },
+    {
+      "species_id": "rotom-wash",
+      "weight": 0.07999999999999999,
+      "set": {
+        "species_id": "rotom-wash",
+        "level": 50,
+        "ability": "Levitate",
+        "item": "Sitrus Berry",
+        "nature": "Modest",
+        "sps": {
+          "hp": 16,
+          "atk": 0,
+          "def": 4,
+          "spa": 32,
+          "spd": 4,
+          "spe": 10
+        },
+        "moves": [
+          "Hydro Pump",
+          "Thunderbolt",
+          "Will-O-Wisp",
           "Protect"
         ]
       },
@@ -160,24 +149,56 @@
       }
     },
     {
-      "species_id": "urshifu-rapid-strike",
+      "species_id": "tyranitar",
+      "weight": 0.06999999999999999,
+      "set": {
+        "species_id": "tyranitar",
+        "level": 50,
+        "ability": "Sand Stream",
+        "item": "Black Glasses",
+        "nature": "Adamant",
+        "sps": {
+          "hp": 16,
+          "atk": 32,
+          "def": 0,
+          "spa": 0,
+          "spd": 16,
+          "spe": 2
+        },
+        "moves": [
+          "Crunch",
+          "Stone Edge",
+          "Earthquake",
+          "Ice Punch"
+        ]
+      },
+      "source": {
+        "type": "pikalytics",
+        "as_of": "2026-05-08"
+      }
+    },
+    {
+      "species_id": "whimsicott",
       "weight": 0.059999999999999984,
       "set": {
-        "species_id": "urshifu-rapid-strike",
+        "species_id": "whimsicott",
         "level": 50,
-        "ability": "Pressure",
-        "item": "Leftovers",
-        "nature": "Modest",
+        "ability": "Prankster",
+        "item": "Focus Sash",
+        "nature": "Timid",
         "sps": {
-          "hp": 4,
+          "hp": 0,
           "atk": 0,
-          "def": 0,
-          "spa": 31,
+          "def": 4,
+          "spa": 32,
           "spd": 0,
-          "spe": 31
+          "spe": 30
         },
         "moves": [
-          "Protect"
+          "Moonblast",
+          "Energy Ball",
+          "Tailwind",
+          "Helping Hand"
         ]
       },
       "source": {
@@ -186,23 +207,26 @@
       }
     },
     {
-      "species_id": "tornadus",
+      "species_id": "excadrill",
       "weight": 0.04999999999999999,
       "set": {
-        "species_id": "tornadus",
+        "species_id": "excadrill",
         "level": 50,
-        "ability": "Pressure",
-        "item": "Leftovers",
-        "nature": "Modest",
+        "ability": "Sand Rush",
+        "item": "Focus Sash",
+        "nature": "Jolly",
         "sps": {
-          "hp": 4,
-          "atk": 0,
+          "hp": 0,
+          "atk": 32,
           "def": 0,
-          "spa": 31,
-          "spd": 0,
-          "spe": 31
+          "spa": 0,
+          "spd": 2,
+          "spe": 32
         },
         "moves": [
+          "Earthquake",
+          "Iron Head",
+          "Rock Slide",
           "Protect"
         ]
       },
@@ -212,23 +236,26 @@
       }
     },
     {
-      "species_id": "landorus-therian",
+      "species_id": "hydreigon",
       "weight": 0.04999999999999999,
       "set": {
-        "species_id": "landorus-therian",
+        "species_id": "hydreigon",
         "level": 50,
-        "ability": "Pressure",
-        "item": "Leftovers",
+        "ability": "Levitate",
+        "item": "Charcoal",
         "nature": "Modest",
         "sps": {
-          "hp": 4,
+          "hp": 0,
           "atk": 0,
           "def": 0,
-          "spa": 31,
-          "spd": 0,
-          "spe": 31
+          "spa": 32,
+          "spd": 2,
+          "spe": 32
         },
         "moves": [
+          "Dark Pulse",
+          "Draco Meteor",
+          "Earth Power",
           "Protect"
         ]
       },
@@ -238,23 +265,26 @@
       }
     },
     {
-      "species_id": "ogerpon-hearthflame",
+      "species_id": "talonflame",
       "weight": 0.04999999999999999,
       "set": {
-        "species_id": "ogerpon-hearthflame",
+        "species_id": "talonflame",
         "level": 50,
-        "ability": "Pressure",
-        "item": "Leftovers",
-        "nature": "Modest",
+        "ability": "Gale Wings",
+        "item": "Charcoal",
+        "nature": "Jolly",
         "sps": {
-          "hp": 4,
-          "atk": 0,
+          "hp": 0,
+          "atk": 32,
           "def": 0,
-          "spa": 31,
-          "spd": 0,
-          "spe": 31
+          "spa": 0,
+          "spd": 2,
+          "spe": 32
         },
         "moves": [
+          "Brave Bird",
+          "Flare Blitz",
+          "U-turn",
           "Protect"
         ]
       },
@@ -264,23 +294,26 @@
       }
     },
     {
-      "species_id": "pelipper",
+      "species_id": "gardevoir",
       "weight": 0.039999999999999994,
       "set": {
-        "species_id": "pelipper",
+        "species_id": "gardevoir",
         "level": 50,
-        "ability": "Pressure",
+        "ability": "Trace",
         "item": "Leftovers",
         "nature": "Modest",
         "sps": {
-          "hp": 4,
+          "hp": 16,
           "atk": 0,
-          "def": 0,
-          "spa": 31,
-          "spd": 0,
-          "spe": 31
+          "def": 4,
+          "spa": 32,
+          "spd": 4,
+          "spe": 10
         },
         "moves": [
+          "Moonblast",
+          "Psychic",
+          "Dazzling Gleam",
           "Protect"
         ]
       },
@@ -295,18 +328,21 @@
       "set": {
         "species_id": "abomasnow",
         "level": 50,
-        "ability": "Pressure",
-        "item": "Leftovers",
+        "ability": "Snow Warning",
+        "item": "Life Orb",
         "nature": "Modest",
         "sps": {
           "hp": 4,
           "atk": 0,
           "def": 0,
-          "spa": 31,
-          "spd": 0,
-          "spe": 31
+          "spa": 32,
+          "spd": 4,
+          "spe": 26
         },
         "moves": [
+          "Blizzard",
+          "Energy Ball",
+          "Ice Shard",
           "Protect"
         ]
       },
@@ -316,23 +352,26 @@
       }
     },
     {
-      "species_id": "iron-hands",
+      "species_id": "pelipper",
       "weight": 0.029999999999999992,
       "set": {
-        "species_id": "iron-hands",
+        "species_id": "pelipper",
         "level": 50,
-        "ability": "Pressure",
-        "item": "Leftovers",
+        "ability": "Drizzle",
+        "item": "Damp Rock",
         "nature": "Modest",
         "sps": {
-          "hp": 4,
+          "hp": 32,
           "atk": 0,
-          "def": 0,
-          "spa": 31,
+          "def": 4,
+          "spa": 30,
           "spd": 0,
-          "spe": 31
+          "spe": 0
         },
         "moves": [
+          "Hurricane",
+          "Hydro Pump",
+          "Tailwind",
           "Protect"
         ]
       },
@@ -347,18 +386,21 @@
       "set": {
         "species_id": "farigiraf",
         "level": 50,
-        "ability": "Pressure",
-        "item": "Leftovers",
-        "nature": "Modest",
+        "ability": "Armor Tail",
+        "item": "Sitrus Berry",
+        "nature": "Sassy",
         "sps": {
-          "hp": 4,
+          "hp": 32,
           "atk": 0,
           "def": 0,
-          "spa": 31,
-          "spd": 0,
-          "spe": 31
+          "spa": 0,
+          "spd": 32,
+          "spe": 0
         },
         "moves": [
+          "Foul Play",
+          "Trick Room",
+          "Helping Hand",
           "Protect"
         ]
       },
@@ -373,19 +415,22 @@
       "set": {
         "species_id": "porygon2",
         "level": 50,
-        "ability": "Pressure",
-        "item": "Leftovers",
-        "nature": "Modest",
+        "ability": "Download",
+        "item": "Eviolite",
+        "nature": "Sassy",
         "sps": {
-          "hp": 4,
+          "hp": 32,
           "atk": 0,
           "def": 0,
-          "spa": 31,
-          "spd": 0,
-          "spe": 31
+          "spa": 26,
+          "spd": 8,
+          "spe": 0
         },
         "moves": [
-          "Protect"
+          "Ice Beam",
+          "Tri Attack",
+          "Recover",
+          "Trick Room"
         ]
       },
       "source": {

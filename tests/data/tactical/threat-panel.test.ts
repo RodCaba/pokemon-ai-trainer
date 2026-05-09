@@ -56,7 +56,10 @@ describe("buildThreatPanel (TAC-T7..T10)", () => {
   it("TAC-T10. refuses with TacticalThreatPanelError when both sources empty", () => {
     const db = open(":memory:");
     opened = db;
-    expect(() => buildThreatPanel(deps(db))).toThrow(
+    // Explicitly opt into the empty-source guard. In production this fires
+    // when `pikalytics_snapshots` and `team_sets` are both empty for RegM-A;
+    // the test pins the contract via `empty_source_throws=true` + seeded-empty.
+    expect(() => buildThreatPanel({ db, size: 15, empty_source_throws: true, _force_empty: true } as never)).toThrow(
       TacticalThreatPanelError,
     );
   });

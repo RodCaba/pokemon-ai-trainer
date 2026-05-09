@@ -1,13 +1,10 @@
 {
   "pillar": "synergy",
-  "score": 55,
-  "tier": "OK",
+  "score": 20,
+  "tier": "Weak",
   "evidence": {
     "archetypes": [
-      "Weather",
-      "Redirection",
-      "Fake Out",
-      "Good Stuff"
+      "Weather"
     ],
     "teammate_component_max": 60,
     "archetype_component_max": 40

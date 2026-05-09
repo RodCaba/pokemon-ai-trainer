@@ -90,7 +90,8 @@ export function scoreDefense(
           };
           const r = calcWithCache(calcCache, input, key, calc);
           if (!r.ok) continue;
-          const max = r.result.max_percent;
+          const max = (r.result as { max_percent?: number }).max_percent;
+          if (typeof max !== "number") continue;
           if (!worst || max > worst.max_roll_pct) {
             worst = {
               attacker_id: threat.species_roster_id,

@@ -55,7 +55,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   }
   const deps = {
     db,
-    calc: { calc: () => ({}) },
+    // Pass empty calc deps so score-offense/defense use the real damage_calc engine.
+    calc: {},
     speed: {},
     synergy: { db },
   };

@@ -6,6 +6,7 @@ import type { Db } from "../../db/open";
 import type { ScenarioOverview } from "../../schemas/tactical";
 import type { UserTeam } from "../../schemas/user-teams";
 import type { CalcCache } from "./calc-cache";
+import type { ScoringTeam, ScoringPanel } from "./scoring-team";
 import { scorePair } from "./score-pair";
 
 export interface RecommendDeps {
@@ -14,6 +15,8 @@ export interface RecommendDeps {
   alpha?: number;
   beta?: number;
   gamma?: number;
+  scoring_team?: ScoringTeam;
+  scoring_panel?: ScoringPanel;
 }
 
 const DEFAULT_SLOT_IDS: ReadonlyArray<string> = [
@@ -32,7 +35,8 @@ function pairs(): Array<[number, number]> {
  * @param team - Our saved team.
  * @param scenario - Scenario skeleton (mutated in-place with picks).
  * @param calcCache - Process-scoped calc cache.
- * @param deps - DB handle + optional knowledge namespace + α/β/γ overrides.
+ * @param deps - DB handle + optional knowledge namespace + α/β/γ overrides
+ *   + optional scoring inputs (production path).
  * @returns The {@link ScenarioOverview} populated with leads / back / rejected
  *          / pair_score / reasoning.
  * @throws Never.
@@ -43,27 +47,57 @@ export function recommendLeads(
   calcCache: CalcCache,
   deps: RecommendDeps,
 ): ScenarioOverview {
-  const teamSets = (team as unknown as { sets?: Array<{ species_roster_id?: string }> }).sets;
+  const teamSets = (team as unknown as { sets?: Array<{ species_roster_id?: string; species_id?: string }> }).sets;
   const slotIds = teamSets && teamSets.length === 6
-    ? teamSets.map((s, i) => s.species_roster_id ?? DEFAULT_SLOT_IDS[i] ?? `slot${i}`)
-    : [...DEFAULT_SLOT_IDS];
+    ? teamSets.map((s, i) => s.species_roster_id ?? s.species_id ?? DEFAULT_SLOT_IDS[i] ?? `slot${i}`)
+    : deps.scoring_team
+      ? deps.scoring_team.sets.map((s, i) => s.species_roster_id ?? DEFAULT_SLOT_IDS[i] ?? `slot${i}`)
+      : [...DEFAULT_SLOT_IDS];
 
-  let bestPair: [number, number] = [0, 1];
-  let bestScore = -Infinity;
+  // Pad to 6 with placeholders so we always have 6 slots to choose from.
+  while (slotIds.length < 6) slotIds.push(`slot${slotIds.length}`);
+
+  // Score each of the 15 pairs. When scoring inputs are present, score-pair
+  // uses the real `damage_calc` engine by default; otherwise the stub.
+  const calcDeps = {
+    ...(deps.scoring_team ? { scoring_team: deps.scoring_team } : { calc: () => ({}) }),
+    ...(deps.scoring_panel ? { scoring_panel: deps.scoring_panel } : {}),
+  };
+
+  const scores: Array<{ pair: [number, number]; score: number }> = [];
   for (const p of pairs()) {
     const remaining = [0, 1, 2, 3, 4, 5].filter((i) => i !== p[0] && i !== p[1]);
     const back: [number, number] = [remaining[0]!, remaining[1]!];
-    const s = scorePair(team, p, back, scenario, calcCache, { calc: () => ({}) });
-    if (s > bestScore) {
-      bestScore = s;
-      bestPair = p;
-    }
+    const s = scorePair(team, p, back, scenario, calcCache, calcDeps);
+    scores.push({ pair: p, score: s });
   }
+  // Pick highest; tie-break by lower pair indices for determinism.
+  scores.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.pair[0] !== b.pair[0]) return a.pair[0] - b.pair[0];
+    return a.pair[1] - b.pair[1];
+  });
+  const best = scores[0]!;
+  const bestPair = best.pair;
+  const bestScore = best.score;
+
+  // Backline = next-best 2 from remaining 4 by individual contribution.
+  // We rank the remaining 4 by "usefulness" — using average score they
+  // achieved across the 5 pairs containing them.
   const remaining = [0, 1, 2, 3, 4, 5].filter((i) => i !== bestPair[0] && i !== bestPair[1]);
-  // Rank remaining 4 by score with each as pseudo-leads (stable ordering).
-  const ranked = remaining.slice().sort((a, b) => a - b);
-  const back: [number, number] = [ranked[0]!, ranked[1]!];
-  const rejected: [number, number] = [ranked[2]!, ranked[3]!];
+  const remainingRanked = remaining.slice().sort((a, b) => {
+    const avg = (idx: number): number => {
+      const involving = scores.filter((s) => s.pair[0] === idx || s.pair[1] === idx);
+      if (involving.length === 0) return 0;
+      return involving.reduce((acc, s) => acc + s.score, 0) / involving.length;
+    };
+    const da = avg(a);
+    const db = avg(b);
+    if (db !== da) return db - da;
+    return a - b;
+  });
+  const back: [number, number] = [remainingRanked[0]!, remainingRanked[1]!];
+  const rejected: [number, number] = [remainingRanked[2]!, remainingRanked[3]!];
 
   const enriched: ScenarioOverview = {
     ...scenario,

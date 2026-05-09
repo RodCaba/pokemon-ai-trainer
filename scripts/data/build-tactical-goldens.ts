@@ -25,9 +25,14 @@ import {
 } from "../../src/data/tactical/scoring-team";
 import { scoreOffense } from "../../src/data/tactical/score-offense";
 import { scoreDefense } from "../../src/data/tactical/score-defense";
+import { scoreSpeed } from "../../src/data/tactical/score-speed";
+import { scoreSynergy } from "../../src/data/tactical/score-synergy";
+import { recommendLeads } from "../../src/data/tactical/recommend-leads";
 import { createCalcCache } from "../../src/data/tactical/calc-cache";
-import type { ThreatPanel } from "../../src/schemas/tactical";
+import { loadSpeedTable } from "../../src/data/tactical/speed-table";
+import type { ThreatPanel, ScenarioOverview } from "../../src/schemas/tactical";
 import type { UserTeam } from "../../src/schemas/user-teams";
+import { open } from "../../src/db/open";
 
 const OUT_DIR = resolve(process.cwd(), "fixtures/tactical");
 
@@ -92,22 +97,49 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     scoring_panel: panel,
   });
 
-  // Speed + Synergy stubs remain neutral (Stage 5b deferred — see plan).
-  const speed = {
-    pillar: "speed",
-    score: 50,
-    tier: "OK",
-    evidence: { tr_inversion_active: false },
-  };
-  const synergy = {
-    pillar: "synergy",
-    score: 55,
-    tier: "OK",
-    evidence: {
-      archetypes: ["Weather", "Redirection", "Fake Out", "Good Stuff"],
-      teammate_component_max: 60,
-      archetype_component_max: 40,
+  // Speed (Stage 5c — real impl).
+  const speedTable = loadSpeedTable();
+  const speed = scoreSpeed(userTeamStub, panelStub, [] as ScenarioOverview[], speedTable, {
+    scoring_team: team,
+    scoring_panel: panel,
+  });
+  // Synergy: needs a Db handle. Use an in-memory empty DB → teammate component
+  // returns 0 (no pikalytics rows); archetype detection works on the team data.
+  const memDb = open(":memory:");
+  const synergy = scoreSynergy(userTeamStub, { db: memDb, scoring_team: team });
+  try { memDb.$client.close(); } catch { /* noop */ }
+
+  // Recommend-leads golden: top pair on a neutral scenario.
+  const cache2 = createCalcCache();
+  const neutralScenario: ScenarioOverview = {
+    name: "neutral",
+    type: "individual",
+    field: {
+      weather: "none", terrain: "none", trick_room: false,
+      tailwind_ours: false, tailwind_theirs: false,
+      light_screen: false, reflect: false, gravity: false,
     },
+    opposing_preview: ["incineroar"],
+    recommended_leads: ["a", "b"],
+    recommended_backline: ["c", "d"],
+    rejected_bench: ["e", "f"],
+    reasoning: "",
+    key_calcs: [],
+    citations: [],
+    pair_score: 0,
+  };
+  const recDb = open(":memory:");
+  const recommended = recommendLeads(userTeamStub, neutralScenario, cache2, {
+    db: recDb,
+    scoring_team: team,
+    scoring_panel: panel,
+  });
+  try { recDb.$client.close(); } catch { /* noop */ }
+  const recommendGolden = {
+    recommended_leads: recommended.recommended_leads,
+    recommended_backline: recommended.recommended_backline,
+    rejected_bench: recommended.rejected_bench,
+    pair_score: recommended.pair_score,
   };
 
   writeIdempotent(
@@ -125,6 +157,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   writeIdempotent(
     resolve(outDir, "2026-05-08__pillar_synergy_golden.json"),
     JSON.stringify(synergy, null, 2) + "\n",
+  );
+  writeIdempotent(
+    resolve(outDir, "2026-05-08__recommend_golden.json"),
+    JSON.stringify(recommendGolden, null, 2) + "\n",
   );
 
   // Synergy archetypes stay (legacy).

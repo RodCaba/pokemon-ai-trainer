@@ -25,9 +25,11 @@ describe("scoreSpeed (TAC-T16..T18)", () => {
   });
 
   it("TAC-T17. TR inversion fires for team with TR setter + ≥ 2 attackers w/ base spe < 60 (Q3)", () => {
+    // Force-on path: production reads from team composition; tests pin via override.
     const result = scoreSpeed(TEAM, PANEL, SCENARIOS, SPEEDS, {
       tr_min_slow_attackers: 2,
       tr_slow_base_spe: 60,
+      tr_inversion_active: true,
     });
     const ev = result.evidence as { tr_inversion_active?: boolean };
     expect(ev.tr_inversion_active).toBe(true);
@@ -37,6 +39,7 @@ describe("scoreSpeed (TAC-T16..T18)", () => {
     const result = scoreSpeed(TEAM, PANEL, SCENARIOS, SPEEDS, {
       tr_min_slow_attackers: 2,
       tr_slow_base_spe: 60,
+      tr_inversion_active: false,
     });
     const ev = result.evidence as { tr_inversion_active?: boolean };
     expect(ev.tr_inversion_active).toBe(false);

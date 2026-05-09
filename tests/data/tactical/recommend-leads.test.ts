@@ -1,8 +1,11 @@
 /**
  * TAC-T28..T30 — recommendLeads exhaustive 15-pair search; α/β/γ defaults.
- * Stage-4 red.
+ * Stage 5c: TAC-T28 tightened to assert against the precomputed golden pair
+ * (regenerated via `scripts/data/build-tactical-goldens.ts`).
  */
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { recommendLeads } from "../../../src/data/tactical/recommend-leads";
 import {
@@ -11,6 +14,11 @@ import {
   GAMMA,
 } from "../../../src/data/tactical/score-pair";
 import { createCalcCache } from "../../../src/data/tactical/calc-cache";
+import {
+  fixtureToScoringTeam,
+  fixtureToScoringPanel,
+  type FixtureSet,
+} from "../../../src/data/tactical/scoring-team";
 import type { ScenarioOverview } from "../../../src/schemas/tactical";
 import type { UserTeam } from "../../../src/schemas/user-teams";
 import { open, type Db } from "../../../src/db/open";
@@ -30,14 +38,66 @@ afterEach(() => {
 const TEAM = {} as UserTeam;
 const SCENARIO = {} as ScenarioOverview;
 
+interface TeamFixture { sets: FixtureSet[] }
+interface PanelFixture { entries: Array<FixtureSet & { weight: number }> }
+
+function loadGoldenInputs(): {
+  team: ReturnType<typeof fixtureToScoringTeam>;
+  panel: ReturnType<typeof fixtureToScoringPanel>;
+  golden: {
+    recommended_leads: [string, string];
+    recommended_backline: [string, string];
+    rejected_bench: [string, string];
+    pair_score: number;
+  };
+} {
+  const teamFx = JSON.parse(
+    readFileSync(resolve("fixtures/tactical/2026-05-08__golden-team.json"), "utf8"),
+  ) as TeamFixture;
+  const panelFx = JSON.parse(
+    readFileSync(resolve("fixtures/tactical/2026-05-08__golden-panel.json"), "utf8"),
+  ) as PanelFixture;
+  const golden = JSON.parse(
+    readFileSync(resolve("fixtures/tactical/2026-05-08__recommend_golden.json"), "utf8"),
+  ) as ReturnType<typeof loadGoldenInputs>["golden"];
+  return {
+    team: fixtureToScoringTeam(teamFx.sets),
+    panel: fixtureToScoringPanel(panelFx.entries),
+    golden,
+  };
+}
+
 describe("recommendLeads (TAC-T28..T30)", () => {
-  it("TAC-T28. exhaustive 15-pair search picks the highest-scoring pair (deterministic)", () => {
+  it("TAC-T28. real-engine 15-pair search picks the golden top pair (exact match)", () => {
     const db = open(":memory:"); opened = db;
     const cache = createCalcCache();
-    const a = recommendLeads(TEAM, SCENARIO, cache, { db });
-    const b = recommendLeads(TEAM, SCENARIO, cache, { db });
-    expect(a.recommended_leads).toEqual(b.recommended_leads);
-    expect(a.pair_score).toEqual(b.pair_score);
+    const { team, panel, golden } = loadGoldenInputs();
+    const neutralScenario: ScenarioOverview = {
+      name: "neutral",
+      type: "individual",
+      field: {
+        weather: "none", terrain: "none", trick_room: false,
+        tailwind_ours: false, tailwind_theirs: false,
+        light_screen: false, reflect: false, gravity: false,
+      },
+      opposing_preview: ["incineroar"],
+      recommended_leads: ["a", "b"],
+      recommended_backline: ["c", "d"],
+      rejected_bench: ["e", "f"],
+      reasoning: "",
+      key_calcs: [],
+      citations: [],
+      pair_score: 0,
+    };
+    const r = recommendLeads(TEAM, neutralScenario, cache, {
+      db,
+      scoring_team: team,
+      scoring_panel: panel,
+    });
+    expect(r.recommended_leads).toEqual(golden.recommended_leads);
+    expect(r.recommended_backline).toEqual(golden.recommended_backline);
+    expect(r.rejected_bench).toEqual(golden.rejected_bench);
+    expect(r.pair_score).toBeCloseTo(golden.pair_score, 6);
   });
 
   it("TAC-T29. back pair = next-best 2 from remaining 4; rejected = remaining 2", () => {

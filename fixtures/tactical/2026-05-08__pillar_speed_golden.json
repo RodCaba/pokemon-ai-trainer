@@ -1,8 +1,11 @@
 {
   "pillar": "speed",
-  "score": 50,
-  "tier": "OK",
+  "score": 80,
+  "tier": "Strong",
   "evidence": {
-    "tr_inversion_active": false
+    "tr_inversion_active": false,
+    "fastest_tier": 151,
+    "outspeed_rate": 80,
+    "outspeed_rate_tailwind": 100
   }
 }

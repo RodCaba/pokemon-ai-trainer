@@ -102,8 +102,10 @@ function runOffenseLoop(
         };
         const r = calcWithCache(cache, input, key, calc);
         if (!r.ok) continue;
-        const max = r.result.max_percent;
-        const ko = r.result.ko_chance.chance;
+        const max = (r.result as { max_percent?: number }).max_percent;
+        const koObj = (r.result as { ko_chance?: { chance?: number } }).ko_chance;
+        if (typeof max !== "number" || !koObj) continue;
+        const ko = typeof koObj.chance === "number" ? koObj.chance : 0;
         if (!best || max > best.max_roll_pct) {
           best = {
             attacker_id: ours.species_roster_id,
