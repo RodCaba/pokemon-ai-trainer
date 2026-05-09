@@ -67,20 +67,50 @@ export interface TacticalToolDeps extends OverviewDeps {
   db: Db;
 }
 
-/** Handler for `score_pillars`. Throws TacticalOverviewError on bad team. */
+import { buildOverview } from "../data/tactical/overview";
+
+/**
+ * Handler for `score_pillars`. Returns the four-pillar bundle for the team.
+ *
+ * @param input - `{ team_id }` from the agent.
+ * @param deps - DB handle + DI bundle.
+ * @returns A {@link ScorePillarsOutput}.
+ * @throws TacticalOverviewError on draft / validation_errors / unknown id.
+ */
 export function handleScorePillars(
-  _input: ScorePillarsInput,
-  _deps: TacticalToolDeps,
+  input: ScorePillarsInput,
+  deps: TacticalToolDeps,
 ): ScorePillarsOutput {
-  throw new Error("not implemented (Stage 5)");
+  const ov = buildOverview(input.team_id, deps);
+  return {
+    team_id: input.team_id,
+    pillars: ov.pillars,
+    threat_panel_as_of: ov.threat_panel_as_of,
+  };
 }
 
-/** Handler for `recommend_leads`. With `scenario_name`, returns one scenario. */
+/**
+ * Handler for `recommend_leads`. Returns one scenario (when `scenario_name`
+ * provided) or all scenarios.
+ *
+ * @param input - `{ team_id, scenario_name? }` from the agent.
+ * @param deps - DB handle + DI bundle.
+ * @returns A {@link RecommendLeadsOutput}.
+ * @throws TacticalOverviewError on draft / validation_errors / unknown id.
+ */
 export function handleRecommendLeads(
-  _input: RecommendLeadsInput,
-  _deps: TacticalToolDeps,
+  input: RecommendLeadsInput,
+  deps: TacticalToolDeps,
 ): RecommendLeadsOutput {
-  throw new Error("not implemented (Stage 5)");
+  const ov = buildOverview(input.team_id, deps);
+  if (input.scenario_name) {
+    const match = ov.scenarios.find((s) => s.name === input.scenario_name);
+    return {
+      team_id: input.team_id,
+      scenarios: match ? [match] : [ov.scenarios[0]!],
+    };
+  }
+  return { team_id: input.team_id, scenarios: ov.scenarios };
 }
 
 /** In-process dispatcher used by tests + the agent loop. */
