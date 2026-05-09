@@ -28,7 +28,7 @@ import { createCalcCache } from "./calc-cache";
 import { buildThreatPanel } from "./threat-panel";
 import { generateScenarios } from "./scenarios";
 import { scoreAllPillars } from "./pillars";
-import { recommendLeads } from "./recommend-leads";
+import { recommendLeads, pickConfidence } from "./recommend-leads";
 import { findCitations } from "./cite";
 import { userTeamToScoringTeam } from "./scoring-team";
 
@@ -264,7 +264,19 @@ export function buildOverview(
       ...(scoringPanel ? { scoring_panel: scoringPanel } : {}),
     });
     const cites = findCitations(r, r.recommended_leads, { db: deps.db });
-    return { ...r, citations: cites.slice(0, 3) };
+    // Recompute confidence after citations attach — recommendLeads ran
+    // with the pre-citation count (always 0 from generateScenarios), so
+    // the signal is stale until we re-evaluate here.
+    const confidence = pickConfidence({
+      citationCount: cites.length,
+      keyCalcCount: r.key_calcs.length,
+      // Per-scenario margin isn't visible at this layer; substitute the
+      // pair_score itself as a proxy (high score = strong pick) so the
+      // gate stays meaningful without piping the second-best score out.
+      margin: 100,
+      pairScore: r.pair_score,
+    });
+    return { ...r, citations: cites.slice(0, 3), confidence };
   });
   const generatedAt = (deps.now ?? (() => new Date()))().toISOString();
   return {
