@@ -101,21 +101,38 @@ function describeScenario(
   );
 }
 
+/** Threat panel entry shape we read for archetype filtering — duck-typed
+ *  so the function still works with `{}`-shaped test fixtures. */
+type PanelEntryLike = {
+  species_id?: string;
+  set?: { ability?: string; moves?: ReadonlyArray<string>; item?: string };
+};
+
 /**
  * Pick the first N species ids from the threat panel; falls back to a small
  * Reg-M-A-legal seed when the panel is empty (test paths). Memory
  * `regulation_m_a_roster.md`: never hardcode SV/VGC species like
  * urshifu-rapid-strike, calyrex-shadow, iron-hands.
+ *
+ * @param panel — The curated threat panel.
+ * @param n — Max ids to return.
+ * @param seed — Fallback ids when the panel doesn't yield enough.
+ * @param accept — Optional predicate to filter panel entries (e.g. "Drizzle
+ *   ability for Rain"). When set, panel entries that fail the predicate
+ *   are skipped before the seed is consulted.
  */
 function previewFromPanel(
   panel: ThreatPanel,
   n: number,
   seed: ReadonlyArray<string>,
+  accept?: (entry: PanelEntryLike) => boolean,
 ): string[] {
   const out: string[] = [];
-  const entries = (panel as { entries?: ReadonlyArray<{ species_id?: string }> }).entries ?? [];
+  const entries = (panel as { entries?: ReadonlyArray<PanelEntryLike> }).entries ?? [];
   for (const e of entries) {
-    if (e.species_id) out.push(e.species_id);
+    if (!e.species_id) continue;
+    if (accept && !accept(e)) continue;
+    out.push(e.species_id);
     if (out.length >= n) break;
   }
   for (const s of seed) {
@@ -123,6 +140,31 @@ function previewFromPanel(
     if (!out.includes(s)) out.push(s);
   }
   return out.slice(0, n);
+}
+
+const SUN_ABILITIES = new Set(["Drought", "Orichalcum Pulse"]);
+const SUN_BENEFICIARIES = new Set(["Chlorophyll", "Solar Power", "Flower Gift"]);
+const RAIN_ABILITIES = new Set(["Drizzle", "Primordial Sea"]);
+const RAIN_BENEFICIARIES = new Set(["Swift Swim", "Rain Dish", "Hydration", "Dry Skin"]);
+const SAND_ABILITIES = new Set(["Sand Stream", "Sand Spit"]);
+const SAND_BENEFICIARIES = new Set(["Sand Rush", "Sand Force", "Sand Veil"]);
+const SNOW_ABILITIES = new Set(["Snow Warning"]);
+const SNOW_BENEFICIARIES = new Set(["Slush Rush", "Snow Cloak", "Ice Body"]);
+
+function fitsArchetype(
+  entry: PanelEntryLike,
+  setterAbilities: ReadonlySet<string>,
+  beneficiaryAbilities: ReadonlySet<string>,
+): boolean {
+  const a = entry.set?.ability ?? "";
+  return setterAbilities.has(a) || beneficiaryAbilities.has(a);
+}
+
+function fitsTrickRoom(entry: PanelEntryLike): boolean {
+  const moves = entry.set?.moves ?? [];
+  return moves.some(
+    (m) => m.toLowerCase().replace(/[^a-z]/g, "") === "trickroom",
+  );
 }
 
 /**
@@ -133,9 +175,30 @@ function previewFromPanel(
  * @throws TacticalScenarioError when fewer than 3 scenarios producible.
  */
 export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
-  const sunSeed = previewFromPanel(deps.panel, 2, ["torkoal", "venusaur"]);
-  const rainSeed = previewFromPanel(deps.panel, 2, ["pelipper", "barraskewda"]);
-  const trSeed = previewFromPanel(deps.panel, 2, ["porygon2", "farigiraf"]);
+  // Archetype previews: filter panel entries by ability / move signal so
+  // a Rain scenario surfaces Pelipper-shaped opponents (not the meta's
+  // most-popular mons regardless of weather). Falls back to the seed when
+  // no panel entry fits — keeps the scenario defensible on a thin panel.
+  const sunSeed = previewFromPanel(
+    deps.panel,
+    2,
+    ["torkoal", "venusaur"],
+    (e) => fitsArchetype(e, SUN_ABILITIES, SUN_BENEFICIARIES),
+  );
+  const rainSeed = previewFromPanel(
+    deps.panel,
+    2,
+    ["pelipper", "barraskewda"],
+    (e) => fitsArchetype(e, RAIN_ABILITIES, RAIN_BENEFICIARIES),
+  );
+  const trSeed = previewFromPanel(
+    deps.panel,
+    2,
+    ["porygon2", "farigiraf"],
+    fitsTrickRoom,
+  );
+  // Individual scenarios: top-usage mons, no archetype filter (we want the
+  // most popular threats regardless of style).
   const indivSeed = previewFromPanel(deps.panel, 4, [
     "incineroar", "amoonguss", "rillaboom", "garchomp",
   ]);
