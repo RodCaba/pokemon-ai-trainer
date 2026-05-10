@@ -4,6 +4,7 @@
  */
 
 import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import {
   InsightSearchArgsSchema,
   InsightSearchHitSchema,
@@ -14,9 +15,9 @@ import type { EmbedClient } from "../tools/knowledge/embed";
 import { createInsightStore } from "../db/insights";
 
 /**
- * Anthropic tool definition for `insights_search`. Stage 5 wires the real
- * input/output JSON schemas via `zod-to-json-schema`; the v1 stub freezes
- * the surface so tests can compile against the constant.
+ * Anthropic tool definition for `insights_search`. The Anthropic SDK
+ * expects a JSON Schema object on `input_schema` (not a zod instance) —
+ * we run `zodToJsonSchema` once and surface the JSON Schema verbatim.
  */
 export const insightsSearchTool = {
   name: "insights_search" as const,
@@ -26,7 +27,9 @@ export const insightsSearchTool = {
     "source URL + timestamp + author. Use when the user asks 'why does the author " +
     "run X?', 'what's the lead plan against Y?', or 'what does the team's creator " +
     "say about matchup Z?'.",
-  input_schema: InsightSearchArgsSchema,
+  input_schema: zodToJsonSchema(InsightSearchArgsSchema, {
+    target: "openApi3",
+  }) as Record<string, unknown>,
   output_schema: z.array(InsightSearchHitSchema),
 };
 

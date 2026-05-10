@@ -122,6 +122,11 @@ interface IngestSummary {
   top_species: string[];
   sample_claims: string[];
   soft_skip_reason: string | null;
+  /** When set, the chunk ingest succeeded but Haiku extraction was
+   *  intentionally skipped (`--no-extract` flag, or `ANTHROPIC_API_KEY`
+   *  not set). Operators see this in the printed summary so they can
+   *  re-run with extraction enabled later. */
+  extraction_skipped_reason?: string;
 }
 
 const EMBEDDING_REF_PREFIX = "knowledge_chunk_embeddings:";
@@ -329,6 +334,11 @@ export async function main(
     }
 
     // 6. Optionally extract + embed insights.
+    if (args.noExtract) {
+      summary.extraction_skipped_reason = "--no-extract flag";
+    } else if (anthropic === undefined) {
+      summary.extraction_skipped_reason = "ANTHROPIC_API_KEY not set";
+    }
     if (!args.noExtract && anthropic !== undefined) {
       const speciesIndex =
         injected?.speciesIndex ?? buildSpeciesIndex(db);
@@ -417,8 +427,9 @@ export async function main(
         }
 
         // Also tag chunks with species pulled from the insights' subject
-        // lists (for citation overlap). Best effort; ignore conflicts and
-        // missing FK targets (some species may not be in the roster yet).
+        // lists (for citation overlap). FK violations are the only
+        // expected failure (species id not yet in roster); narrow the
+        // catch so we don't swallow real I/O errors.
         const insightSpecies = new Set<string>();
         for (const ins of r.insights) {
           for (const p of ins.subjects.pokemon) insightSpecies.add(p);
@@ -430,8 +441,18 @@ export async function main(
           for (const t of insightSpecies) {
             try {
               tagStmt.run(row.id, t);
-            } catch {
-              /* ignore — referenced species may not exist yet in roster */
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : String(e);
+              // Better-sqlite3 wraps FK violations in a SQLITE_CONSTRAINT_*
+              // message — only swallow that specific class, surface anything
+              // else loudly.
+              if (!/FOREIGN KEY|SQLITE_CONSTRAINT/i.test(msg)) {
+                throw e;
+              }
+              // FK violation: species not yet in roster — log + skip.
+              process.stderr.write(
+                `[ingest-youtube] WARN species '${t}' not in roster (skipping tag for ${row.id})\n`,
+              );
             }
           }
         }

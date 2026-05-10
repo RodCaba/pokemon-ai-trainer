@@ -42,6 +42,7 @@ const baseInsight: Insight = {
     extracted_at: "2026-05-09T00:00:00Z",
   },
   embedding_ref: "insight_embeddings:1",
+  chunk_id: null,
 };
 
 describe("youtube-insights schemas (YT-T1..YT-T3)", () => {

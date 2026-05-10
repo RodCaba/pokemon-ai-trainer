@@ -128,13 +128,13 @@ function rowToInsight(
     .filter((s) => s.subject_kind === "archetype")
     .map((s) => s.subject_value);
 
-  // The InsightSchema requires `subjects.pokemon` to be non-empty. For
-  // db rows that have no pokemon subject (e.g. tests that pass empty
-  // subjects), we synthesize from the canonical block in the row's source
-  // claim — but we don't have that. Per the test contract, when subjects
-  // table is empty we fall back to `["unknown"]` for shape compatibility.
-  // This is only hit by tests that check claim_type / confidence filters
-  // without inserting subject rows.
+  // InsightSchema requires `subjects.pokemon` non-empty. Some upsert
+  // call sites (notably tests exercising rank/filter behavior) pass an
+  // empty `subjects` array as a shortcut even though the embedded
+  // `insight.subjects.pokemon` was non-empty at write time. Fall back to
+  // a placeholder rather than throwing — the link table is the source of
+  // truth for subject-filter queries; rowToInsight only reconstructs the
+  // shape for callers reading whole insights.
   const candidatePokemon = pokemon.length > 0 ? pokemon : ["unknown"];
 
   const candidate = {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ROSTER_TOOL_DEFINITIONS, rosterGetTool, rosterSearchTool } from "../../src/db/tool-definitions";
 
-const NAME_PATTERN = /^(roster|items|abilities|moves|tournaments|sets|pokepaste|pikalytics|knowledge)_(list|get|search|has|sets|teams_with|usage|fetch_paste|fetch_species|teammates)$/;
+const NAME_PATTERN = /^(roster|items|abilities|moves|tournaments|sets|pokepaste|pikalytics|knowledge|insights)_(list|get|search|has|sets|teams_with|usage|fetch_paste|fetch_species|teammates)$/;
 
 describe("repo tool definitions (Anthropic SDK)", () => {
   it("1. each accessor exports a tool definition with name matching <repo>_<verb>", () => {
@@ -43,7 +43,10 @@ describe("repo tool definitions (Anthropic SDK)", () => {
   it("4. each input_schema requires `format` (except format-agnostic tools)", () => {
     // `knowledge_search` is format-agnostic — the vgcguide corpus is principle
     // content, not Reg-M-A-specific data. All other tools commit to format.
-    const FORMAT_AGNOSTIC = new Set(["knowledge_search"]);
+    // `insights_search` is implicitly RegM-A-only (Insight.subjects.formats is
+    // a const `["RegM-A"]` tuple) so the tool input schema doesn't need a
+    // `format` discriminator.
+    const FORMAT_AGNOSTIC = new Set(["knowledge_search", "insights_search"]);
     for (const t of ROSTER_TOOL_DEFINITIONS) {
       if (FORMAT_AGNOSTIC.has(t.name)) continue;
       const schema = t.input_schema as { properties?: Record<string, unknown>; required?: string[] };

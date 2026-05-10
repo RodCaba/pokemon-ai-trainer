@@ -61,7 +61,7 @@ export const InsightSchema = z
     claim_type: ClaimTypeSchema,
     subjects: z
       .object({
-        pokemon: z.array(z.string().regex(/^[a-z0-9-]+$/)).min(1),
+        pokemon: z.array(z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/)).min(1),
         moves: z.array(z.string()).optional(),
         items: z.array(z.string()).optional(),
         archetypes: z.array(z.string()).optional(),
@@ -86,7 +86,7 @@ export const InsightSchema = z
      * the v1 stub-store tests; new ingest paths always emit explicit `null`
      * if absent.
      */
-    chunk_id: z.string().min(1).nullable().optional(),
+    chunk_id: z.string().min(1).nullable(),
   })
   .strict();
 
@@ -126,7 +126,7 @@ export const InsightSearchArgsSchema = z
   .object({
     query: z.string().min(1).max(500),
     claim_type: ClaimTypeSchema.optional(),
-    species_id_filter: z.string().regex(/^[a-z0-9-]+$/).optional(),
+    species_id_filter: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/).optional(),
     limit: z.number().int().min(1).max(20).default(5),
   })
   .strict();

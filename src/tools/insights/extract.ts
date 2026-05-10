@@ -234,11 +234,24 @@ export async function extractInsights(
 
   let resp: unknown;
   try {
+    // Prompt cache placement (CLAUDE.md §9): the system block enumerates
+    // the canonical Reg-M-A species roster + claim_type catalog and is
+    // identical across every chunk in a video — and across videos. Wrap
+    // it as a structured-content array with `cache_control: ephemeral`
+    // so we pay the system tokens once per ~5-minute window. Same for the
+    // tool definition. Without this every chunk re-pays the largest part
+    // of the prompt (~1000 tokens × 100s of chunks = real $).
     resp = await deps.anthropic.messages.create({
       model: MODEL_ID,
       max_tokens: 1024,
-      system: buildSystemPrompt(),
-      tools: [tool],
+      system: [
+        {
+          type: "text",
+          text: buildSystemPrompt(),
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+      tools: [{ ...tool, cache_control: { type: "ephemeral" } }],
       tool_choice: { type: "tool", name: "emit_insights" },
       messages: [
         {
