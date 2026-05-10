@@ -84,7 +84,7 @@ describe("tactical schemas (TAC-T1..T6)", () => {
     expect(sc.name).toBe("Sun");
 
     const overview = TeamTacticalOverviewSchema.parse({
-      schema_version: 1,
+      schema_version: 2,
       team_id: "01H000000000000000000000T0",
       generated_at: "2026-05-08T00:00:00Z",
       threat_panel_as_of: "2026-05-08",
@@ -93,6 +93,7 @@ describe("tactical schemas (TAC-T1..T6)", () => {
         defense: { ...pillar, pillar: "defense" },
         speed: { ...pillar, pillar: "speed" },
         synergy: { ...pillar, pillar: "synergy" },
+        support: { ...pillar, pillar: "support" },
       },
       scenarios: [sc, sc, sc, sc, sc],
     });
@@ -120,7 +121,7 @@ describe("tactical schemas (TAC-T1..T6)", () => {
 
     expect(() =>
       TeamTacticalOverviewSchema.parse({
-        schema_version: 1,
+        schema_version: 2,
         team_id: "x",
         generated_at: "2026-05-08T00:00:00Z",
         threat_panel_as_of: "2026-05-08",
@@ -129,6 +130,7 @@ describe("tactical schemas (TAC-T1..T6)", () => {
           defense: { pillar: "defense", score: 0, tier: "Weak", evidence: {} },
           speed: { pillar: "speed", score: 0, tier: "Weak", evidence: {} },
           synergy: { pillar: "synergy", score: 0, tier: "Weak", evidence: {} },
+          support: { pillar: "support", score: 0, tier: "Weak", evidence: {} },
         },
         scenarios: [],
       }),
@@ -154,7 +156,7 @@ describe("tactical schemas (TAC-T1..T6)", () => {
   it("TAC-T4. TeamTacticalOverview.threat_panel_as_of must be ISO date YYYY-MM-DD", () => {
     expect(() =>
       TeamTacticalOverviewSchema.parse({
-        schema_version: 1,
+        schema_version: 2,
         team_id: "x",
         generated_at: "2026-05-08T00:00:00Z",
         threat_panel_as_of: "May 8 2026",
@@ -163,6 +165,7 @@ describe("tactical schemas (TAC-T1..T6)", () => {
           defense: { pillar: "defense", score: 0, tier: "Weak", evidence: {} },
           speed: { pillar: "speed", score: 0, tier: "Weak", evidence: {} },
           synergy: { pillar: "synergy", score: 0, tier: "Weak", evidence: {} },
+          support: { pillar: "support", score: 0, tier: "Weak", evidence: {} },
         },
         scenarios: [VALID_SCENARIO, VALID_SCENARIO, VALID_SCENARIO, VALID_SCENARIO, VALID_SCENARIO],
       }),

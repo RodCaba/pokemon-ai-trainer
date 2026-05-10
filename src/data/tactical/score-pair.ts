@@ -112,12 +112,55 @@ const allHaveSetter = (
  * @returns Lift in -10..+18.
  * @throws Never.
  */
-export function computeSupportLift(_inputs: SupportLiftInputs): number {
-  // Stage 4 stub — Stage 5 wires the plan §3.3 rule table.
-  void anyHas;
-  void allHaveSetter;
-  void SETTER_TAGS;
-  return 0;
+export function computeSupportLift(inputs: SupportLiftInputs): number {
+  const { leadIds, backIds, roleAssignments, scenario } = inputs;
+  let lift = 0;
+  const setterLead = anyHas(leadIds, roleAssignments, [...SETTER_TAGS]);
+  const payoffBack = anyHas(backIds, roleAssignments, ["setup_sweeper", "cleaner"]);
+  if (setterLead && payoffBack) lift += 12;
+
+  // Stage A: structural-lead bonus. The "pure setter + setup_sweeper" lead
+  // pair is the textbook support backbone (Sableye → Archaludon, Pelipper →
+  // Charizard, etc.). It's distinct from the +12 generic-setter rule because
+  // it requires (a) one lead is a setter that carries NO offensive role tag
+  // (setup_sweeper / cleaner / wallbreaker) — i.e. a dedicated supporter
+  // whose contribution is invisible to raw KO scoring, and (b) the other
+  // lead is the setup payoff itself. Without this term, the offense /
+  // speed components consistently outweigh the support combo and the
+  // user-stated lead plan never surfaces in the recommendation.
+  const pureSetterLead = leadIds.some((id) => {
+    const a = roleAssignments.get(id);
+    if (!a) return false;
+    const all = new Set(a.all);
+    const isSetter = [...SETTER_TAGS].some((t) => all.has(t));
+    const isOffensive = all.has("setup_sweeper") || all.has("cleaner") || all.has("wallbreaker");
+    return isSetter && !isOffensive;
+  });
+  const sweeperLead = anyHas(leadIds, roleAssignments, ["setup_sweeper"]);
+  if (pureSetterLead && sweeperLead) lift += 25;
+
+  if (
+    anyHas(leadIds, roleAssignments, ["redirect"]) &&
+    anyHas(backIds, roleAssignments, ["setup_sweeper"])
+  ) {
+    lift += 8;
+  }
+  if (
+    anyHas(leadIds, roleAssignments, ["setup_sweeper"]) &&
+    anyHas(backIds, roleAssignments, ["cleric"])
+  ) {
+    lift += 6;
+  }
+  if (
+    anyHas(leadIds, roleAssignments, ["anti_priority"]) &&
+    scenario.has_priority_threats === true
+  ) {
+    lift += 10;
+  }
+  if (allHaveSetter(leadIds, roleAssignments) && !payoffBack) {
+    lift -= 10;
+  }
+  return lift;
 }
 
 /**
@@ -137,19 +180,36 @@ export function computeSupportLift(_inputs: SupportLiftInputs): number {
 export function scorePair(
   _team: UserTeam,
   leads: [number, number],
-  _back: [number, number],
+  back: [number, number],
   scenario: ScenarioOverview,
   calcCache: CalcCache,
   deps: CalcDeps,
 ): number {
-  if (deps.scoring_team && deps.scoring_panel && deps.scoring_panel.entries.length > 0) {
-    return realScore(leads, scenario, calcCache, deps);
-  }
-  // Deterministic stub for tests with empty inputs.
-  const offense = 70 - leads[0] * 5 - leads[1] * 3;
-  const speed = 50 - leads[1];
-  const defenseLoss = 20 + leads[0];
-  return ALPHA * offense + BETA * speed - GAMMA * defenseLoss;
+  const base = deps.scoring_team && deps.scoring_panel && deps.scoring_panel.entries.length > 0
+    ? realScore(leads, scenario, calcCache, deps)
+    : (() => {
+        // Deterministic stub for tests with empty inputs.
+        const offense = 70 - leads[0] * 5 - leads[1] * 3;
+        const speed = 50 - leads[1];
+        const defenseLoss = 20 + leads[0];
+        return ALPHA * offense + BETA * speed - GAMMA * defenseLoss;
+      })();
+
+  // Stage A: add the signed support_lift term when the orchestrator threaded
+  // role assignments + slot-to-species mapping. Both deps are required —
+  // either alone is a no-op.
+  const slotIds = deps.teamSlotSpeciesIds;
+  const roles = deps.roleAssignments;
+  if (!roles || !slotIds) return base;
+  const leadIds = [slotIds[leads[0]] ?? "", slotIds[leads[1]] ?? ""] as [string, string];
+  const backIds = [slotIds[back[0]] ?? "", slotIds[back[1]] ?? ""] as [string, string];
+  const lift = computeSupportLift({
+    leadIds,
+    backIds,
+    roleAssignments: roles,
+    scenario: scenario as ScenarioOverview & { has_priority_threats?: boolean },
+  });
+  return base + SUPPORT_LIFT_DELTA * lift;
 }
 
 function realScore(

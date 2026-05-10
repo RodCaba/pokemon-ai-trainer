@@ -96,6 +96,7 @@ interface InsightRow {
   extracted_at: string;
   embedding_ref: string;
   chunk_id: string | null;
+  phase_tag: string | null;
 }
 
 const CONFIDENCE_RANK: Record<Confidence, number> = {
@@ -169,7 +170,9 @@ function rowToInsight(
     },
     embedding_ref: row.embedding_ref,
     chunk_id: row.chunk_id,
-    phase_tag: null,
+    phase_tag: (row.phase_tag === "lead" || row.phase_tag === "mid" || row.phase_tag === "late")
+      ? row.phase_tag
+      : null,
   };
 
   return parseOrThrow(InsightSchema, candidate, "insights", row.id);
@@ -285,8 +288,8 @@ export function createInsightStore(
           source_type, source_url, source_author, source_published_at,
           source_excerpt, source_timestamp_seconds,
           extracted_by_model, extracted_by_prompt_version, extracted_at,
-          embedding_ref, chunk_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          embedding_ref, chunk_id, phase_tag
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       const insertSubject = raw.prepare(
         "INSERT OR IGNORE INTO insight_subjects (insight_id, subject_kind, subject_value) VALUES (?, ?, ?)",
@@ -327,6 +330,7 @@ export function createInsightStore(
             ins.extracted_by.extracted_at,
             ref,
             ins.chunk_id ?? null,
+            ins.phase_tag ?? null,
           );
           for (const s of row.subjects) {
             insertSubject.run(s.insight_id, s.subject_kind, s.subject_value);
@@ -356,6 +360,10 @@ export function createInsightStore(
     if (filter.min_confidence !== undefined) {
       const minRank = CONFIDENCE_RANK[filter.min_confidence];
       out = out.filter((r) => CONFIDENCE_RANK[r.confidence] >= minRank);
+    }
+    if (filter.phase_tag !== undefined) {
+      const target: string = filter.phase_tag;
+      out = out.filter((r) => r.phase_tag === target);
     }
     return out;
   }

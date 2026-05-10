@@ -7,7 +7,7 @@ import type { ScenarioOverview } from "../../schemas/tactical";
 import type { UserTeam } from "../../schemas/user-teams";
 import type { CalcCache } from "./calc-cache";
 import type { ScoringTeam, ScoringPanel } from "./scoring-team";
-import { scorePair, collectKeyCalcsForPair } from "./score-pair";
+import { scorePair, collectKeyCalcsForPair, computeSupportLift } from "./score-pair";
 import { TacticalOverviewError } from "../../schemas/errors";
 import type { CalcResultRef } from "../../schemas/tactical";
 
@@ -19,6 +19,10 @@ export interface RecommendDeps {
   gamma?: number;
   scoring_team?: ScoringTeam;
   scoring_panel?: ScoringPanel;
+  /** Stage A: precomputed role assignments threaded from the orchestrator
+   *  so `score-pair` can apply the support_lift term + the scenario can
+   *  surface a non-zero `support_lift`. */
+  roleAssignments?: ReadonlyMap<string, import("../../schemas/tactical").RoleTagAssignment>;
 }
 
 function pairs(): Array<[number, number]> {
@@ -74,6 +78,8 @@ export function recommendLeads(
     db: deps.db,
     ...(deps.scoring_team ? { scoring_team: deps.scoring_team } : { calc: () => ({}) }),
     ...(deps.scoring_panel ? { scoring_panel: deps.scoring_panel } : {}),
+    ...(deps.roleAssignments ? { roleAssignments: deps.roleAssignments } : {}),
+    ...(slotIds.length === 6 ? { teamSlotSpeciesIds: slotIds } : {}),
   };
 
   const scores: Array<{ pair: [number, number]; score: number }> = [];
@@ -129,6 +135,21 @@ export function recommendLeads(
   const lead1 = slotIds[bestPair[1]]!;
   const reasoning = buildReasoning(lead0, lead1, scenario, keyCalcs, bestScore);
 
+  // Stage A: re-compute the support_lift for the winning (leads, back) pair
+  // so we can surface it on the scenario output. `scorePair` already used
+  // the same value internally; recomputing here is constant-time.
+  let support_lift: number | undefined;
+  if (deps.roleAssignments && slotIds.length === 6) {
+    const leadIds = [slotIds[bestPair[0]]!, slotIds[bestPair[1]]!] as [string, string];
+    const backIds = [slotIds[back[0]]!, slotIds[back[1]]!] as [string, string];
+    support_lift = computeSupportLift({
+      leadIds,
+      backIds,
+      roleAssignments: deps.roleAssignments,
+      scenario: scenario as ScenarioOverview & { has_priority_threats?: boolean },
+    });
+  }
+
   const enriched: ScenarioOverview = {
     ...scenario,
     name: scenario.name ?? "scenario",
@@ -158,6 +179,7 @@ export function recommendLeads(
       pairScore: bestScore,
     }),
     description: scenario.description,
+    ...(support_lift !== undefined ? { support_lift } : {}),
   };
   void deps;
   return enriched;

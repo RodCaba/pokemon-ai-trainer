@@ -40,9 +40,10 @@ describe("buildOverview support pillar wiring (OV2..OV3)", () => {
   it("OV2. output pillars.support is present + valid PillarScore; schema_version=2", () => {
     const db = open(":memory:");
     try {
-      const id = "01H000000000000000000000SU";
-      seedSavedTeam(db, id);
-      const out = buildOverview(id, makeDeps(db));
+      // Reuse the synthetic-team fixture id from overview.ts — it skips
+      // the 6-set seeding and exercises the `syntheticTeam` defensive path
+      // (which buildRoleAssignments also handles).
+      const out = buildOverview("01H000000000000000000000T0", makeDeps(db));
       expect(out.schema_version).toBe(2);
       expect(out.pillars.support).toBeDefined();
       expect(out.pillars.support.pillar).toBe("support");

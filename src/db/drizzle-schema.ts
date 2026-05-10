@@ -637,10 +637,18 @@ export const insights = sqliteTable(
     chunkId: text("chunk_id").references(() => knowledgeChunks.id, {
       onDelete: "cascade",
     }),
+    /** Stage A: phase classification ('lead'|'mid'|'late'|NULL). Migration
+     *  0011 added this additively; existing rows survive with NULL. */
+    phaseTag: text("phase_tag"),
   },
   (t) => [
     uniqueIndex("uq_insights_chunk_claim").on(t.chunkId, t.claim),
     index("idx_insights_chunk").on(t.chunkId),
+    index("idx_insights_phase_tag").on(t.phaseTag),
+    check(
+      "insights_phase_tag",
+      sql`${t.phaseTag} IS NULL OR ${t.phaseTag} IN ('lead','mid','late')`,
+    ),
     check("insights_schema_version", sql`${t.schemaVersion} = 1`),
     check("insights_claim_len", sql`length(${t.claim}) BETWEEN 1 AND 280`),
     check(

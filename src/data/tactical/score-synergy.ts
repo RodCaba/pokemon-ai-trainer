@@ -294,11 +294,49 @@ export function scoreSynergy(
   }
   // Archetype component (0..1) — count distinct non-fallback archetypes.
   const archetypeReal = archetypes.filter((a) => a !== "Good Stuff").length;
-  const archetype01 = !haveAnySignal ? 0.55 : Math.min(1, archetypeReal / 2);
+  let archetype01 = !haveAnySignal ? 0.55 : Math.min(1, archetypeReal / 2);
+
+  // Stage A (Q12 (a)+(b)): role coherence lifts the archetype component to
+  // a 0.5 floor (+20 of the 40-pt archetype budget) when (a) ≥1 setter sub-tag
+  // AND (b) ≥1 payoff (setup_sweeper or cleaner) on the team. This rescues
+  // teams whose data_gap penalty buries them despite a coherent role chain
+  // (the ArchaEye failure mode).
+  let role_coherence = false;
+  let coherence_chain: { setter: string; payoff: string; payoff_role: string } | null = null;
+  if (deps.roleAssignments && deps.roleAssignments.size > 0) {
+    const setterTags = new Set<string>([
+      "weather_setter", "speed_control_setter", "screen_setter",
+    ]);
+    const payoffTags = new Set<string>(["setup_sweeper", "cleaner"]);
+    let setterId: string | null = null;
+    let payoff: { id: string; role: string } | null = null;
+    for (const [id, asn] of deps.roleAssignments) {
+      if (setterId === null && asn.all.some((t) => setterTags.has(t))) setterId = id;
+      if (payoff === null) {
+        for (const t of asn.all) {
+          if (payoffTags.has(t)) { payoff = { id, role: t }; break; }
+        }
+      }
+    }
+    if (setterId !== null && payoff !== null) {
+      role_coherence = true;
+      coherence_chain = { setter: setterId, payoff: payoff.id, payoff_role: payoff.role };
+      // +20 floor on the archetype 0..1 component (40-pt budget × 0.5 = +20).
+      archetype01 = Math.max(archetype01, 0.5);
+    }
+  }
 
   let scoreFloat = teammate01 * teammateMax + archetype01 * archetypeMax;
   // Empty test team: keep stable 55 score (preserves old behavior).
   if (!haveAnySignal) scoreFloat = 55;
+  // Role-coherence lifts the score to OK tier (≥ 50) even when teammate
+  // co-occurrence data is sparse. The premise: a setter+payoff backbone is
+  // itself a structural-synergy signal, independent of pikalytics co-occur
+  // (which often misses sub-meta archetypes like screens-rain-stamina).
+  // SY5 + the live ArchaEye success criterion both pin this floor; without
+  // it, the support pillar surfaces the chain but synergy stays "Weak".
+  if (role_coherence) scoreFloat = Math.max(scoreFloat, 50);
+  if (role_coherence && !haveAnySignal) scoreFloat = Math.max(scoreFloat, 55 + 20);
   const score = Math.max(0, Math.min(100, Math.round(scoreFloat)));
 
   const evidence: Record<string, unknown> = {
@@ -307,6 +345,13 @@ export function scoreSynergy(
     archetype_component_max: archetypeMax,
   };
   if (dataGaps.length > 0) evidence.data_gaps = dataGaps;
+  if (deps.roleAssignments && deps.roleAssignments.size > 0) {
+    const role_tags: Record<string, unknown> = {};
+    for (const [k, v] of deps.roleAssignments) role_tags[k] = v;
+    evidence.role_tags = role_tags;
+    evidence.role_coherence = role_coherence;
+    evidence.coherence_chain = coherence_chain;
+  }
 
   return {
     pillar: "synergy",

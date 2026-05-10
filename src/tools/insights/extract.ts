@@ -43,7 +43,8 @@ export interface ExtractInsightsInput {
 export interface ExtractInsightsDeps {
   anthropic: AnthropicClientLike;
   /** Pinned at ship time per Q4 binding. */
-  prompt_version: "v1.0";
+  /** v1.0 (youtube-insights ship) → v1.1 (team-support-pillar adds phase_tag). */
+  prompt_version: "v1.0" | "v1.1";
   clock: () => Date;
   ulid: () => string;
 }
@@ -125,6 +126,13 @@ function emitInsightsToolDefinition(): {
                 enum: ["supports", "refutes", "neutral"],
               },
               source_excerpt: { type: "string", maxLength: 500 },
+              /** Stage A (Q9 binding): optional phase classification.
+               *  Stage B's recommend_team_plan filters by this field.
+               *  Accept enum + null (omitted ⇒ null on the candidate). */
+              phase_tag: {
+                type: ["string", "null"],
+                enum: ["lead", "mid", "late", null],
+              },
             },
           },
         },
@@ -147,6 +155,7 @@ interface RawInsight {
   confidence: Insight["confidence"];
   stance: Insight["stance"];
   source_excerpt: string;
+  phase_tag?: "lead" | "mid" | "late" | null;
 }
 
 interface AnthropicResponseShape {
@@ -204,6 +213,11 @@ function buildSystemPrompt(): string {
     "  5. `source_excerpt` is verbatim from the chunk, ≤500 chars.",
     "  6. Reg M-A has NO Terastallization — never mention Tera in any field.",
     "  7. If the chunk has no salient claims, emit `{ insights: [] }`.",
+    "  8. OPTIONAL: tag `phase_tag` as 'lead' (turn 1–2 setup or lead-pair",
+    "     calls), 'mid' (turn 3–4 pivot/cleric/setup payoff), 'late' (turn",
+    "     5+ revenge / sweep / cleanup), or omit / null when the speaker",
+    "     didn't tie the claim to a specific phase. Stage B's planner uses",
+    "     this; in Stage A it is purely advisory.",
   ].join("\n");
 }
 
@@ -351,9 +365,13 @@ export async function extractInsights(
       // embedding_ref filled in by the store on insert; placeholder here.
       embedding_ref: "insight_embeddings:0",
       chunk_id: input.chunk.id,
-      // Stage A scaffold — Stage 5 wires phase_tag passthrough from
-      // Haiku's emit_insights output. Today the field is always null.
-      phase_tag: null,
+      // Q7 binding: accept any (claim_type, phase_tag) combo at the schema
+      // layer. Coerce missing/invalid emits to null rather than rejecting
+      // — the field is purely advisory in Stage A.
+      phase_tag:
+        raw.phase_tag === "lead" || raw.phase_tag === "mid" || raw.phase_tag === "late"
+          ? raw.phase_tag
+          : null,
     };
 
     const parsed = InsightSchema.safeParse(candidate);
