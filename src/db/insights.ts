@@ -1,102 +1,163 @@
-import type { Insight } from "../schemas/insight";
+import type { Insight, InsightSubjectRow } from "../schemas/insight";
 import { NotImplementedError } from "../schemas/errors";
+import type { Db } from "./open";
+import type { EmbedClient } from "../tools/knowledge/embed";
 
 /**
  * One ranked search result. The future implementation computes `score` as a
  * cosine similarity (0–1, higher = more similar) between the query embedding
- * and the stored insight embedding. v1 freezes the shape so consumers can
- * compile against it; the score field is `0` from the stub.
+ * and the stored insight embedding.
  */
 export interface InsightSearchHit {
   insight: Insight;
   score: number;
 }
 
-/**
- * Options for `InsightStore.search`. Both fields are optional.
- *
- * `filter` scopes the search to a structured subset (intersected with the
- * semantic ranker by the future implementation). `limit` caps result count.
- */
+/** Options for `InsightStore.search`. */
 export interface InsightSearchOptions {
   filter?: InsightSearchFilter;
   limit?: number;
 }
 
-/**
- * Structured predicates for narrowing an Insight search.
- *
- * When the vector tier lands (sqlite-vec or alternative), the implementation will
- * intersect semantic similarity over the embedding column with these predicates.
- */
+/** Structured predicates for narrowing an Insight search. */
 export interface InsightSearchFilter {
-  /** Restrict to Insights whose `subjects.pokemon` includes any of these Showdown ids. */
   pokemon?: string[];
-  /** Restrict to specific claim types (matchup / set / lead / ...). */
   claim_type?: Insight["claim_type"][];
-  /** Restrict to specific source types (youtube / article / tournament / ...). */
   source_type?: Insight["source"]["type"][];
-  /** Minimum confidence ("low" | "medium" | "high"). */
   min_confidence?: Insight["confidence"];
 }
 
-/**
- * The vector-tier repository contract. v1 is interface-only — both methods throw
- * `NotImplementedError`. The shape is frozen so the future ingest tool, lead planner,
- * and YouTube extractor can compile against it today.
- *
- * Implementation lands when the first feature (lead planner or YouTube ingest) needs
- * real semantic retrieval. Default backing store proposal: `sqlite-vec` extension
- * inside the same SQLite file (see flow doc `pokemon-roster-db.md` Q11). LanceDB and
- * Chroma are fallbacks.
- */
-export interface InsightStore {
-  /**
-   * Persist an insight (claim + embedding) so future `search` calls can surface it.
-   *
-   * @param insight — A schema-validated `Insight` (one atomic claim per record).
-   * @throws {NotImplementedError} In v1 — always.
-   */
-  add(insight: Insight): Promise<void>;
+/** Bulk-upsert input row — one insight + its embedding + its subject rows. */
+export interface InsightUpsertRow {
+  insight: Insight;
+  embedding: Float32Array;
+  subjects: InsightSubjectRow[];
+}
 
-  /**
-   * Semantic-similarity search over stored insights, optionally narrowed by
-   * structured predicates.
-   *
-   * @param query — Natural-language query (e.g., `"how do I lead Garchomp into Trick Room"`).
-   * @param options — Optional `{ filter, limit }`. `filter` is intersected with
-   *   the semantic ranker; `limit` caps the result count.
-   * @returns Hits ranked by similarity score (descending). Empty array if the
-   *   store is empty or no candidate matches the filter.
-   * @throws {NotImplementedError} In v1 — always.
-   */
-  search(query: string, options?: InsightSearchOptions): Promise<InsightSearchHit[]>;
+/** `upsertMany` summary — counts inserted vs skipped on `(chunk_id, claim)` collision. */
+export interface InsightUpsertSummary {
+  inserted: number;
+  skipped_duplicate: number;
 }
 
 /**
- * Create the v1 stub `InsightStore`. Both methods throw `NotImplementedError`.
+ * The vector-tier repository contract.
  *
- * **When to use it:** anywhere a feature needs the `InsightStore` shape to compile
- * but isn't ready to write or query embeddings yet (lead planner scaffolding, YouTube
- * extractor scaffolding, integration tests against a future ingest API).
- *
- * @returns An `InsightStore` whose methods unconditionally throw `NotImplementedError`.
- *
- * @example
- *   const store = createInsightStore();
- *   await store.add(myInsight);     // throws NotImplementedError
- *   await store.search("query");     // throws NotImplementedError
+ * v1 stub (no-arg factory) — both `add` and `search` throw `NotImplementedError`.
+ * v2 (db-bound factory, Stage 5) — full impl backed by `insights`,
+ * `insight_subjects`, and the `insight_embeddings` vec0 sidecar.
  */
-export function createInsightStore(): InsightStore {
+export interface InsightStore {
+  /**
+   * Persist an insight. The v1 stub takes only the insight; the v2 (Stage-5)
+   * impl takes the precomputed embedding too. The optional second param keeps
+   * the v1 callers compiling.
+   */
+  add(insight: Insight, embedding?: Float32Array): Promise<void>;
+  /** Semantic-similarity search. */
+  search(query: string, options?: InsightSearchOptions): Promise<InsightSearchHit[]>;
+  /** Bulk transactional upsert (Stage 5). */
+  upsertMany(rows: InsightUpsertRow[]): Promise<InsightUpsertSummary>;
+  /** Insights for a given `knowledge_chunks.id`, in claim order. */
+  listByChunkId(chunkId: string): Promise<Insight[]>;
+  /** Insights whose `source.url` matches a `?v=<videoId>` LIKE filter. */
+  listByVideoId(videoId: string): Promise<Insight[]>;
+  /**
+   * Insights whose `subjects.pokemon` contains the given canonical species id.
+   *
+   * @param speciesId — canonical Showdown id (e.g. `"incineroar"`).
+   * @param opts — optional `{ limit }`; default 50.
+   */
+  listBySpecies(speciesId: string, opts?: { limit?: number }): Promise<Insight[]>;
+}
+
+/** Deps for the db-bound `InsightStore`. */
+export interface InsightStoreDeps {
+  embedClient: EmbedClient;
+}
+
+/**
+ * Create the v1 stub `InsightStore` — every method throws `NotImplementedError`.
+ *
+ * **When to use it:** call sites that need the shape to compile but aren't
+ * ready to query embeddings yet.
+ *
+ * @returns A stub `InsightStore`.
+ */
+export function createInsightStore(): InsightStore;
+/**
+ * Create the db-bound `InsightStore` (Stage 5). v1 stage-4 stub: every method
+ * throws `Error("not implemented (Stage 5)")` so tests fail for the right reason.
+ *
+ * **When to use it:** the real ingest + agent tool surface; pass the open DB
+ * handle and a Voyage embed client.
+ *
+ * @param db — Open Drizzle DB handle.
+ * @param deps — Voyage embed client (required for `search`).
+ */
+export function createInsightStore(db: Db, deps: InsightStoreDeps): InsightStore;
+export function createInsightStore(
+  db?: Db,
+  _deps?: InsightStoreDeps,
+): InsightStore {
+  if (db === undefined) {
+    // v1 stub — kept for back-compat with the existing v1 tests that call
+    // `createInsightStore()` and expect NotImplementedError on `add`/`search`.
+    return {
+      async add(_insight: Insight, _embedding?: Float32Array): Promise<void> {
+        throw new NotImplementedError("InsightStore.add");
+      },
+      async search(
+        _query: string,
+        _options?: InsightSearchOptions,
+      ): Promise<InsightSearchHit[]> {
+        throw new NotImplementedError("InsightStore.search");
+      },
+      async upsertMany(_rows: InsightUpsertRow[]): Promise<InsightUpsertSummary> {
+        throw new NotImplementedError("InsightStore.upsertMany");
+      },
+      async listByChunkId(_chunkId: string): Promise<Insight[]> {
+        throw new NotImplementedError("InsightStore.listByChunkId");
+      },
+      async listByVideoId(_videoId: string): Promise<Insight[]> {
+        throw new NotImplementedError("InsightStore.listByVideoId");
+      },
+      async listBySpecies(
+        _speciesId: string,
+        _opts?: { limit?: number },
+      ): Promise<Insight[]> {
+        throw new NotImplementedError("InsightStore.listBySpecies");
+      },
+    };
+  }
+  // v2 (Stage 5) — db-bound real impl. Stage 4 stub: throw distinctly so tests
+  // fail because BEHAVIOR is missing, not because of import errors.
+  const NI = (method: string): Error =>
+    new Error(`InsightStore.${method}: not implemented (Stage 5)`);
   return {
-    async add(_insight: Insight): Promise<void> {
-      throw new NotImplementedError("InsightStore.add");
+    async add(_insight: Insight, _embedding?: Float32Array): Promise<void> {
+      throw NI("add");
     },
     async search(
       _query: string,
       _options?: InsightSearchOptions,
     ): Promise<InsightSearchHit[]> {
-      throw new NotImplementedError("InsightStore.search");
+      throw NI("search");
+    },
+    async upsertMany(_rows: InsightUpsertRow[]): Promise<InsightUpsertSummary> {
+      throw NI("upsertMany");
+    },
+    async listByChunkId(_chunkId: string): Promise<Insight[]> {
+      throw NI("listByChunkId");
+    },
+    async listByVideoId(_videoId: string): Promise<Insight[]> {
+      throw NI("listByVideoId");
+    },
+    async listBySpecies(
+      _speciesId: string,
+      _opts?: { limit?: number },
+    ): Promise<Insight[]> {
+      throw NI("listBySpecies");
     },
   };
 }

@@ -14,14 +14,31 @@ import { z } from "zod";
 
 const ISODateTime = z.string().datetime({ offset: true });
 const Sha256Hex = z.string().regex(/^sha256:[0-9a-f]{64}$/);
-const SlugStr = z.string().regex(/^[a-z0-9-]+$/);
-const ChunkId = z.string().regex(/^(vgcguide|metavgc):[a-z0-9-]+:\d+$/);
+// Article slug: lowercase + hyphens for vgcguide/metavgc; case-sensitive
+// alphanumeric + `_`/`-` for YouTube video ids.
+const SlugStr = z.string().regex(/^[A-Za-z0-9_-]+$/);
+// YouTube video ids are case-sensitive (mixed alphanumeric + `_`/`-`); legacy
+// vgcguide/metavgc ids are lowercase-with-hyphens. Regex unions both.
+const ChunkId = z.string().regex(/^(vgcguide|metavgc):[a-z0-9-]+:\d+$|^youtube:[A-Za-z0-9_-]+:\d+$/);
 const ArticleSection = z.enum(["intro", "teambuilding", "battling"]);
-const Subtype = z.enum(["battle-replay"]).nullable();
+const Subtype = z.enum(["battle-replay", "youtube-transcript"]).nullable();
 const EmbeddingRef = z.string().regex(/^knowledge_chunk_embeddings:\d+$/);
 
+/**
+ * Per-chunk site-specific metadata bag. Stored on `knowledge_chunks.metadata`
+ * as JSON TEXT (or NULL). YouTube transcript chunks carry
+ * `{ timestamp_start_seconds, timestamp_end_seconds }`. Future sources may
+ * add their own fields. Optional + nullable for backwards compat with
+ * pre-0010 rows.
+ */
+export const KnowledgeChunkMetadataSchema = z
+  .record(z.union([z.string(), z.number(), z.null()]))
+  .nullable()
+  .optional();
+export type KnowledgeChunkMetadata = z.infer<typeof KnowledgeChunkMetadataSchema>;
+
 /** Multi-site discriminator. Plan §19 widened from `"vgcguide"` literal. */
-export const SourceSiteSchema = z.enum(["vgcguide", "metavgc"]);
+export const SourceSiteSchema = z.enum(["vgcguide", "metavgc", "youtube"]);
 export type SourceSite = z.infer<typeof SourceSiteSchema>;
 
 /**
@@ -75,6 +92,7 @@ export const KnowledgeChunkSchema = z
     body_hash: Sha256Hex,
     embedding_ref: EmbeddingRef,
     source: KnowledgeSourceBlockSchema,
+    metadata: KnowledgeChunkMetadataSchema,
   })
   .strict();
 

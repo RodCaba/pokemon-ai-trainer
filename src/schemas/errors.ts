@@ -469,6 +469,57 @@ export class TacticalScenarioError extends TacticalError {}
  */
 export class TacticalCalcEngineError extends TacticalError {}
 
+/**
+ * Base class for failures raised by the `youtube-transcript` wrapper +
+ * watch-page metadata fetch. `kind` discriminates the article-class buckets
+ * used by the ingest catch ladder. See `docs/plans/youtube-insights.md` §8.
+ */
+export class YoutubeFetchError extends Error {
+  override readonly cause?: unknown;
+  readonly video_id: string;
+  readonly kind:
+    | "no_captions"
+    | "disabled"
+    | "private"
+    | "network"
+    | "non_english";
+  constructor(opts: {
+    message?: string;
+    cause?: unknown;
+    video_id: string;
+    kind: YoutubeFetchError["kind"];
+  }) {
+    super(opts.message ?? `youtube fetch failed (${opts.kind}) for ${opts.video_id}`);
+    this.name = "YoutubeFetchError";
+    this.cause = opts.cause;
+    this.video_id = opts.video_id;
+    this.kind = opts.kind;
+  }
+}
+
+/**
+ * Base class for failures raised by `extractInsights`. `kind` discriminates
+ * article-class (`rate_limit`, `schema_violation` — recoverable, log + skip)
+ * from operator-class (`anthropic_error` — fail loud) per plan §8.
+ */
+export class InsightExtractionError extends Error {
+  override readonly cause?: unknown;
+  readonly chunk_id: string;
+  readonly kind: "rate_limit" | "schema_violation" | "anthropic_error";
+  constructor(opts: {
+    message?: string;
+    cause?: unknown;
+    chunk_id: string;
+    kind: InsightExtractionError["kind"];
+  }) {
+    super(opts.message ?? `insight extraction failed (${opts.kind}) for ${opts.chunk_id}`);
+    this.name = "InsightExtractionError";
+    this.cause = opts.cause;
+    this.chunk_id = opts.chunk_id;
+    this.kind = opts.kind;
+  }
+}
+
 export class NotImplementedError extends Error {
   constructor(method: string) {
     super(`v1 stub: ${method} is not yet implemented; vector tier lands in a later milestone`);

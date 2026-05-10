@@ -79,6 +79,55 @@ export const InsightSchema = z
       })
       .strict(),
     embedding_ref: z.string().min(1),
+    /**
+     * FK to `knowledge_chunks.id` for transcript-extracted Insights. `null`
+     * for Insights produced from non-chunked sources (manual notes, future
+     * tournament-result extraction). Optional in v1 for backwards compat with
+     * the v1 stub-store tests; new ingest paths always emit explicit `null`
+     * if absent.
+     */
+    chunk_id: z.string().min(1).nullable().optional(),
+  })
+  .strict();
+
+/** Subject-row kinds tracked by the `insight_subjects` link table. */
+export const InsightSubjectKindSchema = z.enum([
+  "pokemon",
+  "move",
+  "item",
+  "archetype",
+  "format",
+]);
+export type InsightSubjectKind = z.infer<typeof InsightSubjectKindSchema>;
+
+/**
+ * One row of the `insight_subjects` link table — flat shape so
+ * `upsertMany` can take it directly.
+ */
+export const InsightSubjectRowSchema = z
+  .object({
+    insight_id: z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/, "ulid"),
+    subject_kind: InsightSubjectKindSchema,
+    subject_value: z.string().min(1).max(100),
+  })
+  .strict();
+export type InsightSubjectRow = z.infer<typeof InsightSubjectRowSchema>;
+
+/** One ranked `insights_search` hit. */
+export const InsightSearchHitSchema = z
+  .object({
+    insight: InsightSchema,
+    score: z.number().min(0).max(1),
+  })
+  .strict();
+
+/** Input args for the `insights_search` Anthropic tool. */
+export const InsightSearchArgsSchema = z
+  .object({
+    query: z.string().min(1).max(500),
+    claim_type: ClaimTypeSchema.optional(),
+    species_id_filter: z.string().regex(/^[a-z0-9-]+$/).optional(),
+    limit: z.number().int().min(1).max(20).default(5),
   })
   .strict();
 
@@ -87,3 +136,5 @@ export type ClaimType = z.infer<typeof ClaimTypeSchema>;
 export type Confidence = z.infer<typeof ConfidenceSchema>;
 export type Stance = z.infer<typeof StanceSchema>;
 export type InsightSource = z.infer<typeof InsightSourceSchema>;
+export type InsightSearchHit_v2 = z.infer<typeof InsightSearchHitSchema>;
+export type InsightSearchArgs = z.infer<typeof InsightSearchArgsSchema>;
