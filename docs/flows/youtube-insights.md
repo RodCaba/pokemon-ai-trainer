@@ -109,7 +109,11 @@ Reuse:
 
 - `src/db/knowledge.ts` — chunk persistence; just add a new `subtype`
   value `'youtube-transcript'` (already uses `subtype` for `'battle-replay'`).
-- `src/tools/knowledge/embed.ts` — Voyage embedding for transcript chunks.
+- `src/tools/knowledge/embed.ts` — Voyage embedding for transcript chunks
+  AND for extracted Insights (the `claim` field is embedded so the
+  `insights_search` tool can do semantic retrieval over atomic claims).
+  This slice roughly doubles the per-video embedding surface vs an
+  article ingest — still negligible cost (~$0.001 / video).
 - `src/tools/knowledge/chunk.ts` — adapt for transcript-style content
   (windowed-by-time vs section-by-heading) — keep the existing
   article-chunker for vgcguide / metavgc; add a sibling for transcripts.
@@ -179,12 +183,15 @@ Mirrors the existing `knowledge_chunk_embeddings` pattern — 512-dim
 sqlite-vec virtual table holding `Insight.claim` embeddings for
 semantic retrieval.
 
-### 4.4 No changes to `knowledge_chunks`
+### 4.4 Minor changes to `knowledge_chunks`
 
 The transcript chunks land in the existing table. New value for
 `subtype = 'youtube-transcript'` (CHECK widens additively). New value
-for `source_site = 'youtube'` (CHECK widens additively). Extend
-`metadata` JSON column with `timestamp_start_seconds` field.
+for `source_site = 'youtube'` (CHECK widens additively). **Adds a new
+`metadata` JSON TEXT column** (no such column exists today) carrying
+`{ timestamp_start_seconds, timestamp_end_seconds }` for transcript
+chunks; null/empty for article chunks. The schema add is part of
+migration 0010.
 
 ## 5. Insight extraction prompt (sketch)
 
@@ -252,6 +259,12 @@ The two surfaces complement: `knowledge.search` returns the *context*
   filters them.
 - **Channel paywall / age-gate / region-block** → fetch fails; log
   + skip.
+- **`youtube-transcript` package has no documented rate limit.** The
+  endpoint it wraps is undocumented (YouTube's internal caption fetch).
+  v1 self-throttles at **1 RPS** and pins an exact package version
+  (no caret range) to limit blast radius if the upstream wrapper or
+  endpoint changes. First signal of breakage will likely come from the
+  weekly contract test (see plan §14).
 
 ## 9. Success criteria
 
@@ -278,6 +291,11 @@ The two surfaces complement: `knowledge.search` returns the *context*
   channel) — defer; manual ingest only in v1.
 - **Backfill of existing 0 YouTube videos** — there are none today;
   no backfill needed.
+- **Retroactive Insight extraction over existing vgcguide / metavgc
+  chunks.** The 459 article chunks ingested by prior slices could
+  benefit from the same Haiku extraction — adds atomic claims with
+  citation back to the article URL + chunk_id. Tracked as Stage 6
+  deferred TODO in the plan; cost ~$5 one-shot. Out of scope here.
 - **Retroactive insight extraction over vgcguide/metavgc chunks** —
   worth doing, but separate slice. The current slice only extracts
   from YouTube transcripts.

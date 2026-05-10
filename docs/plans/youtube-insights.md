@@ -1096,28 +1096,41 @@ Each will land as an inline `// TODO(stage6-deferred): <slug>` comment in the ci
 The flow doc's nine §11 questions are all bound (Q1–Q9 answered by the user). The plan itself surfaces a handful of additional design decisions where Stage 4 will benefit from explicit reviewer sign-off:
 
 1. **Two parallel vec0 sidecars (knowledge_chunk_embeddings + insight_embeddings) vs one shared sidecar.** §10 argues for two on the basis of embedding-magnitude divergence between paragraph-length chunks and sentence-length claims. Reviewer can vote to consolidate (single sidecar with a `kind` discriminator), but the ranker quality argument is the load-bearing concern. Recommend keep two.
+Answer: Two sidecars, per the plan. The embedding magnitudes are systematically different; mixing degrades cosine ranking quality. The cost of a second sidecar is negligible since the schema and wiring are identical to the existing one.
 
 2. **Insight extraction failure mode for `schema_violation` — retry once or skip immediately?** §2.2 says "skip and count". An alternative: retry with a "your previous response failed validation; please retry with a strictly conformant Insight tool call" follow-up turn. Cost: one extra Haiku call per malformed response (~$0.003). Benefit: rescues borderline outputs. Recommend skip-and-count for v1; reconsider after observing drift rate. Reviewer call.
+Anser. Skip immediately, per the plan. The prompt is explicit and the schema is strict; a retry is unlikely to succeed if the first response fails.
 
 3. **`cite.ts` insight threshold (0.6 cosine).** §2.3 pins the threshold to mirror the existing `knowledge_chunk` threshold. Reviewer may want a different value for insights given the shorter embedding inputs (claims tend to score higher on relevant queries than passages do, all else equal). Recommend pin at 0.6 for v1; revisit when we observe live retrieval.
+Answer: 0.6, per the plan.
 
 4. **`metadata` column on `knowledge_chunks` as JSON TEXT vs typed columns.** §3 / §4 model `metadata` as a JSON TEXT field carrying `{ timestamp_start_seconds, timestamp_end_seconds }`. An alternative: hoist these to typed `timestamp_start_seconds INTEGER` + `timestamp_end_seconds INTEGER` columns directly on `knowledge_chunks`. Trade-off: typed columns are easier to filter/index but force schema churn for every future per-source metadata field; JSON is flexible but inert in SQL. Recommend JSON for v1 since the only consumer is `cite.ts` reading the column verbatim. Reviewer call. (Note: search filters never touch metadata in v1.)
+Answer: JSON TEXT, per the plan. The flexibility is worth it given the unknown future metadata needs of other sources; the SQL inertness is not a problem since `cite.ts` just passes it through.
 
 5. **`insights_search` second tool registration vs widening `knowledge_search`.** §6 argues for two tools. The metavgc precedent (one widened tool with `species_id_filter`) suggests caution. Reviewer may push back. The differentiator is the return-shape divergence (passage vs atomic claim with stance + confidence + claim_type) — these are not interchangeable in agent reasoning. Recommend two.
+Anser: Two tools, per the plan. The return-shape divergence is the key factor; a single tool would force the model to disambiguate at use time, hurting tool-selection quality.
 
 6. **English-only soft-skip vs hard-fail for non-English videos.** §9 + Q9 binding answer is "soft-skip, exit 0, log a failure". Reviewer can vote to hard-fail (exit 1) for non-English to surface mistakes loudly. Recommend soft-skip — the user can mistakenly paste a non-English URL; a hard-fail forces script reruns for an obvious diagnosable case.
+Answer: Soft-skip, per the plan.
 
 7. **`youtube-transcript` package version pin.** §11 says "exact version, not `^1.x`". This is supply-chain hygiene aligned with `vgc-knowledge-base`. Confirm pin discipline with the reviewer; auto-bumping minor versions could break the wrapper without notice.
+Answer: Exact version pin, per the plan.
 
 8. **Should the `chunk-transcript` token cap (500) re-window down on overflow?** §5.2 mentions "single-pass, no recursion needed for current data". A monologue chunk that genuinely needs to be 700 tokens would currently fail the schema CHECK (`chunk_token_count BETWEEN 1 AND 500`). Recommend: if the chunker produces a chunk > 500 tokens, recursively re-window with `window_s / 2`. Add as YT-T11 stretch — alert reviewer.
+Answer: No re-windowing, per the plan. The 500-token cap is a hard limit for v1; if we encounter real-world transcripts that violate it, we can add the re-windowing logic in a later slice.
 
 **Flow-doc gaps surfaced** (recommend updating before Stage 4):
 - Flow §3 mentions "Voyage embedding for transcript chunks"; flow §6 mentions only Haiku cost. The flow should mention that **insights are also embedded via Voyage** (the slice doubles the embedding API surface). Add a one-line note.
+Answer: Add the note in the flow.
 - Flow §4.4 says "extend `metadata` JSON column with `timestamp_start_seconds` field" — but the existing `knowledge_chunks` schema has no `metadata` column today. The plan adds it (§3 + §4). Recommend the flow note this is a schema add, not an extension.
+Answer: Add a note in the flow that the `metadata` column is new.
 - Flow §11 Q5 answer says "distinct field `insights: InsightCitation[]` on `ScenarioOverview`" — the plan adopts this verbatim (§2.3). No gap; documenting for completeness.
+Answer: OK.
 - Flow §11 Q1 cites `youtube-transcript` as "no API key needed". Worth noting in the flow that the package has no documented rate limit and we self-throttle to 1 RPS. Plan §5.1 / §14 #1 documents this; would be useful in the flow's risk section too.
+Answer: Add a note in the flow about the lack of documented rate limit and the self-throttle.
 - Flow §10 lists "Backfill of existing 0 YouTube videos — there are none today; no backfill needed." Plan §12 #6 covers the **retroactive backfill of vgcguide + metavgc** as Stage 6 deferred. The flow could mention this neighboring deferral for completeness.
+Answer: Add a note in the flow about the Stage 6 deferred backfill of vgcguide + metavgc insights.
 
 ---
 
-**Reviewed-by:** _pending_
+**Reviewed-by:** _Rodrigo Caballero_
