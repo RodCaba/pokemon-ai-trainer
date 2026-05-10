@@ -43,6 +43,7 @@ const baseInsight: Insight = {
   },
   embedding_ref: "insight_embeddings:1",
   chunk_id: null,
+  phase_tag: null,
 };
 
 describe("youtube-insights schemas (YT-T1..YT-T3)", () => {

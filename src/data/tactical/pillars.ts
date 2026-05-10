@@ -65,5 +65,14 @@ export function scoreAllPillars(
     defense: scoreDefense(team, panel, calcCache, calcWithScoring),
     speed: scoreSpeed(team, panel, scenarios, speedTable, speedWithScoring),
     synergy: scoreSynergy(team, synergyWithScoring),
+    // Stage A scaffold — Stage 5 wires the deterministic role classifier +
+    // distinct-mechanism formula. Today the support pillar emits a Weak/0
+    // placeholder so the bundle satisfies its 5-pillar shape.
+    support: {
+      pillar: "support",
+      score: 0,
+      tier: "Weak",
+      evidence: {},
+    },
   };
 }

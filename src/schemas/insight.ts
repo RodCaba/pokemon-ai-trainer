@@ -30,6 +30,16 @@ export const ConfidenceSchema = z.enum(["low", "medium", "high"]);
  */
 export const StanceSchema = z.enum(["supports", "refutes", "neutral"]);
 
+/**
+ * Stage A: phase tag for transcript insights. `lead` = turn 1–2 setup /
+ * lead-pair calls; `mid` = turn 3–4 pivot / cleric / setup payoff; `late` =
+ * turn 5+ revenge / sweep / cleanup. `null` (the default) means the speaker
+ * didn't tie the claim to a specific phase. Stage B's plan recommender
+ * filters citations by phase.
+ */
+export const PhaseTagSchema = z.enum(["lead", "mid", "late"]);
+export type PhaseTag = z.infer<typeof PhaseTagSchema>;
+
 export const InsightSourceSchema = z
   .object({
     type: z.enum(["youtube", "article", "tournament", "replay", "user_note"]),
@@ -87,6 +97,10 @@ export const InsightSchema = z
      * if absent.
      */
     chunk_id: z.string().min(1).nullable(),
+    /** Stage A cross-slice add — see `PhaseTagSchema`. `null` when the
+     *  source didn't carry a phase signal. Required (callers pass
+     *  `phase_tag: null` explicitly), mirroring `chunk_id`. */
+    phase_tag: PhaseTagSchema.nullable(),
   })
   .strict();
 
@@ -127,6 +141,9 @@ export const InsightSearchArgsSchema = z
     query: z.string().min(1).max(500),
     claim_type: ClaimTypeSchema.optional(),
     species_id_filter: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/).optional(),
+    /** Stage A: schema-level enum gate. Stage B's `recommend_team_plan`
+     *  is the first consumer; today the parameter is parsed but unused. */
+    phase_tag_filter: PhaseTagSchema.optional(),
     limit: z.number().int().min(1).max(20).default(5),
   })
   .strict();

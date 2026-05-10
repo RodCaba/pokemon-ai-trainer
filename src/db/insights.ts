@@ -45,6 +45,9 @@ export interface InsightSearchFilter {
   claim_type?: Insight["claim_type"][];
   source_type?: Insight["source"]["type"][];
   min_confidence?: Insight["confidence"];
+  /** Stage A: filter by Stage-B phase classification. Stage 5 wires the
+   *  WHERE clause; today the field is accepted but unused. */
+  phase_tag?: NonNullable<Insight["phase_tag"]>;
 }
 
 /** Bulk-upsert input row — one insight + its embedding + its subject rows. */
@@ -166,6 +169,7 @@ function rowToInsight(
     },
     embedding_ref: row.embedding_ref,
     chunk_id: row.chunk_id,
+    phase_tag: null,
   };
 
   return parseOrThrow(InsightSchema, candidate, "insights", row.id);

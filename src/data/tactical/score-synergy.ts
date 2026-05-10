@@ -17,6 +17,10 @@ export interface SynergyDeps {
   archetype_weight?: number;
   /** Optional pre-resolved scoring team (production path). */
   scoring_team?: ScoringTeam;
+  /** Stage A: precomputed role assignments per species_id. When set,
+   *  evidence carries `role_tags` + `role_coherence` + an archetype
+   *  +20 floor when (a)+(b) hold (plan §3.2 + Q12 binding). */
+  roleAssignments?: ReadonlyMap<string, import("../../schemas/tactical").RoleTagAssignment>;
 }
 
 function tierFor(score: number): "Weak" | "OK" | "Good" | "Strong" {

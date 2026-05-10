@@ -351,6 +351,9 @@ export async function extractInsights(
       // embedding_ref filled in by the store on insert; placeholder here.
       embedding_ref: "insight_embeddings:0",
       chunk_id: input.chunk.id,
+      // Stage A scaffold — Stage 5 wires phase_tag passthrough from
+      // Haiku's emit_insights output. Today the field is always null.
+      phase_tag: null,
     };
 
     const parsed = InsightSchema.safeParse(candidate);

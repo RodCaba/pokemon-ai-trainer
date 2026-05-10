@@ -53,6 +53,72 @@ export const ALPHA = 1.0;
 export const BETA = 0.5;
 /** Defense-loss weight (Q6 binding). */
 export const GAMMA = 0.7;
+/** Support-lift weight (Stage A, Q5 binding — calibration follow-up slice). */
+export const SUPPORT_LIFT_DELTA = 1.0;
+
+import type { RoleTag, RoleTagAssignment } from "../../schemas/tactical";
+
+/** Inputs to {@link computeSupportLift}. */
+export interface SupportLiftInputs {
+  leadIds: readonly [string, string];
+  backIds: readonly [string, string];
+  roleAssignments: ReadonlyMap<string, RoleTagAssignment>;
+  scenario: ScenarioOverview & { has_priority_threats?: boolean };
+}
+
+const SETTER_TAGS: ReadonlySet<RoleTag> = new Set([
+  "screen_setter",
+  "speed_control_setter",
+  "weather_setter",
+]);
+
+function tagsOf(
+  id: string,
+  roles: ReadonlyMap<string, RoleTagAssignment>,
+): ReadonlySet<RoleTag> {
+  const a = roles.get(id);
+  return new Set(a?.all ?? []);
+}
+
+const anyHas = (
+  ids: readonly string[],
+  roles: ReadonlyMap<string, RoleTagAssignment>,
+  tags: readonly RoleTag[],
+): boolean =>
+  ids.some((id) => {
+    const set = tagsOf(id, roles);
+    return tags.some((t) => set.has(t));
+  });
+
+const allHaveSetter = (
+  ids: readonly string[],
+  roles: ReadonlyMap<string, RoleTagAssignment>,
+): boolean =>
+  ids.every((id) => {
+    const set = tagsOf(id, roles);
+    return [...set].some((t) => SETTER_TAGS.has(t));
+  });
+
+/**
+ * Compute the signed `support_lift` term added to the pair score.
+ *
+ * **When to use it:** invoked by `scorePair` (when `roleAssignments` is
+ * threaded in via `CalcDeps`) and by Stage B's plan scorer.
+ *
+ * Stage A scaffold returns 0 unconditionally; Stage 5 wires the rule
+ * table verbatim from plan §3.3.
+ *
+ * @param _inputs - Lead + back ids, role map, scenario.
+ * @returns Lift in -10..+18.
+ * @throws Never.
+ */
+export function computeSupportLift(_inputs: SupportLiftInputs): number {
+  // Stage 4 stub — Stage 5 wires the plan §3.3 rule table.
+  void anyHas;
+  void allHaveSetter;
+  void SETTER_TAGS;
+  return 0;
+}
 
 /**
  * Score a single (lead, back) configuration for a scenario.
