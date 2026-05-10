@@ -355,6 +355,11 @@ export async function extractInsights(
 
     const parsed = InsightSchema.safeParse(candidate);
     if (!parsed.success) {
+      if (process.env.YT_DEBUG_REJECTS === "1") {
+        process.stderr.write(
+          `[extract] schema issues: ${JSON.stringify(parsed.error.issues).slice(0, 400)}\n`,
+        );
+      }
       rejected.push({ reason: "schema_violation", raw });
       continue;
     }

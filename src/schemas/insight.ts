@@ -35,7 +35,7 @@ export const InsightSourceSchema = z
     type: z.enum(["youtube", "article", "tournament", "replay", "user_note"]),
     url: z.string().url(),
     author: z.string().min(1).optional(),
-    published_at: z.string().datetime({ offset: false }).optional(),
+    published_at: z.string().datetime({ offset: true }).optional(),
     excerpt: z.string().max(500),
     timestamp_seconds: z.number().int().nonnegative().optional(),
   })

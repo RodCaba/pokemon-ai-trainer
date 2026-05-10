@@ -119,6 +119,7 @@ interface IngestSummary {
   chunks_skipped_existing: number;
   insights_extracted: number;
   insights_rejected: number;
+  rejected_breakdown?: Record<string, number>;
   top_species: string[];
   sample_claims: string[];
   soft_skip_reason: string | null;
@@ -174,7 +175,14 @@ export async function main(
       apiKey: process.env.VOYAGE_API_KEY ?? "",
       model: "voyage-3-lite",
     });
-  const anthropic = injected?.anthropic;
+  const anthropic =
+    injected?.anthropic ??
+    (process.env.ANTHROPIC_API_KEY !== undefined &&
+    process.env.ANTHROPIC_API_KEY.length > 0
+      ? new (await import("@anthropic-ai/sdk")).default({
+          apiKey: process.env.ANTHROPIC_API_KEY,
+        })
+      : undefined);
 
   let summary: IngestSummary = {
     video_id: videoId,
@@ -365,6 +373,7 @@ export async function main(
       const sampleClaims: string[] = [];
       let extracted = 0;
       let rejected = 0;
+      const rejectedBy: Record<string, number> = {};
 
       for (const row of allRows) {
         const chunkMeta =
@@ -390,6 +399,14 @@ export async function main(
           },
         );
         rejected += r.rejected.length;
+        for (const rj of r.rejected) {
+          rejectedBy[rj.reason] = (rejectedBy[rj.reason] ?? 0) + 1;
+          if (process.env.YT_DEBUG_REJECTS === "1") {
+            process.stderr.write(
+              `[ingest-youtube] reject(${rj.reason}): ${JSON.stringify(rj.raw).slice(0, 300)}\n`,
+            );
+          }
+        }
 
         if (r.insights.length === 0) continue;
 
@@ -460,6 +477,7 @@ export async function main(
 
       summary.insights_extracted = extracted;
       summary.insights_rejected = rejected;
+      summary.rejected_breakdown = rejectedBy;
       summary.top_species = Array.from(speciesCount.entries())
         .sort((a, b) => b[1] - a[1])
         .slice(0, 3)
@@ -510,8 +528,11 @@ function report(s: IngestSummary): void {
   }
   process.stdout.write(
     `[youtube] ${s.video_id} chunks=${s.chunks_inserted} (skipped_existing=${s.chunks_skipped_existing}) ` +
-      `insights=${s.insights_extracted} (rejected=${s.insights_rejected}) ` +
-      `top_species=[${s.top_species.join(", ")}]\n`,
+      `insights=${s.insights_extracted} (rejected=${s.insights_rejected}` +
+      (s.rejected_breakdown !== undefined && s.insights_rejected > 0
+        ? ` ${JSON.stringify(s.rejected_breakdown)}`
+        : ``) +
+      `) top_species=[${s.top_species.join(", ")}]\n`,
   );
   for (const c of s.sample_claims) {
     process.stdout.write(`  • ${c}\n`);
