@@ -68,17 +68,43 @@ export interface InsightCiteDeps {
  *   const insights = await findInsightCitations(scenario, ["incineroar"], { db, embedClient });
  */
 export async function findInsightCitations(
-  _scenario: ScenarioOverview,
-  _speciesIds: ReadonlyArray<string>,
-  _deps: InsightCiteDeps,
+  scenario: ScenarioOverview,
+  speciesIds: ReadonlyArray<string>,
+  deps: InsightCiteDeps,
 ): Promise<InsightCitation[]> {
-  // Stage 4 stub — invokes the v2 store which throws "not implemented".
-  // Stage 5 wires the real flow: embed query, search with subject filter,
-  // threshold + map to InsightCitation.
-  void _scenario;
-  void _speciesIds;
-  const _store = createInsightStore(_deps.db, { embedClient: _deps.embedClient });
-  throw new Error("findInsightCitations: not implemented (Stage 5)");
+  const dedupSpecies = Array.from(new Set(speciesIds));
+  if (dedupSpecies.length === 0) return [];
+  const limit = deps.limit ?? 3;
+  const minScore = deps.minScore ?? INSIGHT_CITE_SCORE_THRESHOLD;
+  const store = createInsightStore(deps.db, { embedClient: deps.embedClient });
+
+  // Build a query string from scenario textual content.
+  const queryParts: string[] = [scenario.name];
+  if (scenario.reasoning !== undefined) queryParts.push(scenario.reasoning);
+  if (scenario.description !== undefined) queryParts.push(scenario.description);
+  const query = queryParts.filter((p) => p && p.length > 0).join(" ");
+  if (query.trim().length === 0) return [];
+
+  const hits = await store.search(query, {
+    filter: { pokemon: dedupSpecies },
+    limit: limit * 2, // over-fetch then threshold-filter
+  });
+
+  const out: InsightCitation[] = [];
+  for (const h of hits) {
+    if (h.score < minScore) continue;
+    out.push({
+      insight_id: h.insight.id,
+      claim: h.insight.claim,
+      claim_type: h.insight.claim_type,
+      source_url: h.insight.source.url,
+      source_timestamp_seconds: h.insight.source.timestamp_seconds,
+      source_author: h.insight.source.author,
+      score: h.score,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 /** Repository deps for {@link findCitations}. */

@@ -61,7 +61,7 @@ export const InsightSchema = z
     claim_type: ClaimTypeSchema,
     subjects: z
       .object({
-        pokemon: z.array(z.string().regex(/^[a-z0-9]+$/)).min(1),
+        pokemon: z.array(z.string().regex(/^[a-z0-9-]+$/)).min(1),
         moves: z.array(z.string()).optional(),
         items: z.array(z.string()).optional(),
         archetypes: z.array(z.string()).optional(),

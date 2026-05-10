@@ -1,6 +1,6 @@
 /**
- * Stage 4 stub for the Insight-claim embedding wrapper.
- * Real implementation lands in Stage 5; see `docs/plans/youtube-insights.md` §2.2.
+ * Embed an Insight's `claim` (NOT the source excerpt) via the shared Voyage
+ * client. The claim is the queryable unit per CLAUDE.md §6.
  */
 
 import type { Insight } from "../../schemas/insight";
@@ -12,24 +12,28 @@ export interface EmbedInsightsDeps {
 }
 
 /**
- * Embed each `Insight.claim` (NOT the source excerpt) via the shared Voyage
- * client. The claim is the queryable unit per CLAUDE.md §6.
+ * Embed each insight's `claim` text via Voyage `voyage-3-lite`.
  *
- * **When to use it:** between `extractInsights(...)` and
- * `insightStore.upsertMany(...)` in the ingest loop.
+ * **When to use it:** between {@link extractInsights} and
+ * `insightStore.upsertMany` in the YouTube ingest loop.
  *
- * @param _insights — Insights to embed.
- * @param _deps — Voyage embed client.
+ * @param insights - Insights to embed.
+ * @param deps - Voyage embed client.
  * @returns One Float32Array per insight, aligned with input order.
+ *   Empty array when input is empty (no API call made).
  * @throws {KnowledgeAuthError} Propagated from the embed client.
- * @throws {KnowledgeEmbeddingError} Propagated from the embed client on retry exhaustion.
+ * @throws {KnowledgeEmbeddingError} On retry exhaustion.
  *
  * @example
  *   const vecs = await embedInsights(result.insights, { embedClient });
  */
 export async function embedInsights(
-  _insights: Insight[],
-  _deps: EmbedInsightsDeps,
+  insights: Insight[],
+  deps: EmbedInsightsDeps,
 ): Promise<Float32Array[]> {
-  throw new Error("embedInsights: not implemented (Stage 5)");
+  if (insights.length === 0) return [];
+  return deps.embedClient.embed(
+    insights.map((i) => i.claim),
+    "document",
+  );
 }
