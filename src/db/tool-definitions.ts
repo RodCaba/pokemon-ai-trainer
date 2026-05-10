@@ -1,6 +1,7 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
+import { insightsSearchTool } from "../agents/insights-tools";
 
 // Anthropic SDK tool definitions for the roster / items / abilities / moves repos.
 // Generated from small zod input schemas via `zod-to-json-schema` so the agent's
@@ -492,4 +493,5 @@ export const ROSTER_TOOL_DEFINITIONS: readonly Tool[] = [
   pikalyticsTeammatesTool,
   pikalyticsUsageTool,
   knowledgeSearchTool,
+  insightsSearchTool as unknown as Tool,
 ];

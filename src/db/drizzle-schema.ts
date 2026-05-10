@@ -397,6 +397,10 @@ export const knowledgeChunks = sqliteTable(
     fetchedAt: text("fetched_at").notNull(),
     author: text("author"),
     capturedVia: text("captured_via").notNull(),
+    // Added by migration 0010 — JSON TEXT or NULL. Carries per-source per-chunk
+    // metadata (e.g. { timestamp_start_seconds, timestamp_end_seconds } for
+    // YouTube transcript chunks). See docs/plans/youtube-insights.md §3.
+    metadata: text("metadata"),
   },
   (t) => [
     uniqueIndex("uq_knowledge_article_chunk").on(t.sourceSite, t.articleSlug, t.chunkIndex),
@@ -405,7 +409,7 @@ export const knowledgeChunks = sqliteTable(
     index("idx_knowledge_body_hash").on(t.articleSlug, t.bodyHash),
     check(
       "knowledge_source_site_value",
-      sql`${t.sourceSite} IN ('vgcguide','metavgc')`,
+      sql`${t.sourceSite} IN ('vgcguide','metavgc','youtube')`,
     ),
     check(
       "knowledge_section_value",
@@ -413,7 +417,7 @@ export const knowledgeChunks = sqliteTable(
     ),
     check(
       "knowledge_subtype_value",
-      sql`${t.subtype} IS NULL OR ${t.subtype} = 'battle-replay'`,
+      sql`${t.subtype} IS NULL OR ${t.subtype} IN ('battle-replay','youtube-transcript')`,
     ),
     check(
       "knowledge_token_count_range",
@@ -422,7 +426,7 @@ export const knowledgeChunks = sqliteTable(
     check("knowledge_body_hash_format", sql`${t.bodyHash} GLOB 'sha256:*'`),
     check(
       "knowledge_id_format",
-      sql`${t.id} GLOB 'vgcguide:*' OR ${t.id} GLOB 'metavgc:*'`,
+      sql`${t.id} GLOB 'vgcguide:*' OR ${t.id} GLOB 'metavgc:*' OR ${t.id} GLOB 'youtube:*'`,
     ),
     check(
       "knowledge_embedding_ref_format",
@@ -598,5 +602,90 @@ export const moves = sqliteTable(
     index("idx_moves_display_name_nocase").on(sql`${t.displayName} COLLATE NOCASE`),
     index("idx_moves_type").on(t.type),
     index("idx_moves_category").on(t.category),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// youtube-insights slice (migration 0010 — additive)
+// ---------------------------------------------------------------------------
+
+/**
+ * `insights` — atomic competitive-Pokemon claims extracted from transcript
+ * chunks (and future article corpora). Owned by the `youtube-insights` slice;
+ * see `docs/plans/youtube-insights.md` §3. The vec0 sidecar
+ * `insight_embeddings` is a hand-authored virtual table in migration 0010.
+ */
+export const insights = sqliteTable(
+  "insights",
+  {
+    id: text("id").primaryKey(),
+    schemaVersion: integer("schema_version").notNull(),
+    claim: text("claim").notNull(),
+    claimType: text("claim_type").notNull(),
+    confidence: text("confidence").notNull(),
+    stance: text("stance").notNull(),
+    sourceType: text("source_type").notNull(),
+    sourceUrl: text("source_url").notNull(),
+    sourceAuthor: text("source_author"),
+    sourcePublishedAt: text("source_published_at"),
+    sourceExcerpt: text("source_excerpt").notNull(),
+    sourceTimestampSeconds: integer("source_timestamp_seconds"),
+    extractedByModel: text("extracted_by_model").notNull(),
+    extractedByPromptVersion: text("extracted_by_prompt_version").notNull(),
+    extractedAt: text("extracted_at").notNull(),
+    embeddingRef: text("embedding_ref").notNull(),
+    chunkId: text("chunk_id").references(() => knowledgeChunks.id, {
+      onDelete: "cascade",
+    }),
+  },
+  (t) => [
+    uniqueIndex("uq_insights_chunk_claim").on(t.chunkId, t.claim),
+    index("idx_insights_chunk").on(t.chunkId),
+    check("insights_schema_version", sql`${t.schemaVersion} = 1`),
+    check("insights_claim_len", sql`length(${t.claim}) BETWEEN 1 AND 280`),
+    check(
+      "insights_claim_type",
+      sql`${t.claimType} IN ('matchup','set','lead','meta_trend','tech','counter')`,
+    ),
+    check("insights_confidence", sql`${t.confidence} IN ('low','medium','high')`),
+    check("insights_stance", sql`${t.stance} IN ('supports','refutes','neutral')`),
+    check(
+      "insights_source_type",
+      sql`${t.sourceType} IN ('youtube','article','tournament','replay','user_note')`,
+    ),
+    check("insights_excerpt_len", sql`length(${t.sourceExcerpt}) BETWEEN 0 AND 500`),
+    check(
+      "insights_embedding_ref_format",
+      sql`${t.embeddingRef} GLOB 'insight_embeddings:*'`,
+    ),
+    check(
+      "insights_extracted_at_iso",
+      sql`${t.extractedAt} GLOB '????-??-??T??:??:??*'`,
+    ),
+  ],
+);
+
+/**
+ * `insight_subjects` — link table between an Insight and the canonical
+ * subjects it references (pokemon ids, move names, item names, archetypes,
+ * formats). Composite PK + index on `(subject_kind, subject_value)` for the
+ * `species_id_filter` JOIN on `insights_search`.
+ */
+export const insightSubjects = sqliteTable(
+  "insight_subjects",
+  {
+    insightId: text("insight_id")
+      .notNull()
+      .references(() => insights.id, { onDelete: "cascade" }),
+    subjectKind: text("subject_kind").notNull(),
+    subjectValue: text("subject_value").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.insightId, t.subjectKind, t.subjectValue] }),
+    index("idx_insight_subjects_value").on(t.subjectKind, t.subjectValue),
+    check(
+      "insight_subjects_kind",
+      sql`${t.subjectKind} IN ('pokemon','move','item','archetype','format')`,
+    ),
   ],
 );

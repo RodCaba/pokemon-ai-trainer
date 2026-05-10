@@ -14,6 +14,98 @@ import type {
   ScenarioOverview,
   TacticalCitation,
 } from "../../schemas/tactical";
+import type { EmbedClient } from "../../tools/knowledge/embed";
+import { createInsightStore } from "../../db/insights";
+
+/**
+ * One-line insight citation surfaced on `ScenarioOverview.insights`.
+ *
+ * **When to use it:** the agent quotes `claim` with `source_url`/timestamp
+ * when explaining "why this lead?" / "what does the author say?". Distinct
+ * from `TacticalCitation` (which links to a `knowledge_chunks` paragraph).
+ */
+export interface InsightCitation {
+  insight_id: string;
+  claim: string;
+  claim_type: "matchup" | "set" | "lead" | "meta_trend" | "tech" | "counter";
+  source_url: string;
+  source_timestamp_seconds?: number;
+  source_author?: string;
+  score: number;
+}
+
+/** Threshold cosine score below which insight citations are dropped. */
+export const INSIGHT_CITE_SCORE_THRESHOLD = 0.6;
+
+/** Deps for {@link findInsightCitations}. */
+export interface InsightCiteDeps {
+  db: Db;
+  embedClient: EmbedClient;
+  /** Max insights to return per call. Default 3 per plan §2.3. */
+  limit?: number;
+  /** Score threshold (default {@link INSIGHT_CITE_SCORE_THRESHOLD}). */
+  minScore?: number;
+}
+
+/**
+ * Find ≤ `limit` insights whose `subjects.pokemon` overlap the scenario's
+ * species AND whose cosine similarity to the scenario query meets the
+ * threshold (default 0.6).
+ *
+ * **When to use it:** an additive companion to {@link findCitations}. Surfaces
+ * atomic claim-level citations alongside paragraph-level chunk citations on
+ * `ScenarioOverview.insights`.
+ *
+ * @param _scenario — Scenario context (the `description`/`reasoning` is used
+ *   as the embedding query).
+ * @param _speciesIds — Leads ∪ opposing leads. Empty array → empty result.
+ * @param _deps — DB handle + embed client + optional limit/threshold.
+ * @returns Up to `limit` {@link InsightCitation}s sorted by score descending.
+ *          Empty array on no match or if all candidates fall below threshold.
+ * @throws {RosterDbError} On SQLite I/O failure.
+ *
+ * @example
+ *   const insights = await findInsightCitations(scenario, ["incineroar"], { db, embedClient });
+ */
+export async function findInsightCitations(
+  scenario: ScenarioOverview,
+  speciesIds: ReadonlyArray<string>,
+  deps: InsightCiteDeps,
+): Promise<InsightCitation[]> {
+  const dedupSpecies = Array.from(new Set(speciesIds));
+  if (dedupSpecies.length === 0) return [];
+  const limit = deps.limit ?? 3;
+  const minScore = deps.minScore ?? INSIGHT_CITE_SCORE_THRESHOLD;
+  const store = createInsightStore(deps.db, { embedClient: deps.embedClient });
+
+  // Build a query string from scenario textual content.
+  const queryParts: string[] = [scenario.name];
+  if (scenario.reasoning !== undefined) queryParts.push(scenario.reasoning);
+  if (scenario.description !== undefined) queryParts.push(scenario.description);
+  const query = queryParts.filter((p) => p && p.length > 0).join(" ");
+  if (query.trim().length === 0) return [];
+
+  const hits = await store.search(query, {
+    filter: { pokemon: dedupSpecies },
+    limit: limit * 2, // over-fetch then threshold-filter
+  });
+
+  const out: InsightCitation[] = [];
+  for (const h of hits) {
+    if (h.score < minScore) continue;
+    out.push({
+      insight_id: h.insight.id,
+      claim: h.insight.claim,
+      claim_type: h.insight.claim_type,
+      source_url: h.insight.source.url,
+      source_timestamp_seconds: h.insight.source.timestamp_seconds,
+      source_author: h.insight.source.author,
+      score: h.score,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
 
 /** Repository deps for {@link findCitations}. */
 export interface CiteDeps {

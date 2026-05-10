@@ -22,6 +22,7 @@ const validInsight: Insight = {
     extracted_at: "2026-05-04T00:00:00Z",
   },
   embedding_ref: "vec_garchomp_lead_001",
+  chunk_id: null,
 };
 
 describe("insights — v1 stub", () => {

@@ -17,7 +17,8 @@
     "data:user-teams": "tsx scripts/data/user-teams.ts",
     "data:tactical": "tsx scripts/data/tactical.ts",
     "data:build:speed-table": "tsx scripts/data/build-speed-table.ts",
-    "data:build:tactical-goldens": "tsx scripts/data/build-tactical-goldens.ts"
+    "data:build:tactical-goldens": "tsx scripts/data/build-tactical-goldens.ts",
+    "data:ingest:youtube": "tsx scripts/data/ingest-youtube.ts"
   },
   "dependencies": {
     "@anthropic-ai/tokenizer": "^0.0.4",
@@ -29,6 +30,7 @@
     "domhandler": "^5.0.3",
     "drizzle-orm": "^0.45.2",
     "sqlite-vec": "^0.1.9",
+    "youtube-transcript": "1.3.1",
     "zod": "^3.23.0",
     "zod-to-json-schema": "^3.22.0"
   },
