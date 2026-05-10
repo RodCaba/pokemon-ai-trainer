@@ -9,7 +9,7 @@
  * Reg-M-A note (memory `regulation_m_a_no_tera.md`): no rule mentions Tera.
  */
 
-import type { RoleTag, RoleTagAssignment } from "../../schemas/tactical";
+import type { RoleTag, RoleTagAssignment, WeatherKind } from "../../schemas/tactical";
 
 /** Per-set inputs for {@link deriveRoleTags}. */
 export interface RoleTagInput {
@@ -53,6 +53,33 @@ const SETUP_MOVES = [
 ];
 const SETUP_ABILITIES = ["stamina", "defiant", "justified", "beast boost"];
 const ANTI_PRIORITY_ABILITIES = ["armor tail", "dazzling", "queenly majesty"];
+
+// Weather sub-classification (Q12(c) plan-deferred → shipped here):
+// which weather a `weather_setter` brings, and which weather a charging
+// move's charge-skip condition requires.
+const WEATHER_MOVE_TO_KIND: Record<string, WeatherKind> = {
+  "rain dance": "rain",
+  "sunny day": "sun",
+  "sandstorm": "sand",
+  "snowscape": "snow",
+};
+const WEATHER_ABILITY_TO_KIND: Record<string, WeatherKind> = {
+  "drizzle": "rain",
+  "drought": "sun",
+  "sand stream": "sand",
+  "snow warning": "snow",
+};
+/** Charging moves whose 2-turn cost is bypassed under the named weather.
+ *  Conservative list — "incidentally rain-buffed" moves like Hurricane and
+ *  Thunder are excluded because they're useful outside rain too. The bar
+ *  is: would the user FEEL the move was wasted when paired with the
+ *  wrong weather (or no weather)? Electro Shot, Solar Beam, Solar Blade
+ *  meet that bar; Hurricane / Thunder don't. */
+const CHARGING_MOVE_TO_WEATHER: Record<string, WeatherKind> = {
+  "electro shot": "rain",
+  "solar beam": "sun",
+  "solar blade": "sun",
+};
 
 const SUPPORT_MOVES_ALL = new Set<string>([
   ...SCREEN_MOVES, ...SPEED_CONTROL_MOVES, ...WEATHER_MOVES,
@@ -182,13 +209,38 @@ export function deriveRoleTags(
     tags.push("anti_priority");
   }
 
-  if (tags.length === 0) {
-    return { primary: "untagged", all: ["untagged"] };
+  // Detect weather pairing data (independent of role tag presence).
+  let weather_provided: WeatherKind | undefined;
+  for (const m of moveSet) {
+    const k = WEATHER_MOVE_TO_KIND[m];
+    if (k !== undefined) { weather_provided = k; break; }
+  }
+  if (weather_provided === undefined && ability !== null) {
+    const k = WEATHER_ABILITY_TO_KIND[ability];
+    if (k !== undefined) weather_provided = k;
+  }
+  let weather_dependency: WeatherKind | undefined;
+  for (const m of moveSet) {
+    const k = CHARGING_MOVE_TO_WEATHER[m];
+    if (k !== undefined) { weather_dependency = k; break; }
   }
 
-  // Sort by priority (lower index = higher priority).
+  if (tags.length === 0) {
+    return {
+      primary: "untagged",
+      all: ["untagged"],
+      ...(weather_provided !== undefined ? { weather_provided } : {}),
+      ...(weather_dependency !== undefined ? { weather_dependency } : {}),
+    };
+  }
+
   const sorted = sortByPriority(tags);
-  return { primary: sorted[0]!, all: sorted };
+  return {
+    primary: sorted[0]!,
+    all: sorted,
+    ...(weather_provided !== undefined ? { weather_provided } : {}),
+    ...(weather_dependency !== undefined ? { weather_dependency } : {}),
+  };
 }
 
 function damagingMoveCount(moveSet: ReadonlySet<string>): number {

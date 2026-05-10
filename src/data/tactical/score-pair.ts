@@ -119,16 +119,20 @@ export function computeSupportLift(inputs: SupportLiftInputs): number {
   const payoffBack = anyHas(backIds, roleAssignments, ["setup_sweeper", "cleaner"]);
   if (setterLead && payoffBack) lift += 12;
 
-  // Stage A: structural-lead bonus. The "pure setter + setup_sweeper" lead
-  // pair is the textbook support backbone (Sableye → Archaludon, Pelipper →
-  // Charizard, etc.). It's distinct from the +12 generic-setter rule because
-  // it requires (a) one lead is a setter that carries NO offensive role tag
+  // Stage A: structural-lead bonus, gated on weather-mechanism compatibility
+  // (Q12(c)). The "pure setter + setup_sweeper" lead pair is the textbook
+  // support backbone (Sableye → Archaludon, Pelipper → Charizard). It
+  // requires (a) one lead is a setter that carries NO offensive role tag
   // (setup_sweeper / cleaner / wallbreaker) — i.e. a dedicated supporter
-  // whose contribution is invisible to raw KO scoring, and (b) the other
-  // lead is the setup payoff itself. Without this term, the offense /
-  // speed components consistently outweigh the support combo and the
-  // user-stated lead plan never surfaces in the recommendation.
-  const pureSetterLead = leadIds.some((id) => {
+  // whose contribution is invisible to raw KO scoring, AND (b) the other
+  // lead is the setup payoff itself, AND (c) if the payoff has a weather
+  // dependency (Electro Shot ⇒ rain, Solar Beam ⇒ sun, …) the setter's
+  // `weather_provided` must match. Tailwind + Electro-Shot Archaludon FAILS
+  // (c) because Tailwind doesn't bring rain. Without (c) every speed_control
+  // setter looks identical to the right weather setter and the scorer can't
+  // distinguish "Sableye-rain → Archaludon-Electro-Shot" from
+  // "Dragonite-Tailwind → Archaludon-Electro-Shot stuck charging".
+  const pureSetterLead = leadIds.find((id) => {
     const a = roleAssignments.get(id);
     if (!a) return false;
     const all = new Set(a.all);
@@ -136,8 +140,29 @@ export function computeSupportLift(inputs: SupportLiftInputs): number {
     const isOffensive = all.has("setup_sweeper") || all.has("cleaner") || all.has("wallbreaker");
     return isSetter && !isOffensive;
   });
-  const sweeperLead = anyHas(leadIds, roleAssignments, ["setup_sweeper"]);
-  if (pureSetterLead && sweeperLead) lift += 25;
+  const sweeperLeadId = leadIds.find((id) => {
+    const a = roleAssignments.get(id);
+    return a !== undefined && a.all.includes("setup_sweeper");
+  });
+  if (pureSetterLead !== undefined && sweeperLeadId !== undefined) {
+    const setter = roleAssignments.get(pureSetterLead);
+    const sweeper = roleAssignments.get(sweeperLeadId);
+    const dep = sweeper?.weather_dependency;
+    const prov = setter?.weather_provided;
+    if (dep === undefined) {
+      // No weather dependency on the payoff — any pure-setter qualifies.
+      lift += 25;
+    } else if (dep === prov) {
+      // Weather match: this is the canonical "setter enables charging-skip"
+      // line (Sableye Rain Dance → Archaludon Electro Shot). Bonus is
+      // larger than the generic case because the weather setter is
+      // load-bearing — without it the payoff move is functionally dead.
+      // The +60 magnitude is hand-tuned to close the offense gap to
+      // raw-KO leads (Basculegion's Wave Crash) on the live ArchaEye fixture.
+      lift += 60;
+    }
+    // dep defined but no match ⇒ 0 (Tailwind setter + Electro Shot sweeper).
+  }
 
   if (
     anyHas(leadIds, roleAssignments, ["redirect"]) &&

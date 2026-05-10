@@ -118,11 +118,26 @@ export const RoleTagSchema = z.enum([
 ]);
 export type RoleTag = z.infer<typeof RoleTagSchema>;
 
-/** Per-set role assignment: the highest-priority `primary` + every tag that hit. */
+/** Weather a set brings (Rain Dance, Drizzle, etc.) or depends on
+ *  (Electro Shot's 1-turn-in-rain, Solar Beam's 1-turn-in-sun, etc.). */
+export const WeatherKindSchema = z.enum(["rain", "sun", "sand", "snow"]);
+export type WeatherKind = z.infer<typeof WeatherKindSchema>;
+
+/** Per-set role assignment: the highest-priority `primary` + every tag that
+ *  hit. Optional weather pairing data lets the support_lift scorer match a
+ *  rain-bringer to a rain-dependent payoff (Sableye Rain Dance →
+ *  Archaludon Electro Shot) instead of treating all setters as
+ *  interchangeable (plan §12 Q12(c) — mechanism compatibility). */
 export const RoleTagAssignmentSchema = z
   .object({
     primary: RoleTagSchema,
     all: z.array(RoleTagSchema).min(1),
+    /** Set when the role classifier detects a weather move/ability that
+     *  brings this weather to the field. */
+    weather_provided: WeatherKindSchema.optional(),
+    /** Set when the role classifier detects a charging move whose
+     *  charge-skip condition is this weather (e.g. Electro Shot in rain). */
+    weather_dependency: WeatherKindSchema.optional(),
   })
   .strict();
 export type RoleTagAssignment = z.infer<typeof RoleTagAssignmentSchema>;
