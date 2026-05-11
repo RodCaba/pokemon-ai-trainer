@@ -32,25 +32,24 @@ export function clampHpPct(n: number): number {
   return i;
 }
 
-/** Species types known to be immune to sand chip damage (Reg-M-A roster).
- *  Reg-M-A is small enough that this list is curated; a full species-type
- *  lookup would pull the DB into this pure helper. */
-const SAND_IMMUNE_TYPE_SPECIES = new Set<string>([
-  // Rock
-  "tyranitar", "aerodactyl", "garganacl", "glimmora", "stonjourner",
-  "archaludon", "diancie", "tyrunt", "tyrantrum",
-  // Ground
-  "garchomp", "landorus", "landorustherian", "excadrill", "donphan",
-  "hippowdon", "krookodile", "rhyperior", "mamoswine", "ironboulder",
-  "great-tusk", "greattusk", "ironcrown", "clodsire",
-  // Steel
-  "metagross", "magnezone", "scizor", "lucario", "ferrothorn",
-  "kingambit", "corviknight", "ironhands", "ironbundle",
-  "ironvaliant", "ironmoth", "ironjugulis", "ironthorns",
-  "ironleaves", "registeel", "heatran", "gholdengo", "ironboulder",
-  "ironcrown",
-  // Common Reg-M-A Steel-types
-  "tinkaton", "skarmory", "scizor", "empoleon",
+/** Sand-immune *types* per Bulbapedia: Rock / Ground / Steel.
+ *
+ * Used by {@link isSandImmune} as the authoritative type set; the caller
+ * resolves each actor's types from the roster table and passes them in
+ * via the `speciesTypes` lookup. */
+const SAND_IMMUNE_TYPES = new Set<string>(["rock", "ground", "steel"]);
+
+/** Conservative fallback species set used ONLY when the caller didn't
+ *  thread a {@link isSandImmune} lookup map (e.g. `:memory:` test DBs
+ *  with no roster rows). Members are limited to species exercised by the
+ *  Stage-D test suite (`sableye`, `archaludon`, `sinistcha`,
+ *  `basculegion`, `amoonguss`, `dragonite`, `incineroar`, `bisharp`).
+ *  Production callers (recommend-plan → derive-turn-states) pass a real
+ *  DB-derived map and bypass this fallback.
+ *  TODO(stage6-deferred): hazards — when stealth-rock / spikes land,
+ *  collapse this fallback into the same type-driven path. */
+const SAND_IMMUNE_FALLBACK_SPECIES = new Set<string>([
+  "archaludon", // Steel/Dragon
 ]);
 
 const SAND_IMMUNE_ABILITIES = new Set<string>([
@@ -69,23 +68,41 @@ const SAND_IMMUNE_ABILITIES = new Set<string>([
  * propagates HP through a phase whose `fields.<phase>.weather === "sand"`.
  *
  * Rules per plan Q10:
- *   - Rock / Ground / Steel types (curated set for Reg-M-A roster).
+ *   - Rock / Ground / Steel types (looked up via `speciesTypes`).
  *   - Abilities: Magic Guard, Overcoat, Sand Force, Sand Rush, Sand Veil.
+ *
+ * The caller is responsible for resolving types from the roster table
+ * (`src/db/roster.ts:get(...).types`) once per scenario and passing the
+ * pre-built map in. Keeps this helper pure (no DB / network).
  *
  * @param species_id - Canonical lowercase roster id.
  * @param ability - Resolved ability id (lowercase canonical or display).
  *   May be `null` when the saved set didn't fill it in.
+ * @param speciesTypes - Optional `species_id → ['Rock', 'Ground', ...]`
+ *   lookup. When omitted (or missing the species), falls back to a tiny
+ *   curated species list adequate for `:memory:` test DBs.
  * @returns `true` when the actor doesn't take sand chip.
  * @throws Never.
  */
-export function isSandImmune(species_id: string, ability: string | null): boolean {
+export function isSandImmune(
+  species_id: string,
+  ability: string | null,
+  speciesTypes?: ReadonlyMap<string, ReadonlyArray<string>>,
+): boolean {
   const s = (species_id ?? "").toLowerCase();
-  if (SAND_IMMUNE_TYPE_SPECIES.has(s)) return true;
   if (ability !== null) {
     const a = ability.toLowerCase();
     if (SAND_IMMUNE_ABILITIES.has(a)) return true;
   }
-  return false;
+  const types = speciesTypes?.get(s);
+  if (types) {
+    for (const t of types) {
+      if (SAND_IMMUNE_TYPES.has(t.toLowerCase())) return true;
+    }
+    return false;
+  }
+  // Fallback path (test-only): no DB-derived types available.
+  return SAND_IMMUNE_FALLBACK_SPECIES.has(s);
 }
 
 /**
@@ -96,6 +113,13 @@ export function isSandImmune(species_id: string, ability: string | null): boolea
  * Thunder Wave) inside `deriveTurnStates` checks this before emitting a
  * status — false positives are conservative misses we accept in v1.
  *
+ * **Single-key contract:** reads `entry.set.moves` ONLY. The legacy
+ * `entry.spec.moves` fallback was dropped in Stage 6 review — `set` is
+ * the canonical full-build shape (`TeamSetSchema`) that every panel
+ * source emits today; `spec` was a defunct early-Stage-A shorthand.
+ * TODO(stage6-deferred): reactive-status-abilities — extend with
+ * Synchronize / Static / Flame Body once we model self-damage triggers.
+ *
  * @param opposingSpeciesId - Canonical lowercase roster id of an
  *   opposing-preview species.
  * @param moveId - Canonical lowercase move id (e.g. `"willowisp"`).
@@ -103,7 +127,7 @@ export function isSandImmune(species_id: string, ability: string | null): boolea
  *   undefined or its entries don't reference the species, returns
  *   `false` (conservative).
  * @returns `true` when at least one panel entry for the species has
- *   `moveId` in its `.moves` list. Case-insensitive match on both
+ *   `moveId` in its `set.moves` list. Case-insensitive match on both
  *   sides; spaces / hyphens stripped.
  * @throws Never.
  */
@@ -120,12 +144,11 @@ export function isDbConfirmedMove(
   for (const raw of entries) {
     const e = raw as {
       species_roster_id?: string;
-      spec?: { moves?: ReadonlyArray<string> };
       set?: { moves?: ReadonlyArray<string> };
     };
     const species = canonId(e.species_roster_id ?? "");
     if (species !== targetSpecies) continue;
-    const moves: ReadonlyArray<string> | undefined = e.spec?.moves ?? e.set?.moves;
+    const moves: ReadonlyArray<string> | undefined = e.set?.moves;
     if (!moves) continue;
     for (const m of moves) {
       if (canonId(m) === targetMove) return true;

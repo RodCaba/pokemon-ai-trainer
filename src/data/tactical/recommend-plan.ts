@@ -133,6 +133,11 @@ function canonId(s: string): string {
   return s.toLowerCase().replace(/[\s_\-]/g, "");
 }
 
+// TODO(stage6-deferred): item-activation — Sitrus Berry (≤ 50% HP),
+// Weakness Policy (super-effective hit), Air Balloon (popped on Ground
+// move), Booster Energy (Paradox auto-trigger) all belong on the
+// late-phase calc path alongside Last Respects BP scaling. Today we
+// only model the Last Respects override.
 /**
  * Build the late-phase {@link CalcResultRef}[] for a cleaner that carries
  * Last Respects, threading the Stage D BP scaling into the notes line.
@@ -453,6 +458,7 @@ export function recommendTeamPlan(
       leadIncomingDamagePct: { ours: [0, 0], theirs: [0, 0] },
       midIncomingDamagePct: { ours: [0, 0] },
       ...(deps.scoring_panel ? { scoring_panel: deps.scoring_panel } : {}),
+      db: deps.db,
     });
     return {
       name: scenario.name,
@@ -578,6 +584,7 @@ export function recommendTeamPlan(
     leadIncomingDamagePct: winnerPair.lead_incoming_damage_pct,
     midIncomingDamagePct: winnerMid.mid_incoming_damage_pct,
     ...(deps.scoring_panel ? { scoring_panel: deps.scoring_panel } : {}),
+    db: deps.db,
   });
 
   // Stage D: build the late-phase key_calc for Last Respects when the

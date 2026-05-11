@@ -57,13 +57,32 @@ export const MonStateSchema = z
     /** Clamped to [1, 100]; 0 reserved for a future fainted state (Stage E). */
     hp_pct: z.number().int().min(1).max(100),
     boosts: MonStateBoostsSchema,
+    // TODO(stage6-deferred): freeze-state-modeling — `"freeze"` intentionally
+    // omitted per plan Q1 (Reg-M-A effective freeze rate ~0 with no Tera).
+    // TODO(stage6-deferred): multi-turn-status-duration — today status is
+    // a flat enum; sleep/toxic actually carry turn counters (1-3T sleep,
+    // 1/16 → 1/8 → ... toxic) that drive turn-aware damage projections.
     status: z
       .enum(["none", "burn", "paralysis", "sleep", "poison", "toxic"])
       .default("none"),
     /** Move id locked by a Choice item, or `null` if not locked. */
     choice_locked_move: z.string().min(1).nullable().default(null),
   })
-  .strict();
+  .strict()
+  .superRefine((val, ctx) => {
+    // Reg-M-A defense-in-depth: surface a Champions-specific message
+    // when a `tera_*` key leaks in (`.strict()` already rejects with
+    // zod's generic `Unrecognized key`; this gives an actionable error).
+    for (const k of Object.keys(val as Record<string, unknown>)) {
+      if (k.toLowerCase().startsWith("tera")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Tera is not legal in Reg M-A",
+          path: [k],
+        });
+      }
+    }
+  });
 export type MonState = z.infer<typeof MonStateSchema>;
 
 /**
@@ -74,6 +93,11 @@ export type MonState = z.infer<typeof MonStateSchema>;
  * consumed by `damage_calc` callers in `recommend-plan.ts` to thread
  * per-mon HP/boosts/status into the engine input.
  */
+// TODO(stage6-deferred): win-condition-resolution — late.win_condition
+// today is template prose; a future slice will carry a structured
+// `win_condition_ref` (e.g. {kind: 'ko_threat', target, calc_ref}) on
+// PhaseStateSchema so the agent can introspect the plan's exit
+// criterion instead of regex-matching the rationale.
 export const PhaseStateSchema = z
   .object({
     ours: z.array(MonStateSchema).min(1).max(2),
@@ -81,7 +105,18 @@ export const PhaseStateSchema = z
     fallen_allies_ours: z.number().int().min(0).max(5),
     fallen_allies_theirs: z.number().int().min(0).max(5),
   })
-  .strict();
+  .strict()
+  .superRefine((val, ctx) => {
+    for (const k of Object.keys(val as Record<string, unknown>)) {
+      if (k.toLowerCase().startsWith("tera")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Tera is not legal in Reg M-A",
+          path: [k],
+        });
+      }
+    }
+  });
 export type PhaseState = z.infer<typeof PhaseStateSchema>;
 
 /**

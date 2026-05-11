@@ -143,6 +143,7 @@ describe("Stage D recommendTeamPlan integration (RP1..RP10)", () => {
     }
   });
 
+  // vacuous on synthetic test team — ArchaEye live demo is the canonical pin for the Last Respects BP override path
   it("RP7. Last Respects calc → key_calcs[*].notes contains 'Last Respects BP=' with integer >= 100", () => {
     const db = open(":memory:");
     try {
@@ -167,6 +168,7 @@ describe("Stage D recommendTeamPlan integration (RP1..RP10)", () => {
     }
   });
 
+  // vacuous on synthetic test team — ArchaEye live demo is the canonical pin for the Last Respects BP override path
   it("RP8. Last Respects calc passes bp = 50 + 50 * fallen_allies_ours into damage_calc input", () => {
     const db = open(":memory:");
     try {

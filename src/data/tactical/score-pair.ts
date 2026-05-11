@@ -10,6 +10,13 @@ import type { UserTeam } from "../../schemas/user-teams";
 import type { CalcCache, CalcCacheKey } from "./calc-cache";
 import { calcWithCache } from "./calc-cache";
 import type { CalcDeps } from "./score-offense";
+// TODO(stage6-deferred): bp-override-cache-key — plan §12 required
+// suffixing the cache key with `@bp=N` when a `MoveSpec.bp` override is
+// present, to prevent collision when two callers issue the same move at
+// different BP (e.g. Last Respects 50 vs 250). Today no production
+// caller exercises this path — `_hashSet` keys on the resolved set, not
+// per-move BP — so the bug is dormant. Defer fix until a caller starts
+// passing per-call BP overrides.
 import { _hashSet, _fieldHash } from "./score-offense";
 import type { ScoringTeam, ScoringSet, ScoringThreat } from "./scoring-team";
 import { neutralField, scenarioFieldToCalcField, labmausConsensusToScoringThreat } from "./scoring-team";

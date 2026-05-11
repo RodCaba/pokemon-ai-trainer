@@ -201,7 +201,12 @@ describe("deriveTurnStates Stamina (DS9)", () => {
       midIncomingDamagePct: { ours: [0, 20] },
     });
     expect(r.mid.ours[1]!.boosts.def).toBe(1);
-    expect(r.late.ours[1]!.boosts.def).toBe(2);
+    // Stage 6 review: the scarf cleaner (basculegion) occupies
+    // late.ours[1] as a fresh switch-in and cannot inherit lead-1's
+    // Stamina boosts. Stamina carryover surfaces on late.ours[0] —
+    // the "backbone slot" semantically representing the lead pair's
+    // accumulated state by turn 4+.
+    expect(r.late.ours[0]!.boosts.def).toBe(2);
   });
 });
 
@@ -293,7 +298,7 @@ describe("deriveTurnStates status whitelist (DS12..DS14)", () => {
         {
           species_roster_id: "sableye",
           weight: 0.1,
-          spec: { moves: ["willowisp", "knockoff", "fakeout", "protect"] },
+          set: { moves: ["willowisp", "knockoff", "fakeout", "protect"] },
         },
       ],
     } as unknown as Parameters<typeof deriveTurnStates>[0]["scoring_panel"];
@@ -310,7 +315,7 @@ describe("deriveTurnStates status whitelist (DS12..DS14)", () => {
         {
           species_roster_id: "sableye",
           weight: 0.1,
-          spec: { moves: ["knockoff", "fakeout", "protect", "encore"] },
+          set: { moves: ["knockoff", "fakeout", "protect", "encore"] },
         },
       ],
     } as unknown as Parameters<typeof deriveTurnStates>[0]["scoring_panel"];
@@ -328,7 +333,7 @@ describe("deriveTurnStates status whitelist (DS12..DS14)", () => {
         {
           species_roster_id: "amoonguss",
           weight: 0.1,
-          spec: { moves: ["spore", "ragepowder", "pollenpuff", "protect"] },
+          set: { moves: ["spore", "ragepowder", "pollenpuff", "protect"] },
         },
       ],
     } as unknown as Parameters<typeof deriveTurnStates>[0]["scoring_panel"];
@@ -351,7 +356,7 @@ describe("deriveTurnStates status whitelist (DS12..DS14)", () => {
         {
           species_roster_id: "togekiss",
           weight: 0.1,
-          spec: { moves: ["thunderwave", "airslash", "followme", "protect"] },
+          set: { moves: ["thunderwave", "airslash", "followme", "protect"] },
         },
       ],
     } as unknown as Parameters<typeof deriveTurnStates>[0]["scoring_panel"];
@@ -368,7 +373,7 @@ describe("deriveTurnStates status whitelist (DS12..DS14)", () => {
         {
           species_roster_id: "blissey",
           weight: 0.1,
-          spec: { moves: ["bodyslam", "toxic", "softboiled", "protect"] },
+          set: { moves: ["bodyslam", "toxic", "softboiled", "protect"] },
         },
       ],
     } as unknown as Parameters<typeof deriveTurnStates>[0]["scoring_panel"];

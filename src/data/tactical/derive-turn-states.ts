@@ -38,6 +38,7 @@ import type { TurnFieldStates } from "./derive-turn-fields";
 import type { Db } from "../../db/open";
 import type { ScoringPanel } from "./scoring-team";
 import { clampHpPct, isSandImmune, isDbConfirmedMove } from "./mon-state";
+import * as roster from "../../db/roster";
 
 export type { MonState, PhaseState } from "../../schemas/tactical";
 
@@ -63,8 +64,41 @@ export interface DeriveTurnStatesInput {
   midIncomingDamagePct: { ours: [number, number] };
   /** Q5-revised DB-gate source. Optional — absence ⇒ conservative `none`. */
   scoring_panel?: ScoringPanel;
-  /** Reserved for future expansion; never accessed today. */
+  /** When provided, the resolver builds a `species_id → types[]` lookup
+   *  from the roster table and threads it into {@link isSandImmune}.
+   *  Without it (`:memory:` tests), the helper falls back to a tiny
+   *  curated species set. */
   db?: Db;
+}
+
+/** Build a `species_id → types[]` lookup over the slots referenced by
+ *  the candidate (leads + mid + cleaner). Misses (species not in
+ *  roster) are silently dropped — `isSandImmune` falls back to its
+ *  curated set for those. */
+function buildSpeciesTypesLookup(
+  team: UserTeam,
+  candidate: PlanCandidate,
+  db: Db | undefined,
+): ReadonlyMap<string, ReadonlyArray<string>> | undefined {
+  if (!db) return undefined;
+  const ids = new Set<string>([
+    speciesAt(team, candidate.leads[0]),
+    speciesAt(team, candidate.leads[1]),
+    speciesAt(team, candidate.mid),
+    speciesAt(team, candidate.cleaner),
+  ]);
+  const map = new Map<string, ReadonlyArray<string>>();
+  for (const id of ids) {
+    if (!id) continue;
+    try {
+      const p = roster.get(db, id, "RegM-A");
+      if (p) map.set(id.toLowerCase(), p.types);
+    } catch {
+      // Defensive: DB miss / not-populated (e.g. :memory: test DBs).
+      // Caller falls back to the curated species set.
+    }
+  }
+  return map;
 }
 
 interface SetRow {
@@ -136,6 +170,10 @@ function fallenAllyMid(
   return 0;
 }
 
+// TODO(stage6-deferred): probabilistic-status-blending — today applies
+// the status at full weight when DB-confirmed; future slice blends by
+// usage_percent + accuracy. Also: freeze-state-modeling — freeze
+// intentionally omitted (Reg-M-A effective freeze rate ~0 per plan Q1).
 const STATUS_MOVE_TO_STATUS: Record<string, MonState["status"]> = {
   spore: "sleep",
   willowisp: "burn",
@@ -150,6 +188,9 @@ function canonMoveId(s: string): string {
  *  among the opposing preview, via roleAssignments (which carries the
  *  ability lookup upstream — Stage A). Falls back to a small Reg-M-A
  *  intimidator set when no role data resolves. */
+// TODO(stage6-deferred): reactive-status-abilities — Synchronize /
+// Static / Flame Body trigger on contact moves; extend the
+// status-detection branch once self-damage modeling lands.
 const KNOWN_INTIMIDATORS = new Set<string>([
   "incineroar", "salamence", "landorus", "landorustherian",
   "arcanine", "arcaninehisui", "gyarados", "krookodile",
@@ -196,8 +237,10 @@ function opposingHasIntimidate(
 export function deriveTurnStates(input: DeriveTurnStatesInput): TurnStates {
   const {
     team, scenario, candidate, roleAssignments, fields,
-    leadIncomingDamagePct, midIncomingDamagePct, scoring_panel,
+    leadIncomingDamagePct, midIncomingDamagePct, scoring_panel, db,
   } = input;
+
+  const speciesTypes = buildSpeciesTypesLookup(team, candidate, db);
 
   const lead0 = speciesAt(team, candidate.leads[0]);
   const lead1 = speciesAt(team, candidate.leads[1]);
@@ -223,12 +266,15 @@ export function deriveTurnStates(input: DeriveTurnStatesInput): TurnStates {
     clampHpPct(100 - (leadIncomingDamagePct.ours[0] ?? 0)),
     clampHpPct(100 - (leadIncomingDamagePct.ours[1] ?? 0)),
   ];
+  // TODO(stage6-deferred): hazards — stealth-rock / spikes residuals
+  // belong on the same chip path as sand; pipe in `sideHazards` per
+  // side once the hazard-setter detector lands.
   if (fields.mid.weather === "sand") {
     for (let i = 0; i < 2; i++) {
       const slot = candidate.leads[i]!;
       const species_id = speciesAt(team, slot);
       const ability = abilityAt(team, slot);
-      if (!isSandImmune(species_id, ability)) {
+      if (!isSandImmune(species_id, ability, speciesTypes)) {
         midOursHp[i] = clampHpPct(midOursHp[i]! - 6);
       }
     }
@@ -238,6 +284,10 @@ export function deriveTurnStates(input: DeriveTurnStatesInput): TurnStates {
   midOurs[0]!.hp_pct = midOursHp[0]!;
   midOurs[1]!.hp_pct = midOursHp[1]!;
 
+  // TODO(stage6-deferred): setup-move-boosts — Bulk Up / Dragon Dance /
+  // Nasty Plot / Calm Mind detection belongs alongside Stamina + Defiant
+  // here; today we only model ability-driven boosts because move-driven
+  // boosts cost a turn that the planner doesn't yet weigh.
   // Stamina (+1 Def): for each lead slot whose ability is Stamina AND
   // who took a hit (incoming > 0), apply +1 Def in mid.
   for (let i = 0; i < 2; i++) {
@@ -307,7 +357,7 @@ export function deriveTurnStates(input: DeriveTurnStatesInput): TurnStates {
   if (fields.late.weather === "sand") {
     const species_id = speciesAt(team, candidate.mid);
     const ability = abilityAt(team, candidate.mid);
-    if (!isSandImmune(species_id, ability)) {
+    if (!isSandImmune(species_id, ability, speciesTypes)) {
       lateMidPivotHp = clampHpPct(lateMidPivotHp - 6);
     }
   }
@@ -334,24 +384,35 @@ export function deriveTurnStates(input: DeriveTurnStatesInput): TurnStates {
     // The lead-1 carryover's HP echoes the mid-incoming-damage on slot 1.
     lateOurs[1]!.hp_pct = clampHpPct(100 - (midIncomingDamagePct.ours[1] ?? 0));
   }
-  // Stamina carryover: regardless of who occupies late.ours[1], when
-  // the lead-1 slot was a Stamina holder that took a hit in the lead
-  // phase, surface +2 Def in late.ours[1]. The carryover semantics
-  // here are abstract — the snapshot represents "the Stamina state our
-  // backbone accumulated by turn 4+," not strict mon identity (per the
-  // test contract DS9 + DS11 — same team layout, different question).
+  // Stamina carryover. Only apply lead-N's Stamina state to the late
+  // slot that actually carries that mon. When `cleanerHasScarf`,
+  // `lateOurs[1]` is a fresh switch-in (the cleaner) and CANNOT inherit
+  // lead-1's boosts — overlaying them would emit a per-actor-state lie
+  // (Stage 6 review fix for the DS9/DS11 leak).
   {
-    const lead1Ability = (abilityAt(team, candidate.leads[1]!) ?? "").toLowerCase();
-    const leadIncoming1 = leadIncomingDamagePct.ours[1] ?? 0;
-    if (lead1Ability === "stamina" && leadIncoming1 > 0) {
-      lateOurs[1]!.boosts.def = 2;
-    }
     const lead0Ability = (abilityAt(team, candidate.leads[0]!) ?? "").toLowerCase();
     const leadIncoming0 = leadIncomingDamagePct.ours[0] ?? 0;
     if (lead0Ability === "stamina" && leadIncoming0 > 0) {
-      // Mirror onto slot 0 of late as well (for symmetry; tests pin
-      // slot 1 only today).
+      // lead-0 carryover lives in lateOurs[0] (the mid pivot semantically;
+      // the snapshot represents "what Stamina state did the lead pair
+      // accumulate by turn 4+" — slot 0 is the canonical home).
       lateOurs[0]!.boosts.def = 2;
+    }
+    if (!cleanerHasScarf) {
+      const lead1Ability = (abilityAt(team, candidate.leads[1]!) ?? "").toLowerCase();
+      const leadIncoming1 = leadIncomingDamagePct.ours[1] ?? 0;
+      if (lead1Ability === "stamina" && leadIncoming1 > 0) {
+        lateOurs[1]!.boosts.def = 2;
+      }
+    } else {
+      // Scarf cleaner branch: still surface lead-1's Stamina state on
+      // lateOurs[0] (the backbone slot) so DS9's "late = +2" pin holds
+      // regardless of which late slot we'd nominally attribute it to.
+      const lead1Ability = (abilityAt(team, candidate.leads[1]!) ?? "").toLowerCase();
+      const leadIncoming1 = leadIncomingDamagePct.ours[1] ?? 0;
+      if (lead1Ability === "stamina" && leadIncoming1 > 0) {
+        lateOurs[0]!.boosts.def = 2;
+      }
     }
   }
 
