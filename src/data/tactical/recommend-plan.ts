@@ -22,6 +22,8 @@ import type { ScoringTeam, ScoringPanel } from "./scoring-team";
 import { scorePair, collectKeyCalcsForPair, computeSupportLift } from "./score-pair";
 import { scoreMidPhase } from "./score-mid-phase";
 import { scoreLatePhase } from "./score-late-phase";
+import { deriveTurnFieldStates } from "./derive-turn-fields";
+import { detectOpposingSetters } from "./opposing-setter";
 import {
   buildLeadRationale,
   buildMidRationale,
@@ -46,6 +48,11 @@ export interface RecommendPlanDeps {
   /** Pre-curated panel for late_phase_score's bulky-survivor query.
    *  When absent, late_phase_score sees an empty panel and contributes 0. */
   panel?: ThreatPanel;
+  /** Stage C (optional): pre-computed opposing setters for the
+   *  scenario's opposing_preview. When absent, the orchestrator calls
+   *  `detectOpposingSetters(deps.db, scenario.opposing_preview)` once
+   *  per scenario. Lets the overview level memoize per-scenario. */
+  opposingSetters?: import("./opposing-setter").OpposingSetters;
 }
 
 /** Score bonus when a candidate plan hits all three chain links:
@@ -281,42 +288,33 @@ function scorePlan(
     ...(deps.roleAssignments ? { roleAssignments: deps.roleAssignments } : {}),
     teamSlotSpeciesIds: [0, 1, 2, 3, 4, 5].map((i) => speciesAt(team, i)),
   };
-  // Drizzle / Drought / Sand Stream / Snow Warning activate on switch-in
-  // and REPLACE the existing weather. If a lead brings weather via
-  // ABILITY, override `scenario.field.weather` for the damage-calc loop:
-  // Pelipper cancels opposing Sand → Tyranitar loses its SpD boost AND
-  // Archaludon's Electro Shot fires in one turn. Move-based setters
-  // (Sableye Rain Dance, etc.) cost a turn — turn-1 calcs still happen
-  // in the opposing weather. Tracking those is a calibration follow-up:
-  // TODO(stage6-deferred): move-based-weather-turn-2-rescore.
-  const roles = deps.roleAssignments;
-  let scenarioForCalc: ScenarioSkeleton = scenario;
-  if (roles) {
-    const leadAId = speciesAt(team, candidate.leads[0]);
-    const leadBId = speciesAt(team, candidate.leads[1]);
-    const newWeather =
-      roles.get(leadAId)?.weather_provided_via_ability ??
-      roles.get(leadBId)?.weather_provided_via_ability;
-    if (newWeather !== undefined && newWeather !== scenario.field.weather) {
-      scenarioForCalc = {
-        ...scenario,
-        field: { ...scenario.field, weather: newWeather },
-      };
-    }
-  }
-  const stageAScenario = scenarioForCalc as ScenarioSkeleton;
+  // Stage C: per-phase field-state derivation replaces Stage B's
+  // unconditional ability-override. The phase scorers each consume a
+  // ScenarioSkeleton whose `field` is the derived phase-specific state.
+  const roles = deps.roleAssignments ?? new Map<string, RoleTagAssignment>();
+  // Q11 binding: `recommendTeamPlan` precomputes opposing setters once
+  // per scenario and threads them via `deps.opposingSetters`. Don't
+  // re-query — the inner loop runs ~50× per scenario.
+  const opposing = deps.opposingSetters ?? detectOpposingSetters(deps.db, scenario.opposing_preview);
+  const turnFields = deriveTurnFieldStates({
+    team, scenario, candidate, roleAssignments: roles, opposingSetters: opposing,
+  });
+  const leadScenario: ScenarioSkeleton = { ...scenario, field: turnFields.lead };
+  const midScenario: ScenarioSkeleton = { ...scenario, field: turnFields.mid };
+  const lateScenario: ScenarioSkeleton = { ...scenario, field: turnFields.late };
+
   const pair = scorePair(
     team,
     candidate.leads,
     [candidate.mid, candidate.cleaner],
-    stageAScenario,
+    leadScenario,
     calcCache,
     calcDeps,
   );
-  const mid = scoreMidPhase(candidate.mid, scenario, calcCache, calcDeps);
+  const mid = scoreMidPhase(candidate.mid, midScenario, calcCache, calcDeps);
   const late = scoreLatePhase(
     candidate.cleaner,
-    scenario,
+    lateScenario,
     deps.panel ?? { schema_version: 1, as_of: "1970-01-01", generated_at: "1970-01-01T00:00:00Z", entries: [] },
     calcCache,
     calcDeps,
@@ -335,11 +333,13 @@ function scorePlan(
  * end-to-end. Stage B's only entry point into the plan composer.
  *
  * Picks the highest-scoring `(lead, lead, mid, cleaner)` triple from
- * `generatePlanCandidates`, then builds template rationales and the
- * top damage calc for each phase. Supports the live ArchaEye demo by
- * overriding `scenario.field.weather` when an ability-based weather
- * setter is in the lead pair (Drizzle, Drought, Sand Stream, Snow
- * Warning).
+ * `generatePlanCandidates`, builds template rationales, and the top
+ * damage calc for each phase. Stage C wires per-phase field-state
+ * derivation via `deriveTurnFieldStates`: weather duel resolution
+ * (slower setter wins, ties → theirs), priority-ability promotion
+ * (Prankster Rain Dance / Gale Wings Tailwind), and decay schedules
+ * (Tailwind 4T, TR/screens 5T) all flow into the per-phase
+ * `ScenarioSkeleton` consumed by the phase scorers.
  *
  * @param team - The saved {@link UserTeam}.
  * @param scenario - Scenario skeleton (name, type, field, opposing_preview).
@@ -366,12 +366,29 @@ export function recommendTeamPlan(
   const cache = calcCache ?? createCalcCache();
   const candidates = generatePlanCandidates(team, scenario, roleAssignments);
 
+  // Q11 binding: memoize opposing-setter detection ONCE per scenario.
+  // Without this, the inner `scorePlan` loop re-queries the DB roughly
+  // 50× per scenario × 10 scenarios = 500× per overview. Compute once;
+  // thread to scorePlan via a stable `depsWithOpposing` object so the
+  // memoized value reaches the inner derivation calls.
+  const opposingSetters = deps.opposingSetters
+    ?? detectOpposingSetters(deps.db, scenario.opposing_preview);
+  const depsWithOpposing: RecommendPlanDeps = { ...deps, opposingSetters };
+
   // Fall-through: if no candidates pass the role pruning, surface a
   // confidence: "low" plan that picks the first three slots. This
   // preserves the schema contract for downstream callers; the live
   // demo doesn't hit this branch (ArchaEye has both setters and
   // sweepers).
   if (candidates.length === 0) {
+    // Stage C: emit a fallback per-phase field that just passes the
+    // scenario field through with our-side decay applied for late.
+    const fallbackOpposing = opposingSetters;
+    const fallbackFields = deriveTurnFieldStates({
+      team, scenario,
+      candidate: { leads: [0, 1], mid: 2, cleaner: 3 },
+      roleAssignments, opposingSetters: fallbackOpposing,
+    });
     return {
       name: scenario.name,
       type: scenario.type,
@@ -386,6 +403,7 @@ export function recommendTeamPlan(
           key_calcs: [],
           abandon_if: "Re-evaluate team composition.",
           support_lift: 0,
+          field: fallbackFields.lead,
         },
         {
           phase: "mid",
@@ -395,6 +413,7 @@ export function recommendTeamPlan(
           rationale: "No mid-eligible role detected.",
           key_calcs: [],
           trigger: "Re-evaluate team composition.",
+          field: fallbackFields.mid,
         },
         {
           phase: "late",
@@ -403,6 +422,7 @@ export function recommendTeamPlan(
           rationale: "No cleaner detected.",
           key_calcs: [],
           win_condition: "Re-evaluate team composition.",
+          field: fallbackFields.late,
         },
       ],
       plan_score: 0,
@@ -413,7 +433,7 @@ export function recommendTeamPlan(
 
   // Score every candidate; pick highest with deterministic tiebreak on
   // the (leads, mid, cleaner) tuple.
-  const scored = candidates.map((c) => ({ c, s: scorePlan(c, team, scenario, cache, deps) }));
+  const scored = candidates.map((c) => ({ c, s: scorePlan(c, team, scenario, cache, depsWithOpposing) }));
   scored.sort((a, b) => {
     if (b.s !== a.s) return b.s - a.s;
     if (a.c.leads[0] !== b.c.leads[0]) return a.c.leads[0] - b.c.leads[0];
@@ -459,6 +479,13 @@ export function recommendTeamPlan(
   const pivotIn = speciesAt(team, c.mid);
   const cleanerId = speciesAt(team, c.cleaner);
 
+  // Stage C: derive per-phase field states for the winning candidate so
+  // the emitted phases can introspect them.
+  const winnerOpposing = opposingSetters;
+  const winnerFields = deriveTurnFieldStates({
+    team, scenario, candidate: c, roleAssignments, opposingSetters: winnerOpposing,
+  });
+
   const rationaleCommon = { scenario, roleAssignments };
   return {
     name: scenario.name,
@@ -474,6 +501,7 @@ export function recommendTeamPlan(
         key_calcs: topLeadCalc ? [topLeadCalc].slice(0, 2) : [],
         abandon_if: buildAbandonIf({ ...rationaleCommon, leads: leadActive, topCalc: topLeadCalc }),
         ...(support_lift !== undefined ? { support_lift } : {}),
+        field: winnerFields.lead,
       },
       {
         phase: "mid",
@@ -483,6 +511,7 @@ export function recommendTeamPlan(
         rationale: buildMidRationale({ ...rationaleCommon, pivot_in: pivotIn, topCalc: null }),
         key_calcs: [],
         trigger: buildMidTrigger({ ...rationaleCommon, pivot_in: pivotIn, topCalc: null }),
+        field: winnerFields.mid,
       },
       {
         phase: "late",
@@ -491,6 +520,7 @@ export function recommendTeamPlan(
         rationale: buildLateRationale({ ...rationaleCommon, cleaner: cleanerId, topCalc: null }),
         key_calcs: [],
         win_condition: buildWinCondition({ ...rationaleCommon, cleaner: cleanerId, topCalc: null }),
+        field: winnerFields.late,
       },
     ],
     plan_score: winner.s,

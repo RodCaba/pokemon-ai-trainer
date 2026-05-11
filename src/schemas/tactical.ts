@@ -149,6 +149,27 @@ export const RoleTagAssignmentSchema = z
      *  Solar Beam ⇒ sun). The name reads as "the weather this move
      *  REQUIRES to skip its charge turn" — not a general payoff hint. */
     weather_charged_move: WeatherKindSchema.optional(),
+    /** Stage C (turn-weighted-phase-scoring): set when the set
+     *  combines a priority-granting ability with a status / Flying /
+     *  healing move that triggers a lead-phase field effect. Lets
+     *  `deriveTurnFieldStates` promote e.g. Sableye + Prankster + Rain
+     *  Dance from "mid-phase rain" to "lead-phase rain" because
+     *  Prankster fires Rain Dance at +1 priority before any opposing
+     *  attack on turn 1. */
+    setter_priority_via_ability: z
+      .object({
+        kind: z.enum(["status", "flying", "healing"]),
+        bonus: z.number().int().min(1).max(5),
+        condition: z.enum(["full_hp"]).optional(),
+        move_id: z.string().min(1),
+        effect: z.enum([
+          "weather_rain", "weather_sun", "weather_sand", "weather_snow",
+          "trick_room", "tailwind", "reflect", "light_screen", "aurora_veil",
+          "healing",
+        ]),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type RoleTagAssignment = z.infer<typeof RoleTagAssignmentSchema>;
@@ -271,6 +292,11 @@ export const LeadPhaseSchema = z
     abandon_if: z.string().max(200),
     /** Q9 §17: preserves Stage A's `support_lift` introspection signal. */
     support_lift: z.number().optional(),
+    /** Stage C: derived field state for this phase (weather, TR,
+     *  Tailwind, screens) after the duel + decay resolver runs. Lets
+     *  the agent loop introspect "what did the scorer assume for turn
+     *  1?" instead of re-deriving from the rationale prose. */
+    field: ScenarioFieldSchema.optional(),
   })
   .strict();
 
@@ -284,6 +310,8 @@ export const MidPhaseSchema = z
     rationale: z.string().max(300),
     key_calcs: z.array(CalcResultRefSchema).min(0).max(2),
     trigger: z.string().max(200),
+    /** Stage C: derived field state for this phase (T2–T4). */
+    field: ScenarioFieldSchema.optional(),
   })
   .strict();
 
@@ -296,6 +324,9 @@ export const LatePhaseSchema = z
     rationale: z.string().max(300),
     key_calcs: z.array(CalcResultRefSchema).min(0).max(2),
     win_condition: z.string().max(200),
+    /** Stage C: derived field state for this phase (T4+). Typically
+     *  neutral (all temporary effects decayed by turn 5+). */
+    field: ScenarioFieldSchema.optional(),
   })
   .strict();
 
@@ -329,7 +360,7 @@ export const TeamPlanScenarioSchema = z
  *  production code remain green while the new tests target version 3. */
 export const TeamTacticalOverviewSchema = z
   .object({
-    schema_version: z.literal(3),
+    schema_version: z.literal(4),
     team_id: z.string(),
     generated_at: ISODateTime,
     threat_panel_as_of: ISODate,

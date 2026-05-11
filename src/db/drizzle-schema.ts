@@ -167,6 +167,10 @@ export const abilities = sqliteTable(
     id: text("id").primaryKey(),
     displayName: text("display_name").notNull(),
     sourceJson: text("source_json").notNull(),
+    /** Stage C: optional `PriorityGrants` JSON for priority-setting
+     *  abilities (Prankster, Gale Wings, Triage). Curated source:
+     *  `data/reg-m-a/abilities-priority.json`. */
+    priorityGrantsJson: text("priority_grants_json"),
   },
   (t) => [
     index("idx_abilities_display_name_nocase").on(sql`${t.displayName} COLLATE NOCASE`),
