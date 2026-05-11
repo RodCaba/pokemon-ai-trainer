@@ -5,7 +5,7 @@
  */
 
 import type { CalcInput, CalcResult } from "../../schemas/calc";
-import type { CalcResultRef, ScenarioField, ScenarioOverview } from "../../schemas/tactical";
+import type { CalcResultRef, ScenarioField, ScenarioSkeleton } from "../../schemas/tactical";
 import type { UserTeam } from "../../schemas/user-teams";
 import type { CalcCache, CalcCacheKey } from "./calc-cache";
 import { calcWithCache } from "./calc-cache";
@@ -74,7 +74,7 @@ export interface SupportLiftInputs {
   leadIds: readonly [string, string];
   backIds: readonly [string, string];
   roleAssignments: ReadonlyMap<string, RoleTagAssignment>;
-  scenario: ScenarioOverview & { has_priority_threats?: boolean };
+  scenario: ScenarioSkeleton & { has_priority_threats?: boolean };
 }
 
 const SETTER_TAGS: ReadonlySet<RoleTag> = new Set([
@@ -213,7 +213,7 @@ export function scorePair(
   _team: UserTeam,
   leads: [number, number],
   back: [number, number],
-  scenario: ScenarioOverview,
+  scenario: ScenarioSkeleton,
   calcCache: CalcCache,
   deps: CalcDeps,
 ): number {
@@ -239,14 +239,14 @@ export function scorePair(
     leadIds,
     backIds,
     roleAssignments: roles,
-    scenario: scenario as ScenarioOverview & { has_priority_threats?: boolean },
+    scenario: scenario as ScenarioSkeleton & { has_priority_threats?: boolean },
   });
   return base + SUPPORT_LIFT_DELTA * lift;
 }
 
 function realScore(
   leads: [number, number],
-  scenario: ScenarioOverview,
+  scenario: ScenarioSkeleton,
   cache: CalcCache,
   deps: CalcDeps,
 ): number {
@@ -361,7 +361,7 @@ function realScore(
 
 /**
  * Collect the top-3 most-impactful damage calcs for a given lead pair under
- * the scenario's field state. Used to populate `ScenarioOverview.key_calcs`
+ * the scenario's field state. Used to populate `ScenarioSkeleton.key_calcs`
  * after recommend-leads picks the winning pair. Cache makes this near-free
  * because the same calls were already issued during scoring.
  *
@@ -379,7 +379,7 @@ function realScore(
  */
 export function collectKeyCalcsForPair(
   leads: [number, number],
-  scenario: ScenarioOverview,
+  scenario: ScenarioSkeleton,
   cache: CalcCache,
   deps: CalcDeps,
 ): CalcResultRef[] {

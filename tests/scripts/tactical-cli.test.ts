@@ -33,7 +33,7 @@ describe("tactical CLI (TAC-T44..T45)", () => {
     expect(exit).toBe(0);
   });
 
-  it("TAC-T45. pillars + recommend subcommands dispatch", async () => {
+  it("TAC-T45. pillars + plan subcommands dispatch (Stage B replaces recommend with plan)", async () => {
     const pillarsExit = await main([
       "pillars",
       "--db",
@@ -42,15 +42,12 @@ describe("tactical CLI (TAC-T44..T45)", () => {
     ]);
     expect(pillarsExit).toBe(0);
 
-    // Recommend without a specific scenario name → returns all (avoids
-    // depending on a specific archetype like "Sun" being present, which
-    // is now data-driven from pikalytics).
-    const recExit = await main([
-      "recommend",
+    const planExit = await main([
+      "plan",
       "--db",
       dbPath,
       "01H000000000000000000000T0",
     ]);
-    expect(recExit).toBe(0);
+    expect(planExit).toBe(0);
   });
 });

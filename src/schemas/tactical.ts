@@ -178,7 +178,7 @@ export const SupportPillarEvidenceSchema = z
   .strict();
 export type SupportPillarEvidence = z.infer<typeof SupportPillarEvidenceSchema>;
 
-/** Discriminator for ScenarioOverview kind.
+/** Discriminator for ScenarioSkeleton kind.
  *  - `archetype`: Sun / Rain / Sand / Snow / Trick Room / Perish Trap
  *  - `individual`: top-usage threat by species
  *  - `weakness_counter`: auto-generated for structural team weakness
@@ -226,38 +226,24 @@ export const CalcResultRefSchema = z
   })
   .strict();
 
-/** Per-scenario overview: leads / back / rejected / reasoning / calcs / cites.
- *
- *  @deprecated Stage B (Q5 §17) replaces this with {@link TeamPlanScenarioSchema}.
- *    Kept in-tree through Stage 4 / 5 so the existing production code paths
- *    (`recommend-leads.ts`, `overview.ts`, `tactical-tools.ts`) stay green
- *    while Stage B's new modules land. Removed in the Stage-5 green commit
- *    once every consumer has migrated. */
-export const ScenarioOverviewSchema = z
+// `ScenarioSkeletonSchema` was removed in Stage B (Q5 §17). Use
+// {@link TeamPlanScenarioSchema} for the per-scenario output;
+// {@link ScenarioSkeletonSchema} carries the input-side fields shared
+// by both Stage A's removed shape and Stage B's plan output.
+
+/** Input-side fields shared by every scenario. `scenarios.ts` builds
+ *  skeletons against this shape; the scoring loop
+ *  (Stage B: `recommendTeamPlan`) reads them. */
+export const ScenarioSkeletonSchema = z
   .object({
     name: z.string().min(1),
     type: ScenarioTypeSchema,
     field: ScenarioFieldSchema,
     opposing_preview: z.array(RosterId).min(1).max(6),
-    recommended_leads: z.tuple([RosterId, RosterId]),
-    recommended_backline: z.tuple([RosterId, RosterId]),
-    rejected_bench: z.tuple([RosterId, RosterId]),
     description: z.string().max(800).optional(),
-    reasoning: z.string().max(400),
-    key_calcs: z.array(CalcResultRefSchema).min(0).max(3),
-    citations: z.array(TacticalCitationSchema).min(0).max(3),
-    pair_score: z.number(),
-    /** Confidence signal for the agent loop (Stage 8). When `"low"`, the
-     *  agent SHOULD chain a web_search before quoting the recommendation
-     *  to the user. `"medium"` is the default. `"high"` indicates strong
-     *  citation backing AND a clear pair_score margin over alternatives. */
-    confidence: z.enum(["low", "medium", "high"]).optional(),
-    /** Stage A: signed lift applied by `computeSupportLift` to the pair score
-     *  for this scenario. Optional in Stage A (forward-compat); Stage B may
-     *  promote to required. Range typically -10..+18 (plan §3.3). */
-    support_lift: z.number().optional(),
   })
   .strict();
+export type ScenarioSkeleton = z.infer<typeof ScenarioSkeletonSchema>;
 
 // ---- Stage B — phase-aware planning ----
 
@@ -312,7 +298,7 @@ export const PhaseSchema = z.discriminatedUnion("phase", [
   LatePhaseSchema,
 ]);
 
-/** Per-scenario 3-phase plan. Replaces the Stage-A `ScenarioOverview`
+/** Per-scenario 3-phase plan. Replaces the Stage-A `ScenarioSkeleton`
  *  shape inside {@link TeamTacticalOverviewSchema} per Q8 binding. */
 export const TeamPlanScenarioSchema = z
   .object({
@@ -334,16 +320,12 @@ export const TeamPlanScenarioSchema = z
  *  production code remain green while the new tests target version 3. */
 export const TeamTacticalOverviewSchema = z
   .object({
-    schema_version: z.union([z.literal(2), z.literal(3)]),
+    schema_version: z.literal(3),
     team_id: z.string(),
     generated_at: ISODateTime,
     threat_panel_as_of: ISODate,
     pillars: PillarBundleSchema,
-    scenarios: z
-      .union([
-        z.array(ScenarioOverviewSchema).min(5).max(10),
-        z.array(TeamPlanScenarioSchema).min(5).max(10),
-      ]),
+    scenarios: z.array(TeamPlanScenarioSchema).min(5).max(10),
   })
   .strict();
 
@@ -379,24 +361,6 @@ export const RecommendTeamPlanOutputSchema = z
   })
   .strict();
 
-/** @deprecated Stage B replaces this with {@link RecommendTeamPlanInputSchema}.
- *  Kept through Stage 4 / 5 so the existing tool definition + CLI still
- *  compile. Removed in the Stage-5 green commit. */
-export const RecommendLeadsInputSchema = z
-  .object({
-    team_id: z.string(),
-    scenario_name: z.string().optional(),
-  })
-  .strict();
-
-/** @deprecated Stage A surface — see {@link RecommendLeadsInputSchema}. */
-export const RecommendLeadsOutputSchema = z
-  .object({
-    team_id: z.string(),
-    scenarios: z.array(ScenarioOverviewSchema).min(1),
-  })
-  .strict();
-
 export type TierLabel = z.infer<typeof TierLabelSchema>;
 export type ScenarioField = z.infer<typeof ScenarioFieldSchema>;
 export type ThreatEntry = z.infer<typeof ThreatEntrySchema>;
@@ -407,7 +371,6 @@ export type PillarBundle = z.infer<typeof PillarBundleSchema>;
 export type ScenarioType = z.infer<typeof ScenarioTypeSchema>;
 export type TacticalCitation = z.infer<typeof TacticalCitationSchema>;
 export type CalcResultRef = z.infer<typeof CalcResultRefSchema>;
-export type ScenarioOverview = z.infer<typeof ScenarioOverviewSchema>;
 export type LeadPhase = z.infer<typeof LeadPhaseSchema>;
 export type MidPhase = z.infer<typeof MidPhaseSchema>;
 export type LatePhase = z.infer<typeof LatePhaseSchema>;
@@ -418,7 +381,3 @@ export type ScorePillarsInput = z.infer<typeof ScorePillarsInputSchema>;
 export type ScorePillarsOutput = z.infer<typeof ScorePillarsOutputSchema>;
 export type RecommendTeamPlanInput = z.infer<typeof RecommendTeamPlanInputSchema>;
 export type RecommendTeamPlanOutput = z.infer<typeof RecommendTeamPlanOutputSchema>;
-/** @deprecated Stage A surface. Use {@link RecommendTeamPlanInput}. */
-export type RecommendLeadsInput = z.infer<typeof RecommendLeadsInputSchema>;
-/** @deprecated Stage A surface. Use {@link RecommendTeamPlanOutput}. */
-export type RecommendLeadsOutput = z.infer<typeof RecommendLeadsOutputSchema>;

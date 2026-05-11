@@ -11,7 +11,7 @@
 import { open } from "../../src/db/open";
 import { buildOverview } from "../../src/data/tactical/overview";
 import { buildThreatPanel } from "../../src/data/tactical/threat-panel";
-import { handleScorePillars, handleRecommendLeads } from "../../src/agents/tactical-tools";
+import { handleScorePillars, handleRecommendTeamPlan } from "../../src/agents/tactical-tools";
 import { TacticalError } from "../../src/schemas/errors";
 
 interface ParsedArgs {
@@ -76,17 +76,23 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         process.stdout.write(JSON.stringify(out, null, 2) + "\n");
         return 0;
       }
-      case "recommend":
-      case "recommend-leads": {
+      case "plan":
+      case "recommend-team-plan": {
         const teamId = positional[0]!;
         const scenario = positional[1];
-        const out = handleRecommendLeads(
+        const out = handleRecommendTeamPlan(
           { team_id: teamId, ...(scenario ? { scenario_name: scenario } : {}) },
           deps,
         );
         process.stdout.write(JSON.stringify(out, null, 2) + "\n");
         return 0;
       }
+      case "recommend":
+      case "recommend-leads":
+        process.stderr.write(
+          "tactical: 'recommend' / 'recommend-leads' was removed in Stage B — use 'plan' instead.\n",
+        );
+        return 2;
       case "threat-panel": {
         const panel = buildThreatPanel({ db, empty_source_throws: false });
         process.stdout.write(JSON.stringify(panel, null, 2) + "\n");

@@ -11,9 +11,9 @@ import {
 } from "../../../src/data/tactical/cite";
 import { open } from "../../../src/db/open";
 import type { EmbedClient } from "../../../src/tools/knowledge/embed";
-import type { ScenarioOverview } from "../../../src/schemas/tactical";
+import type { ScenarioSkeleton } from "../../../src/schemas/tactical";
 
-function fakeScenario(): ScenarioOverview {
+function fakeScenario(): ScenarioSkeleton {
   return {
     name: "Sun vs Bulky",
     type: "weather_clash",
@@ -26,7 +26,7 @@ function fakeScenario(): ScenarioOverview {
     key_calcs: [],
     citations: [],
     pair_score: 0.5,
-  } as unknown as ScenarioOverview;
+  } as unknown as ScenarioSkeleton;
 }
 
 function fakeEmbed(): EmbedClient {

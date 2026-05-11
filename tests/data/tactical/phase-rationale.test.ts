@@ -17,7 +17,7 @@ import {
   buildMidTrigger,
   buildWinCondition,
 } from "../../../src/data/tactical/phase-rationale";
-import type { CalcResultRef, RoleTag, RoleTagAssignment, ScenarioOverview } from "../../../src/schemas/tactical";
+import type { CalcResultRef, RoleTag, RoleTagAssignment, ScenarioSkeleton } from "../../../src/schemas/tactical";
 
 const tag = (primary: RoleTag, all?: RoleTag[]): RoleTagAssignment => ({
   primary,
@@ -31,7 +31,7 @@ const roles = new Map<string, RoleTagAssignment>([
   ["basculegion", tag("cleaner")],
 ]);
 
-const scenario: ScenarioOverview = {
+const scenario: ScenarioSkeleton = {
   name: "Sand",
   type: "archetype",
   field: {
@@ -40,13 +40,6 @@ const scenario: ScenarioOverview = {
     light_screen: false, reflect: false, gravity: false,
   },
   opposing_preview: ["hippowdon", "excadrill"],
-  recommended_leads: ["a", "b"],
-  recommended_backline: ["a", "b"],
-  rejected_bench: ["a", "b"],
-  reasoning: "",
-  key_calcs: [],
-  citations: [],
-  pair_score: 0,
 };
 
 const calc: CalcResultRef = {

@@ -9,9 +9,9 @@
 import { describe, expect, it } from "vitest";
 import { scoreLatePhase } from "../../../src/data/tactical/score-late-phase";
 import { createCalcCache } from "../../../src/data/tactical/calc-cache";
-import type { ScenarioOverview, ThreatPanel } from "../../../src/schemas/tactical";
+import type { ScenarioSkeleton, ThreatPanel } from "../../../src/schemas/tactical";
 
-const scenario: ScenarioOverview = {
+const scenario: ScenarioSkeleton = {
   name: "Sun",
   type: "archetype",
   field: {
@@ -20,13 +20,6 @@ const scenario: ScenarioOverview = {
     light_screen: false, reflect: false, gravity: false,
   },
   opposing_preview: ["charizardmegay"],
-  recommended_leads: ["a", "b"],
-  recommended_backline: ["a", "b"],
-  rejected_bench: ["a", "b"],
-  reasoning: "",
-  key_calcs: [],
-  citations: [],
-  pair_score: 0,
 };
 
 const panel: ThreatPanel = {

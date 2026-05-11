@@ -14,7 +14,7 @@ import {
   TeamPlanScenarioSchema,
   type RoleTagAssignment,
   type RoleTag,
-  type ScenarioOverview,
+  type ScenarioSkeleton,
 } from "../../../src/schemas/tactical";
 import type { UserTeam } from "../../../src/schemas/user-teams";
 
@@ -64,7 +64,7 @@ const archaEyeRoles = new Map<string, RoleTagAssignment>([
   ["dragonite", tag("speed_control_setter")],
 ]);
 
-const rainScenario: ScenarioOverview = {
+const rainScenario: ScenarioSkeleton = {
   name: "Rain",
   type: "archetype",
   field: {
@@ -73,13 +73,6 @@ const rainScenario: ScenarioOverview = {
     light_screen: false, reflect: false, gravity: false,
   },
   opposing_preview: ["pelipper", "archaludon"],
-  recommended_leads: ["a", "b"],
-  recommended_backline: ["a", "b"],
-  rejected_bench: ["a", "b"],
-  reasoning: "",
-  key_calcs: [],
-  citations: [],
-  pair_score: 0,
 };
 
 describe("recommendTeamPlan integration (RP1..RP6)", () => {

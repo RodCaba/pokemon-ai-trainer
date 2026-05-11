@@ -11,14 +11,14 @@
 import type { Db } from "../../db/open";
 import { listBySpeciesTags } from "../../db/knowledge";
 import type {
-  ScenarioOverview,
+  ScenarioSkeleton,
   TacticalCitation,
 } from "../../schemas/tactical";
 import type { EmbedClient } from "../../tools/knowledge/embed";
 import { createInsightStore } from "../../db/insights";
 
 /**
- * One-line insight citation surfaced on `ScenarioOverview.insights`.
+ * One-line insight citation surfaced on `ScenarioSkeleton.insights`.
  *
  * **When to use it:** the agent quotes `claim` with `source_url`/timestamp
  * when explaining "why this lead?" / "what does the author say?". Distinct
@@ -54,7 +54,7 @@ export interface InsightCiteDeps {
  *
  * **When to use it:** an additive companion to {@link findCitations}. Surfaces
  * atomic claim-level citations alongside paragraph-level chunk citations on
- * `ScenarioOverview.insights`.
+ * `ScenarioSkeleton.insights`.
  *
  * @param _scenario — Scenario context (the `description`/`reasoning` is used
  *   as the embedding query).
@@ -68,7 +68,7 @@ export interface InsightCiteDeps {
  *   const insights = await findInsightCitations(scenario, ["incineroar"], { db, embedClient });
  */
 export async function findInsightCitations(
-  scenario: ScenarioOverview,
+  scenario: ScenarioSkeleton,
   speciesIds: ReadonlyArray<string>,
   deps: InsightCiteDeps,
 ): Promise<InsightCitation[]> {
@@ -78,9 +78,9 @@ export async function findInsightCitations(
   const minScore = deps.minScore ?? INSIGHT_CITE_SCORE_THRESHOLD;
   const store = createInsightStore(deps.db, { embedClient: deps.embedClient });
 
-  // Build a query string from scenario textual content.
+  // Build a query string from scenario textual content. Stage B drops
+  // `reasoning` (no longer on ScenarioSkeleton); `description` survives.
   const queryParts: string[] = [scenario.name];
-  if (scenario.reasoning !== undefined) queryParts.push(scenario.reasoning);
   if (scenario.description !== undefined) queryParts.push(scenario.description);
   const query = queryParts.filter((p) => p && p.length > 0).join(" ");
   if (query.trim().length === 0) return [];
@@ -136,7 +136,7 @@ export interface CiteDeps {
  *   for (const c of cites) console.log(c.source_site, c.article_title, c.excerpt);
  */
 export function findCitations(
-  _scenario: ScenarioOverview,
+  _scenario: ScenarioSkeleton,
   speciesIds: ReadonlyArray<string>,
   deps: CiteDeps,
 ): TacticalCitation[] {

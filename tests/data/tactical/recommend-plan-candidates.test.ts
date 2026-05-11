@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import {
   generatePlanCandidates,
 } from "../../../src/data/tactical/recommend-plan";
-import type { RoleTag, RoleTagAssignment, ScenarioOverview } from "../../../src/schemas/tactical";
+import type { RoleTag, RoleTagAssignment, ScenarioSkeleton } from "../../../src/schemas/tactical";
 import type { UserTeam } from "../../../src/schemas/user-teams";
 
 const tag = (primary: RoleTag, all?: RoleTag[]): RoleTagAssignment => ({
@@ -73,7 +73,7 @@ const archaEyeRoles = new Map<string, RoleTagAssignment>([
   ["dragonite", tag("speed_control_setter")],
 ]);
 
-const sunScenario: ScenarioOverview = {
+const sunScenario: ScenarioSkeleton = {
   name: "Sun",
   type: "archetype",
   field: {
@@ -82,13 +82,6 @@ const sunScenario: ScenarioOverview = {
     light_screen: false, reflect: false, gravity: false,
   },
   opposing_preview: ["charizardmegay", "venusaur"],
-  recommended_leads: ["x", "y"],
-  recommended_backline: ["x", "y"],
-  rejected_bench: ["x", "y"],
-  reasoning: "",
-  key_calcs: [],
-  citations: [],
-  pair_score: 0,
 };
 
 describe("generatePlanCandidates (PG1..PG6)", () => {

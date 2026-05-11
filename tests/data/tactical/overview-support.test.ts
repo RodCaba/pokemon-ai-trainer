@@ -37,14 +37,14 @@ function seedSavedTeam(db: ReturnType<typeof open>, id: string): void {
 }
 
 describe("buildOverview support pillar wiring (OV2..OV3)", () => {
-  it("OV2. output pillars.support is present + valid PillarScore; schema_version=2", () => {
+  it("OV2. output pillars.support is present + valid PillarScore; schema_version=3 post-Stage-B", () => {
     const db = open(":memory:");
     try {
       // Reuse the synthetic-team fixture id from overview.ts — it skips
       // the 6-set seeding and exercises the `syntheticTeam` defensive path
       // (which buildRoleAssignments also handles).
       const out = buildOverview("01H000000000000000000000T0", makeDeps(db));
-      expect(out.schema_version).toBe(2);
+      expect(out.schema_version).toBe(3);
       expect(out.pillars.support).toBeDefined();
       expect(out.pillars.support.pillar).toBe("support");
       expect(typeof out.pillars.support.score).toBe("number");
@@ -86,10 +86,12 @@ describe("buildOverview support pillar wiring (OV2..OV3)", () => {
         ["Draco Meteor", "Flamethrower", "Hurricane", "Tailwind"]);
 
       const out = buildOverview(id, makeDeps(db));
-      const anyLift = out.scenarios.some(
-        (s) => typeof (s as { support_lift?: number }).support_lift === "number" &&
-               (s as { support_lift?: number }).support_lift !== 0,
-      );
+      // Stage B (Q9 §17): support_lift moved from the scenario level to
+      // the lead-phase level. Look for the lift on `phases[0]`.
+      const anyLift = out.scenarios.some((s) => {
+        const lead = (s as { phases?: Array<{ support_lift?: number }> }).phases?.[0];
+        return typeof lead?.support_lift === "number" && lead.support_lift !== 0;
+      });
       expect(anyLift).toBe(true);
     } finally {
       db.$client.close();

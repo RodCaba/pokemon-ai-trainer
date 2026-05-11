@@ -10,12 +10,12 @@ import { describe, expect, it } from "vitest";
 import {
   PillarScoreSchema,
   ScenarioFieldSchema,
-  ScenarioOverviewSchema,
+  ScenarioSkeletonSchema,
   ScenarioTypeSchema,
   TeamTacticalOverviewSchema,
   ThreatEntrySchema,
   ThreatPanelSchema,
-  type ScenarioOverview,
+  type ScenarioSkeleton,
 } from "../../src/schemas/tactical";
 
 const VALID_SET = {
@@ -40,22 +40,15 @@ const VALID_SET = {
   },
 };
 
-const VALID_SCENARIO: ScenarioOverview = {
+const VALID_SCENARIO: ScenarioSkeleton = {
   name: "Sun",
   type: "archetype",
   field: ScenarioFieldSchema.parse({ weather: "sun" }),
   opposing_preview: ["torkoal", "lilligant"],
-  recommended_leads: ["incineroar", "amoonguss"],
-  recommended_backline: ["urshifu-rapid-strike", "rillaboom"],
-  rejected_bench: ["garchomp", "tornadus"],
-  reasoning: "x",
-  key_calcs: [],
-  citations: [],
-  pair_score: 1,
 };
 
 describe("tactical schemas (TAC-T1..T6)", () => {
-  it("TAC-T1. ThreatEntry / ThreatPanel / PillarScore / ScenarioOverview / TeamTacticalOverview round-trip via zod", () => {
+  it("TAC-T1. ThreatEntry / ThreatPanel / PillarScore / ScenarioSkeleton / TeamTacticalOverview round-trip via zod", () => {
     const entry = ThreatEntrySchema.parse({
       species_id: "incineroar",
       weight: 0.1,
@@ -80,11 +73,44 @@ describe("tactical schemas (TAC-T1..T6)", () => {
     });
     expect(pillar.tier).toBe("Good");
 
-    const sc = ScenarioOverviewSchema.parse(VALID_SCENARIO);
+    const sc = ScenarioSkeletonSchema.parse(VALID_SCENARIO);
     expect(sc.name).toBe("Sun");
 
+    // Stage B: TeamTacticalOverview.scenarios is TeamPlanScenario[].
+    const planScenario = {
+      ...sc,
+      phases: [
+        {
+          phase: "lead" as const,
+          turn_window: [1, 2] as [number, number],
+          active: ["incineroar", "amoonguss"] as [string, string],
+          rationale: "x",
+          key_calcs: [],
+          abandon_if: "y",
+        },
+        {
+          phase: "mid" as const,
+          turn_window: [2, 4] as [number, number],
+          pivot_in: "rillaboom",
+          pivot_out: null,
+          rationale: "x",
+          key_calcs: [],
+          trigger: "y",
+        },
+        {
+          phase: "late" as const,
+          turn_window: [4, 8] as [number, number],
+          cleaner: "garchomp",
+          rationale: "x",
+          key_calcs: [],
+          win_condition: "y",
+        },
+      ] as const,
+      plan_score: 60,
+      citations: [],
+    };
     const overview = TeamTacticalOverviewSchema.parse({
-      schema_version: 2,
+      schema_version: 3,
       team_id: "01H000000000000000000000T0",
       generated_at: "2026-05-08T00:00:00Z",
       threat_panel_as_of: "2026-05-08",
@@ -95,7 +121,7 @@ describe("tactical schemas (TAC-T1..T6)", () => {
         synergy: { ...pillar, pillar: "synergy" },
         support: { ...pillar, pillar: "support" },
       },
-      scenarios: [sc, sc, sc, sc, sc],
+      scenarios: [planScenario, planScenario, planScenario, planScenario, planScenario],
     });
     expect(overview.scenarios).toHaveLength(5);
   });
@@ -121,7 +147,7 @@ describe("tactical schemas (TAC-T1..T6)", () => {
 
     expect(() =>
       TeamTacticalOverviewSchema.parse({
-        schema_version: 2,
+        schema_version: 3,
         team_id: "x",
         generated_at: "2026-05-08T00:00:00Z",
         threat_panel_as_of: "2026-05-08",
@@ -137,7 +163,7 @@ describe("tactical schemas (TAC-T1..T6)", () => {
     ).toThrow();
   });
 
-  it("TAC-T3. ScenarioOverview carries archetype | individual | weakness_counter | meta_team | mirror_match discriminator", () => {
+  it("TAC-T3. ScenarioSkeleton carries archetype | individual | weakness_counter | meta_team | mirror_match discriminator", () => {
     expect(ScenarioTypeSchema.options).toEqual([
       "archetype",
       "individual",
@@ -145,7 +171,7 @@ describe("tactical schemas (TAC-T1..T6)", () => {
       "meta_team",
       "mirror_match",
     ]);
-    const sc = ScenarioOverviewSchema.parse({
+    const sc = ScenarioSkeletonSchema.parse({
       ...VALID_SCENARIO,
       type: "weakness_counter",
       name: "vs Mega Glimmora (counter)",
@@ -156,7 +182,7 @@ describe("tactical schemas (TAC-T1..T6)", () => {
   it("TAC-T4. TeamTacticalOverview.threat_panel_as_of must be ISO date YYYY-MM-DD", () => {
     expect(() =>
       TeamTacticalOverviewSchema.parse({
-        schema_version: 2,
+        schema_version: 3,
         team_id: "x",
         generated_at: "2026-05-08T00:00:00Z",
         threat_panel_as_of: "May 8 2026",
@@ -177,23 +203,23 @@ describe("tactical schemas (TAC-T1..T6)", () => {
       ScenarioFieldSchema.parse({ weather: "sun", tera_active: true }),
     ).toThrow();
     expect(() =>
-      ScenarioOverviewSchema.parse({
+      ScenarioSkeletonSchema.parse({
         ...VALID_SCENARIO,
         tera_type: "Fire",
       } as unknown),
     ).toThrow();
   });
 
-  it("TAC-T6. ScenarioOverview is parallel to LeadPlan, not an extension — divergent fields are documented", () => {
-    // Type-only assertion: ScenarioOverview has `pair_score` + `type` discriminator,
-    // which CLAUDE.md §7 LeadPlan does not. Both share leads/back/rejected.
-    const keys = Object.keys(ScenarioOverviewSchema.shape);
-    expect(keys).toContain("pair_score");
+  it("TAC-T6. ScenarioSkeleton carries the input-side fields and nothing else (Stage B Q5)", () => {
+    const keys = Object.keys(ScenarioSkeletonSchema.shape);
+    expect(keys).toContain("name");
     expect(keys).toContain("type");
-    expect(keys).toContain("recommended_leads");
-    expect(keys).toContain("recommended_backline");
-    // LeadPlan would have `key_timing` / `abandon_if`; ScenarioOverview doesn't.
-    expect(keys).not.toContain("key_timing");
-    expect(keys).not.toContain("abandon_if");
+    expect(keys).toContain("field");
+    expect(keys).toContain("opposing_preview");
+    // Stage-A-only fields are gone with the schema's removal.
+    expect(keys).not.toContain("recommended_leads");
+    expect(keys).not.toContain("recommended_backline");
+    expect(keys).not.toContain("reasoning");
+    expect(keys).not.toContain("pair_score");
   });
 });

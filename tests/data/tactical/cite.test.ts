@@ -4,7 +4,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import { findCitations } from "../../../src/data/tactical/cite";
-import type { ScenarioOverview } from "../../../src/schemas/tactical";
+import type { ScenarioSkeleton } from "../../../src/schemas/tactical";
 import { open, type Db } from "../../../src/db/open";
 
 let opened: Db | null = null;
@@ -19,7 +19,7 @@ afterEach(() => {
   }
 });
 
-const SCENARIO = {} as ScenarioOverview;
+const SCENARIO = {} as ScenarioSkeleton;
 
 describe("findCitations (TAC-T31..T32)", () => {
   it("TAC-T31. returns ≤ 3 chunks with species_ids overlapping the scenario species", () => {

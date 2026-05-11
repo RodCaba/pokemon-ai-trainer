@@ -6,7 +6,7 @@ import type { Db } from "../../db/open";
 import type {
   PillarBundle,
   RoleTagAssignment,
-  ScenarioOverview,
+  ScenarioSkeleton,
   ThreatPanel,
 } from "../../schemas/tactical";
 import type { UserTeam } from "../../schemas/user-teams";
@@ -48,7 +48,7 @@ export interface AllPillarDeps {
 export function scoreAllPillars(
   team: UserTeam,
   panel: ThreatPanel,
-  scenarios: ScenarioOverview[],
+  scenarios: ScenarioSkeleton[],
   calcCache: CalcCache,
   deps: AllPillarDeps,
 ): PillarBundle {

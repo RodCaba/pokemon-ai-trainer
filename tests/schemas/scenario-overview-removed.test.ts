@@ -29,6 +29,7 @@ describe("Stage A surface removal (RM1..RM3)", () => {
     // assertion fails today.
     let threw = false;
     try {
+      // @ts-expect-error — module deleted in Stage 5 green commit; import is the assertion.
       await import("../../src/data/tactical/recommend-leads");
     } catch {
       threw = true;

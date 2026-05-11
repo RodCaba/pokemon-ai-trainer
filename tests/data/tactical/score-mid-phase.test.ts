@@ -11,9 +11,9 @@
 import { describe, expect, it } from "vitest";
 import { scoreMidPhase } from "../../../src/data/tactical/score-mid-phase";
 import { createCalcCache } from "../../../src/data/tactical/calc-cache";
-import type { ScenarioOverview } from "../../../src/schemas/tactical";
+import type { ScenarioSkeleton } from "../../../src/schemas/tactical";
 
-const scenario: ScenarioOverview = {
+const scenario: ScenarioSkeleton = {
   name: "Sun",
   type: "archetype",
   field: {
@@ -22,13 +22,6 @@ const scenario: ScenarioOverview = {
     light_screen: false, reflect: false, gravity: false,
   },
   opposing_preview: ["charizardmegay", "venusaur"],
-  recommended_leads: ["a", "b"],
-  recommended_backline: ["a", "b"],
-  rejected_bench: ["a", "b"],
-  reasoning: "",
-  key_calcs: [],
-  citations: [],
-  pair_score: 0,
 };
 
 describe("scoreMidPhase (PS1..PS4)", () => {

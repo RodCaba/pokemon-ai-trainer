@@ -60,8 +60,15 @@ describe("recommend_team_plan agent tool (T1..T5)", () => {
   it("T5. handler returns one scenario when scenario_name matches", () => {
     const db = open(":memory:");
     try {
+      // Discover the first scenario name actually emitted — the archetype
+      // set is data-driven, so naming "Sun" is fragile.
+      const all = handleRecommendTeamPlan(
+        { team_id: "01H000000000000000000000T0" },
+        { db, calc: { calc: () => ({}) }, speed: {}, synergy: { db } },
+      );
+      const targetName = all.scenarios[0]!.name;
       const out = handleRecommendTeamPlan(
-        { team_id: "01H000000000000000000000T0", scenario_name: "Sun" },
+        { team_id: "01H000000000000000000000T0", scenario_name: targetName },
         {
           db,
           calc: { calc: () => ({}) },
