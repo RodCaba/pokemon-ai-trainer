@@ -20,9 +20,15 @@ export interface RoleTagInput {
   base_stats: { hp: number; atk: number; def: number; spa: number; spd: number; spe: number };
 }
 
-/** Injection slots — currently just a logger for the data-error path. */
+/** Injection slots: logger + (Stage C) the abilities → priority_grants
+ *  lookup the classifier consults when emitting
+ *  `setter_priority_via_ability` on lead-eligible sets. */
 export interface DeriveRoleTagsDeps {
   logWarn: (message: string) => void;
+  /** Stage C: map keyed by ability display-name (lowercased + trimmed).
+   *  When undefined, the classifier behaves exactly as Stage B (no
+   *  `setter_priority_via_ability` emitted). */
+  priority_grants_lookup?: ReadonlyMap<string, import("../../schemas/ability").PriorityGrants>;
 }
 
 // ----- Rule tables (display-name forms, lowercased + space/hyphen-normalized) -----

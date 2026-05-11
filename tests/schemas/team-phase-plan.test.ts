@@ -139,14 +139,14 @@ describe("TeamTacticalOverviewSchema bump to v3 (S5)", () => {
 
   it("S5a. accepts schema_version: 3 with TeamPlanScenarios", () => {
     const ok = TeamTacticalOverviewSchema.parse({
-      schema_version: 3,
+      schema_version: 4,
       team_id: "t1",
       generated_at: "2026-05-11T00:00:00Z",
       threat_panel_as_of: "2026-05-10",
       pillars: fiveBundle,
       scenarios: Array.from({ length: 5 }, () => planScenario),
     });
-    expect(ok.schema_version).toBe(3);
+    expect(ok.schema_version).toBe(4);
   });
 
   it("S5b. rejects schema_version: 1 (Stage A → B → invalid)", () => {

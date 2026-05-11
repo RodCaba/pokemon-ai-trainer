@@ -29,7 +29,7 @@ describe("buildOverview Stage B wire-up (OV1..OV4)", () => {
     const db = open(":memory:");
     try {
       const out = buildOverview("01H000000000000000000000T0", makeDeps(db));
-      expect(out.schema_version).toBe(3);
+      expect(out.schema_version).toBe(4);
     } finally {
       db.$client.close();
     }
