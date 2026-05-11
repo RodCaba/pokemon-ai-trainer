@@ -22,6 +22,15 @@ const ISODateTime = z.string().datetime({ offset: false });
 /** Coarse per-pillar tier label. */
 export const TierLabelSchema = z.enum(["Weak", "OK", "Good", "Strong"]);
 
+// Stage D stubs (per-mon state tracking) — schemas land in Stage 5 green.
+// These exports exist so Stage-4 red tests fail at the ASSERTION layer
+// (parse rejects/accepts the input incorrectly) rather than the
+// IMPORT layer ("module not found").
+/** Stub for Stage 5. */
+export const MonStateSchema = z.object({}).passthrough();
+/** Stub for Stage 5. */
+export const PhaseStateSchema = z.object({}).passthrough();
+
 /**
  * Reg M-A field state for a scenario. No `tera_*` field by design
  * (memory `regulation_m_a_no_tera.md`); `.strict()` rejects extras.
