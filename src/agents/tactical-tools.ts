@@ -99,9 +99,29 @@ export function handleScorePillars(
 
 /**
  * Stage B handler for `recommend_team_plan`. Stage 4 stub returns the
- * scenarios array verbatim from `buildOverview` after coercing each
- * entry through Stage B's `recommendTeamPlan`. Stage 5 wires the real
- * orchestration.
+/**
+ * Stage B (Q8 §17) handler for the `recommend_team_plan` Anthropic
+ * tool. Returns one `TeamPlanScenario` when `scenario_name` is set;
+ * otherwise the full scenario array from `buildOverview`.
+ *
+ * **When to use it:** wired into the agent loop alongside
+ * `handleScorePillars`. The agent calls `score_pillars` first to
+ * understand the team, then `recommend_team_plan` once it knows which
+ * scenario the user's question maps to. Don't loop over scenarios
+ * client-side — the bundled overview is cheaper.
+ *
+ * @param input - `{ team_id, scenario_name? }` from the model.
+ * @param deps - DB handle + OverviewDeps for `buildOverview`.
+ * @returns A `RecommendTeamPlanOutput` validated by the schema.
+ * @throws TacticalOverviewError when the team is draft / has
+ *   validation_errors / scenario_name doesn't match any emitted name.
+ *
+ * @example
+ *   const out = handleRecommendTeamPlan(
+ *     { team_id: "01H..." , scenario_name: "Rain" },
+ *     { db, calc: {}, speed: {}, synergy: { db } },
+ *   );
+ *   console.log(out.scenarios[0]!.phases[0]!.active);  // [string, string]
  */
 export function handleRecommendTeamPlan(
   input: RecommendTeamPlanInput,

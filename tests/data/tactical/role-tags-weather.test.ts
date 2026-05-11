@@ -37,9 +37,16 @@ const mkInput = (p: Partial<RoleTagInput>): RoleTagInput => ({
 });
 
 describe("classifier — weather_provided (W1..W5)", () => {
-  it("W1. Rain Dance move → weather_provided='rain'", () => {
+  it("W1. Rain Dance move → weather_provided='rain', weather_provided_via_ability undefined (move-based, 2-turn setup)", () => {
     const r = deriveRoleTags(mkInput({ moves: ["Rain Dance"] }), noopDeps);
     expect(r.weather_provided).toBe("rain");
+    expect(r.weather_provided_via_ability).toBeUndefined();
+  });
+
+  it("W1b. Drizzle ability → both flags set (ability-based, instant on switch-in)", () => {
+    const r = deriveRoleTags(mkInput({ ability: "Drizzle" }), noopDeps);
+    expect(r.weather_provided).toBe("rain");
+    expect(r.weather_provided_via_ability).toBe("rain");
   });
 
   it("W2. Drizzle ability → weather_provided='rain'", () => {

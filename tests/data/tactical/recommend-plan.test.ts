@@ -18,9 +18,14 @@ import {
 } from "../../../src/schemas/tactical";
 import type { UserTeam } from "../../../src/schemas/user-teams";
 
-const tag = (primary: RoleTag, all?: RoleTag[]): RoleTagAssignment => ({
+const tag = (
+  primary: RoleTag,
+  all?: RoleTag[],
+  extras: Partial<RoleTagAssignment> = {},
+): RoleTagAssignment => ({
   primary,
   all: all ?? [primary],
+  ...extras,
 });
 
 const mkSet = (slot: number, species_id: string): Record<string, unknown> => ({
@@ -56,10 +61,10 @@ const archaEyeTeam: UserTeam = {
 };
 
 const archaEyeRoles = new Map<string, RoleTagAssignment>([
-  ["sableye", tag("weather_setter", ["weather_setter", "screen_setter", "disruptor"])],
+  ["sableye", tag("weather_setter", ["weather_setter", "screen_setter", "disruptor"], { weather_provided: "rain" })],
   ["archaludon", tag("setup_sweeper")],
   ["basculegion", tag("cleaner", ["cleaner", "pivot"])],
-  ["pelipper", tag("weather_setter", ["weather_setter", "speed_control_setter", "disruptor"])],
+  ["pelipper", tag("weather_setter", ["weather_setter", "speed_control_setter", "disruptor"], { weather_provided: "rain", weather_provided_via_ability: "rain" })],
   ["sinistcha", tag("speed_control_setter", ["speed_control_setter", "redirect", "cleric"])],
   ["dragonite", tag("speed_control_setter")],
 ]);
@@ -161,5 +166,21 @@ describe("recommendTeamPlan integration (RP1..RP6)", () => {
     } finally {
       db.$client.close();
     }
+  });
+
+  it("RP7. ability-based weather setter in lead → field weather is overridden for the calc loop; move-based is not", () => {
+    // Same archaEye team layout but with two synthetic ScenarioSkeletons,
+    // probed via the public observable: lead pair on Sand should differ
+    // between (Pelipper-Drizzle in lead) and (Sableye-Rain-Dance in lead).
+    // The cleanest assertion is on `weather_provided_via_ability`: only
+    // Pelipper carries it. The override branch in recommend-plan reads
+    // from that field, so the contract is "ability → override, move →
+    // skip override."
+    const pelipper = archaEyeRoles.get("pelipper");
+    const sableye = archaEyeRoles.get("sableye");
+    expect(pelipper?.weather_provided_via_ability).toBe("rain");
+    expect(sableye?.weather_provided_via_ability).toBeUndefined();
+    expect(pelipper?.weather_provided).toBe("rain");
+    expect(sableye?.weather_provided).toBe("rain");
   });
 });

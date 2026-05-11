@@ -48,9 +48,18 @@ export interface RecommendPlanDeps {
   panel?: ThreatPanel;
 }
 
-const FULL_CHAIN_BONUS = 15;
-const PARTIAL_CHAIN_BONUS = 8;
-const SETTER_ON_BENCH_PENALTY = 20;
+/** Score bonus when a candidate plan hits all three chain links:
+ *  setter in lead AND cleric/redirect in mid AND cleaner/setup_sweeper
+ *  in late (the canonical setter → pivot → cleaner backbone).
+ *  TODO(stage6-deferred): role-chain-bonus-calibration — retune across
+ *  ≥ 5 saved teams in the Stage C+ calibration follow-up. */
+export const FULL_CHAIN_BONUS = 15;
+/** Score bonus when a candidate plan hits exactly 2 of the 3 chain
+ *  links. Reflects partial structural coherence. */
+export const PARTIAL_CHAIN_BONUS = 8;
+/** Score penalty when the team carries a setter but the lead pair
+ *  doesn't (the setter is "wasted on the bench"). */
+export const SETTER_ON_BENCH_PENALTY = 20;
 
 const SETTER_TAGS = new Set<RoleTag>([
   "screen_setter", "speed_control_setter", "weather_setter",
@@ -154,6 +163,31 @@ function tagsForSlot(
   return new Set(roleAssignments.get(id)?.all ?? []);
 }
 
+/**
+ * Enumerate (lead, lead, mid, cleaner) candidate plans for a team +
+ * scenario, after role-tag pruning per plan §5.
+ *
+ * **When to use it:** the first stage of `recommendTeamPlan`. Stage B
+ * tests construct synthetic teams to validate the pruning rules in
+ * isolation (PG1..PG6).
+ *
+ * Rules:
+ *   - Slots are disjoint (4 distinct slots across leads + mid + cleaner).
+ *   - Both leads must carry a lead-eligible role tag (setter / redirect
+ *     / disruptor / wallbreaker / setup_sweeper). `cleaner` is excluded
+ *     so Last Respects' scaling isn't burned turn-1.
+ *   - Mid must carry a mid-eligible tag and not be the pure cleaner.
+ *   - Cleaner is the team's `cleaner` slot; falls back to
+ *     `setup_sweeper`/`wallbreaker` when no cleaner exists (Q1 §17).
+ *
+ * @param team - The saved {@link UserTeam}.
+ * @param _scenario - Scenario skeleton — currently unused by the
+ *   generator, but reserved for future scenario-aware pruning.
+ * @param roleAssignments - Map from `buildRoleAssignments` (Stage A).
+ * @returns Pruned candidate list (typically 6–60 of the 180 raw
+ *   triples on a 6-mon team). Empty when role data is missing.
+ * @throws Never.
+ */
 export function generatePlanCandidates(
   team: UserTeam,
   _scenario: ScenarioSkeleton,
@@ -292,6 +326,36 @@ function scorePlan(
   return 1.0 * pair + 0.6 * mid + 0.8 * late + chain - penalty;
 }
 
+/**
+ * Recommend the best 3-phase plan for a scenario. Stage B (Q4 §17)
+ * replacement for Stage A's `recommendLeads`.
+ *
+ * **When to use it:** orchestration-side; consumed by
+ * `buildOverview` once per scenario and by `handleRecommendTeamPlan`
+ * end-to-end. Stage B's only entry point into the plan composer.
+ *
+ * Picks the highest-scoring `(lead, lead, mid, cleaner)` triple from
+ * `generatePlanCandidates`, then builds template rationales and the
+ * top damage calc for each phase. Supports the live ArchaEye demo by
+ * overriding `scenario.field.weather` when an ability-based weather
+ * setter is in the lead pair (Drizzle, Drought, Sand Stream, Snow
+ * Warning).
+ *
+ * @param team - The saved {@link UserTeam}.
+ * @param scenario - Scenario skeleton (name, type, field, opposing_preview).
+ * @param calcCache - Process-scoped calc cache (shared with pillars).
+ * @param deps - DB handle + optional scoring_team / scoring_panel /
+ *   roleAssignments / panel.
+ * @returns A fully populated {@link TeamPlanScenario}.
+ * @throws Never (defensive: when role pruning produces zero
+ *   candidates, emits a low-confidence fallback plan).
+ *
+ * @example
+ *   const plan = recommendTeamPlan(team, scenario, createCalcCache(), {
+ *     db, roleAssignments,
+ *   });
+ *   console.log(plan.phases[0].active);  // ["archaludon", "pelipper"]
+ */
 export function recommendTeamPlan(
   team: UserTeam,
   scenario: ScenarioSkeleton,

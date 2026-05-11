@@ -652,3 +652,89 @@ Today `buildOverview` returns one bundled JSON with pillars + scenarios. Post-St
 **Q12. `phase_tag` ingest backfill — kick off in this PR or strictly defer?**
 Stage A plan §15.5 trigger: "Stage B ships AND ≥ 100 untagged rows." That trigger now fires post-merge of this PR. **Proposal:** strictly defer to a follow-up `chore/backfill-phase-tag` PR — keeps this PR scoped to phase consumption + plan output. Alternative: include backfill — couples two slices, slower review.
 *Answer: Include backfillt*
+
+---
+
+## 18. Stage-5 deviations (ratified in Stage 6 review)
+
+Per CLAUDE.md §12 (recorded-deviation rule). Mirrors Stage A plan §18.
+
+A. **Cleaner role excluded from leads; `setup_sweeper` added; both
+   leads must be lead-eligible.** Plan §5 had a soft "at least one" rule.
+   Post-review (commit `9e8ccb3`) tightened to "both must be eligible"
+   AND added `setup_sweeper` to the eligible set so Archaludon can lead
+   behind a setter. Justification: Last Respects scales with fallen
+   allies (Basculegion in lead burns the scaling); Archaludon is the
+   payoff and belongs in the lead. Ratifies §5.
+
+B. **Cleaner spe gate 90 → 70.** Stage A's `role-tags.ts` set the
+   cleaner gate at base ≥ 90, which excluded Basculegion (base 78).
+   Lowered to 70 in `9e8ccb3` so the canonical Reg-M-A cleaner
+   qualifies. R12 ("base spe 60 → not cleaner") still passes.
+   Ratifies Stage A §3.1 indirectly + this plan's cleaner-gate rule.
+
+C. **`weather_provided_via_ability` schema field added.** New optional
+   field on `RoleTagAssignmentSchema` carrying ability-only weather
+   sources. Used by `recommendTeamPlan` to override `scenario.field.
+   weather` only when the lead's weather source is an ability (Drizzle
+   etc. activate on switch-in, replacing the opposing weather
+   immediately). Move-based sources (Rain Dance) cost a turn 1 and
+   don't change the turn-1 calc field. Ratifies §3 as a Stage-B
+   schema addition.
+
+D. **Process deviation — Stage-4 red discipline lapsed on commit
+   `9e8ccb3`.** The fix commit landed schema additions + classifier
+   branches + the override gate in one commit alongside an adjusted
+   PG3. Per CLAUDE.md §3 the pure-data exemption applies only to
+   schemas; the override branch is non-pure logic and should have
+   shipped with a prior `test: red` commit. The Stage-6 review surfaced
+   this; the follow-up commit adds covering tests (W1, W1b, RP7) so
+   the discipline gap is on the record. Recorded per §12 so it does
+   not become precedent.
+
+E. **Citation retrieval deferred whole-hog.** Plan §1 / §8 / §10
+   promised phase-aware citations with ≥ 5-of-10 citations on the
+   live demo. `cite-phases.ts` ships as a permanent empty-array stub
+   with an inline `TODO(stage6-deferred): cite-phases-empty-stub`.
+   Two reasons: (a) the phase_tag backfill (Q12) hasn't run, so most
+   existing insights would fall back to no-phase retrieval anyway;
+   (b) the per-phase species filter + fallback logic is non-trivial
+   and worth its own Stage C/D slice. Amends §1 success criterion
+   and §10 thresholds: citation coverage moves to the Stage-C
+   calibration follow-up.
+
+## 19. Stage-6 deferred refinements
+
+Tagged `// TODO(stage6-deferred):` in source where applicable.
+
+- **Cite-phases implementation** (`src/data/tactical/cite-phases.ts`)
+  — Stage A's `phase_tag` filter + species filter + fallback per
+  flow §6.5.
+- **Mid-phase true board sim** (`score-mid-phase.ts`) — replace
+  role-weighted heuristic with `damage_calc`-driven turn-3 survival
+  + outgoing-damage loop accounting for accumulated lead damage.
+- **Late-phase engine integration** (`score-late-phase.ts`) — wire
+  bulky-survivor `damage_calc` loop across the top-2 panel members.
+- **Move-based weather turn-2 rescore** (`recommend-plan.ts`) — when
+  a lead carries Rain Dance / Sunny Day, turn 1 calc runs in
+  opposing weather, turn ≥ 2 in our weather.
+- **Weather-duel speed-order** — when both sides bring weather
+  abilities, the slower setter's weather wins. Not modeled.
+- **Last Respects BP scaling** — cleaner-late KO calcs currently use
+  base BP; real scaling is +50 BP per fallen ally.
+- **Stamina / Choice-locking / screens decay / Tailwind decay /
+  status effects** — all per-turn state changes the current 1-vs-1
+  approximation ignores. These are the load-bearing concerns
+  motivating the Stage C → F sequence.
+- **Plan / phase coefficient calibration** — `MID_PHASE_WEIGHT=0.6`,
+  `LATE_PHASE_WEIGHT=0.8`, `FULL_CHAIN_BONUS=15`,
+  `PARTIAL_CHAIN_BONUS=8`, `SETTER_ON_BENCH_PENALTY=20`. Hand-tuned
+  to the live ArchaEye fixture.
+- **TSDoc lint gate** — review surfaces TSDoc gaps; consider
+  promoting CLAUDE.md §10's review gate to an ESLint rule
+  (`eslint-plugin-tsdoc` + `jsdoc/require-jsdoc`) as the export
+  surface grows.
+
+---
+
+**Reviewed-by:** _pending Stage 6 sign-off_

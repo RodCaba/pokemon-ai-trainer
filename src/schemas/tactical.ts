@@ -235,10 +235,10 @@ export const CalcResultRefSchema = z
   })
   .strict();
 
-// `ScenarioSkeletonSchema` was removed in Stage B (Q5 §17). Use
-// {@link TeamPlanScenarioSchema} for the per-scenario output;
-// {@link ScenarioSkeletonSchema} carries the input-side fields shared
-// by both Stage A's removed shape and Stage B's plan output.
+// Stage B (Q5 §17) removed `ScenarioOverviewSchema` and migrated
+// internal consumers to `ScenarioSkeletonSchema` (input-side fields
+// only) + `TeamPlanScenarioSchema` (output). The two new schemas
+// follow below.
 
 /** Input-side fields shared by every scenario. `scenarios.ts` builds
  *  skeletons against this shape; the scoring loop
