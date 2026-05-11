@@ -196,7 +196,30 @@ export function computeSupportLift(inputs: SupportLiftInputs): number {
 }
 
 /**
- * Score a single (lead, back) configuration for a scenario.
+ * Result of {@link scorePair}: numeric score plus the Stage D Q2-echo
+ * max-roll % per actor on each side.
+ *
+ * **When to use it:** the lead-phase scorer's caller (`scorePlan` in
+ * `recommend-plan.ts`) needs both the score (for ranking) and the
+ * incoming-damage echo (to seed mid-phase HP via
+ * `deriveTurnStates.leadIncomingDamagePct`).
+ *
+ * `ours[i]` = max-roll % the OPPOSING leads deal to our `leads[i]`.
+ * `theirs[i]` = max-roll % WE deal to opposing[i].
+ * Tuple aligned to `leads: [number, number]`. Stub path (no
+ * scoring_team / panel) returns `[0, 0]` on both.
+ */
+export interface ScorePairResult {
+  score: number;
+  lead_incoming_damage_pct: {
+    ours: [number, number];
+    theirs: [number, number];
+  };
+}
+
+/**
+ * Score a single (lead, back) configuration for a scenario AND surface
+ * the per-actor max-roll incoming-damage % (Stage D Q2 echo).
  *
  * @param team - Our team (legacy {@link UserTeam}, used only when scoring_team
  *   missing).
@@ -206,7 +229,9 @@ export function computeSupportLift(inputs: SupportLiftInputs): number {
  * @param calcCache - Process-scoped calc cache.
  * @param deps - Calc engine DI; when `scoring_team` + `scoring_panel` are both
  *   present, real engine drives the score; otherwise stable deterministic stub.
- * @returns Numeric score: `α·offense + β·speed − γ·defense_loss`.
+ * @returns `{ score, lead_incoming_damage_pct: { ours, theirs } }`. `score` is
+ *   `α·offense + β·speed − γ·defense_loss + δ·support_lift`. Echo tuples are
+ *   `[0, 0]` on the stub path.
  * @throws Never.
  */
 export function scorePair(
@@ -216,9 +241,12 @@ export function scorePair(
   scenario: ScenarioSkeleton,
   calcCache: CalcCache,
   deps: CalcDeps,
-): number {
-  const base = deps.scoring_team && deps.scoring_panel && deps.scoring_panel.entries.length > 0
+): ScorePairResult {
+  const real = deps.scoring_team && deps.scoring_panel && deps.scoring_panel.entries.length > 0
     ? realScore(leads, scenario, calcCache, deps)
+    : null;
+  const base = real
+    ? real.score
     : (() => {
         // Deterministic stub for tests with empty inputs.
         const offense = 70 - leads[0] * 5 - leads[1] * 3;
@@ -226,13 +254,18 @@ export function scorePair(
         const defenseLoss = 20 + leads[0];
         return ALPHA * offense + BETA * speed - GAMMA * defenseLoss;
       })();
+  const echo = real
+    ? real.echo
+    : { ours: [0, 0] as [number, number], theirs: [0, 0] as [number, number] };
 
   // Stage A: add the signed support_lift term when the orchestrator threaded
   // role assignments + slot-to-species mapping. Both deps are required —
   // either alone is a no-op.
   const slotIds = deps.teamSlotSpeciesIds;
   const roles = deps.roleAssignments;
-  if (!roles || !slotIds) return base;
+  if (!roles || !slotIds) {
+    return { score: base, lead_incoming_damage_pct: echo };
+  }
   const leadIds = [slotIds[leads[0]] ?? "", slotIds[leads[1]] ?? ""] as [string, string];
   const backIds = [slotIds[back[0]] ?? "", slotIds[back[1]] ?? ""] as [string, string];
   const lift = computeSupportLift({
@@ -241,7 +274,12 @@ export function scorePair(
     roleAssignments: roles,
     scenario: scenario as ScenarioSkeleton & { has_priority_threats?: boolean },
   });
-  return base + SUPPORT_LIFT_DELTA * lift;
+  return { score: base + SUPPORT_LIFT_DELTA * lift, lead_incoming_damage_pct: echo };
+}
+
+interface RealScoreResult {
+  score: number;
+  echo: { ours: [number, number]; theirs: [number, number] };
 }
 
 function realScore(
@@ -249,7 +287,7 @@ function realScore(
   scenario: ScenarioSkeleton,
   cache: CalcCache,
   deps: CalcDeps,
-): number {
+): RealScoreResult {
   const calc: (input: CalcInput) => CalcResult =
     (deps.calc as unknown as (input: CalcInput) => CalcResult) ?? damage_calc;
   // Scenario-aware: prefer the scenario's own field state (Sun / Rain / TR /
@@ -280,22 +318,32 @@ function realScore(
     }
   }
   opposing = opposing.slice(0, Math.min(2, opposing.length));
-  if (opposing.length === 0) return 0;
+  const zeroEcho: { ours: [number, number]; theirs: [number, number] } = {
+    ours: [0, 0], theirs: [0, 0],
+  };
+  if (opposing.length === 0) return { score: 0, echo: zeroEcho };
 
   const ourPair: ScoringSet[] = [];
   for (const idx of leads) {
     const s = sets[idx];
     if (s) ourPair.push(s);
   }
-  if (ourPair.length === 0) return 0;
+  if (ourPair.length === 0) return { score: 0, echo: zeroEcho };
 
   let offenseAcc = 0;
   let defenseLossAcc = 0;
   let speedAcc = 0;
   let count = 0;
 
-  for (const ours of ourPair) {
-    for (const them of opposing) {
+  // Stage D Q2 echo: track max-roll incoming damage per OUR lead actor
+  // and max-roll outgoing damage per OPPOSING actor across the inner loop.
+  const incomingByOurs: [number, number] = [0, 0];
+  const outgoingByTheirs: [number, number] = [0, 0];
+
+  for (let oi = 0; oi < ourPair.length; oi++) {
+    const ours = ourPair[oi]!;
+    for (let ti = 0; ti < opposing.length; ti++) {
+      const them = opposing[ti]!;
       count++;
       // Offense: best move's max-roll vs them.
       let bestMax = 0;
@@ -322,6 +370,10 @@ function realScore(
         }
       }
       offenseAcc += Math.min(100, bestMax);
+      // Track outgoing per opposing slot (max across our actors).
+      if (ti < 2 && bestMax > outgoingByTheirs[ti]!) {
+        outgoingByTheirs[ti] = bestMax;
+      }
 
       // Defense loss: their best move's max-roll vs us.
       let theirBestMax = 0;
@@ -345,6 +397,10 @@ function realScore(
         if (r.ok) theirBestMax = Math.max(theirBestMax, r.result.max_percent);
       }
       defenseLossAcc += Math.min(100, theirBestMax);
+      // Track incoming per OUR slot (max across opposing actors).
+      if (oi < 2 && theirBestMax > incomingByOurs[oi]!) {
+        incomingByOurs[oi] = theirBestMax;
+      }
 
       // Speed: 100 if our spe stat > theirs, 50 if tied, 0 otherwise.
       const ourSpe = computeSpeedFromSpec(ours);
@@ -352,11 +408,14 @@ function realScore(
       speedAcc += ourSpe > theirSpe ? 100 : ourSpe === theirSpe ? 50 : 0;
     }
   }
-  if (count === 0) return 0;
+  if (count === 0) return { score: 0, echo: zeroEcho };
   const offense = offenseAcc / count;
   const speed = speedAcc / count;
   const defenseLoss = defenseLossAcc / count;
-  return ALPHA * offense + BETA * speed - GAMMA * defenseLoss;
+  return {
+    score: ALPHA * offense + BETA * speed - GAMMA * defenseLoss,
+    echo: { ours: incomingByOurs, theirs: outgoingByTheirs },
+  };
 }
 
 /**

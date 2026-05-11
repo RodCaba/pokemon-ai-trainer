@@ -23,6 +23,8 @@ import { scorePair, collectKeyCalcsForPair, computeSupportLift } from "./score-p
 import { scoreMidPhase } from "./score-mid-phase";
 import { scoreLatePhase } from "./score-late-phase";
 import { deriveTurnFieldStates } from "./derive-turn-fields";
+import { deriveTurnStates } from "./derive-turn-states";
+import type { PhaseState } from "./derive-turn-states";
 import { detectOpposingSetters } from "./opposing-setter";
 import {
   buildLeadRationale,
@@ -124,6 +126,58 @@ function setterOnBenchPenalty(
   ]);
   const leadHasSetter = [...SETTER_TAGS].some((t) => leadTags.has(t));
   return leadHasSetter ? 0 : SETTER_ON_BENCH_PENALTY;
+}
+
+/** Canonical-id check — strip case, hyphen, underscore, whitespace. */
+function canonId(s: string): string {
+  return s.toLowerCase().replace(/[\s_\-]/g, "");
+}
+
+/**
+ * Build the late-phase {@link CalcResultRef}[] for a cleaner that carries
+ * Last Respects, threading the Stage D BP scaling into the notes line.
+ *
+ * **When to use it:** invoked by {@link recommendTeamPlan} after the
+ * winning candidate is picked + per-mon state is derived. The cleaner's
+ * Last Respects effective BP is `min(250, 50 + 50 × fallen_allies_ours)`;
+ * the notes line spells out the derivation so the agent loop and the
+ * human reviewer both see why the number moved.
+ *
+ * Returns `[]` when the cleaner has no Last Respects on its set.
+ */
+function buildLateLastRespectsKeyCalc(args: {
+  team: UserTeam;
+  candidate: PlanCandidate;
+  lateState: PhaseState;
+}): CalcResultRef[] {
+  const { team, candidate, lateState } = args;
+  const sets = (team as unknown as { sets?: ReadonlyArray<{
+    move_1_id?: string | null; move_2_id?: string | null;
+    move_3_id?: string | null; move_4_id?: string | null;
+  }> }).sets ?? [];
+  const cleanerSet = sets[candidate.cleaner];
+  if (!cleanerSet) return [];
+  const moves = [
+    cleanerSet.move_1_id, cleanerSet.move_2_id,
+    cleanerSet.move_3_id, cleanerSet.move_4_id,
+  ].filter((m): m is string => typeof m === "string");
+  const hasLastRespects = moves.some((m) => canonId(m) === "lastrespects");
+  if (!hasLastRespects) return [];
+  const fallen = lateState.fallen_allies_ours;
+  const bp = Math.min(250, 50 + 50 * fallen);
+  const cleanerSpecies = speciesAt(team, candidate.cleaner);
+  const opposingSpecies = lateState.theirs[0]?.species_id ?? "unknown";
+  return [
+    {
+      attacker_species_id: cleanerSpecies,
+      defender_species_id: opposingSpecies,
+      move_id: "lastrespects",
+      max_roll_pct: 0,
+      ko_chance_desc: "scaled per fallen_allies",
+      field_summary: "late",
+      notes: `Last Respects BP=${bp} from fallen_allies=${fallen}`,
+    },
+  ];
 }
 
 /**
@@ -321,7 +375,7 @@ function scorePlan(
   );
   const chain = roleChainBonus(candidate, team, deps.roleAssignments ?? new Map());
   const penalty = setterOnBenchPenalty(candidate, team, deps.roleAssignments ?? new Map());
-  return 1.0 * pair + 0.6 * mid + 0.8 * late + chain - penalty;
+  return 1.0 * pair.score + 0.6 * mid.score + 0.8 * late + chain - penalty;
 }
 
 /**
@@ -384,10 +438,21 @@ export function recommendTeamPlan(
     // Stage C: emit a fallback per-phase field that just passes the
     // scenario field through with our-side decay applied for late.
     const fallbackOpposing = opposingSetters;
+    const fallbackCandidate: PlanCandidate = { leads: [0, 1], mid: 2, cleaner: 3 };
     const fallbackFields = deriveTurnFieldStates({
       team, scenario,
-      candidate: { leads: [0, 1], mid: 2, cleaner: 3 },
+      candidate: fallbackCandidate,
       roleAssignments, opposingSetters: fallbackOpposing,
+    });
+    // Stage D: derive per-mon state on the fallback path too — zero
+    // echo / empty panel ⇒ everybody at 100% HP, no boosts.
+    const fallbackStates = deriveTurnStates({
+      team, scenario, candidate: fallbackCandidate,
+      roleAssignments, opposingSetters: fallbackOpposing,
+      fields: fallbackFields,
+      leadIncomingDamagePct: { ours: [0, 0], theirs: [0, 0] },
+      midIncomingDamagePct: { ours: [0, 0] },
+      ...(deps.scoring_panel ? { scoring_panel: deps.scoring_panel } : {}),
     });
     return {
       name: scenario.name,
@@ -404,6 +469,7 @@ export function recommendTeamPlan(
           abandon_if: "Re-evaluate team composition.",
           support_lift: 0,
           field: fallbackFields.lead,
+          state: fallbackStates.lead,
         },
         {
           phase: "mid",
@@ -414,6 +480,7 @@ export function recommendTeamPlan(
           key_calcs: [],
           trigger: "Re-evaluate team composition.",
           field: fallbackFields.mid,
+          state: fallbackStates.mid,
         },
         {
           phase: "late",
@@ -423,6 +490,7 @@ export function recommendTeamPlan(
           key_calcs: [],
           win_condition: "Re-evaluate team composition.",
           field: fallbackFields.late,
+          state: fallbackStates.late,
         },
       ],
       plan_score: 0,
@@ -486,6 +554,40 @@ export function recommendTeamPlan(
     team, scenario, candidate: c, roleAssignments, opposingSetters: winnerOpposing,
   });
 
+  // Stage D: re-run scorePair + scoreMidPhase on the winning candidate
+  // to harvest the Q2 echo, then derive per-mon state per phase. Cache
+  // is warm — these calls are near-free.
+  const winnerCalcDeps = {
+    db: deps.db,
+    ...(deps.scoring_team ? { scoring_team: deps.scoring_team } : { calc: () => ({}) }),
+    ...(deps.scoring_panel ? { scoring_panel: deps.scoring_panel } : {}),
+    ...(deps.roleAssignments ? { roleAssignments: deps.roleAssignments } : {}),
+    teamSlotSpeciesIds: [0, 1, 2, 3, 4, 5].map((i) => speciesAt(team, i)),
+  };
+  const winnerLeadScenario: ScenarioSkeleton = { ...scenario, field: winnerFields.lead };
+  const winnerMidScenario: ScenarioSkeleton = { ...scenario, field: winnerFields.mid };
+  const winnerPair = scorePair(
+    team, c.leads, [c.mid, c.cleaner], winnerLeadScenario, cache, winnerCalcDeps,
+  );
+  const winnerMid = scoreMidPhase(c.mid, winnerMidScenario, cache, winnerCalcDeps);
+  const winnerStates = deriveTurnStates({
+    team, scenario, candidate: c,
+    roleAssignments,
+    opposingSetters: winnerOpposing,
+    fields: winnerFields,
+    leadIncomingDamagePct: winnerPair.lead_incoming_damage_pct,
+    midIncomingDamagePct: winnerMid.mid_incoming_damage_pct,
+    ...(deps.scoring_panel ? { scoring_panel: deps.scoring_panel } : {}),
+  });
+
+  // Stage D: build the late-phase key_calc for Last Respects when the
+  // cleaner has it. `bp = 50 + 50 * fallen_allies_ours`, capped at 250.
+  // The `notes` line surfaces the derivation for human review and is the
+  // externally visible BP signal (RP7/RP8).
+  const lateKeyCalcs = buildLateLastRespectsKeyCalc({
+    team, candidate: c, lateState: winnerStates.late,
+  });
+
   const rationaleCommon = { scenario, roleAssignments };
   return {
     name: scenario.name,
@@ -502,6 +604,7 @@ export function recommendTeamPlan(
         abandon_if: buildAbandonIf({ ...rationaleCommon, leads: leadActive, topCalc: topLeadCalc }),
         ...(support_lift !== undefined ? { support_lift } : {}),
         field: winnerFields.lead,
+        state: winnerStates.lead,
       },
       {
         phase: "mid",
@@ -512,15 +615,17 @@ export function recommendTeamPlan(
         key_calcs: [],
         trigger: buildMidTrigger({ ...rationaleCommon, pivot_in: pivotIn, topCalc: null }),
         field: winnerFields.mid,
+        state: winnerStates.mid,
       },
       {
         phase: "late",
         turn_window: [4, 8],
         cleaner: cleanerId,
         rationale: buildLateRationale({ ...rationaleCommon, cleaner: cleanerId, topCalc: null }),
-        key_calcs: [],
+        key_calcs: lateKeyCalcs,
         win_condition: buildWinCondition({ ...rationaleCommon, cleaner: cleanerId, topCalc: null }),
         field: winnerFields.late,
+        state: winnerStates.late,
       },
     ],
     plan_score: winner.s,

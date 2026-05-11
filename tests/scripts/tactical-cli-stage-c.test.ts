@@ -31,7 +31,7 @@ describe("tactical CLI Stage C (T1..T3)", () => {
     const r = runCli(["overview", "--db", ":memory:", "01H000000000000000000000T0"]);
     expect(r.code).toBe(0);
     const j = JSON.parse(r.stdout) as { schema_version: number };
-    expect(j.schema_version).toBe(4);
+    expect(j.schema_version).toBe(5);
   });
 
   it("T3. Stage B regression — late phase carries cleaner role mon (smoke)", () => {

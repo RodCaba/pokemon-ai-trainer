@@ -44,7 +44,7 @@ describe("buildOverview support pillar wiring (OV2..OV3)", () => {
       // the 6-set seeding and exercises the `syntheticTeam` defensive path
       // (which buildRoleAssignments also handles).
       const out = buildOverview("01H000000000000000000000T0", makeDeps(db));
-      expect(out.schema_version).toBe(4);
+      expect(out.schema_version).toBe(5);
       expect(out.pillars.support).toBeDefined();
       expect(out.pillars.support.pillar).toBe("support");
       expect(typeof out.pillars.support.score).toBe("number");

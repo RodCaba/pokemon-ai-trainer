@@ -110,7 +110,7 @@ describe("tactical schemas (TAC-T1..T6)", () => {
       citations: [],
     };
     const overview = TeamTacticalOverviewSchema.parse({
-      schema_version: 4,
+      schema_version: 5,
       team_id: "01H000000000000000000000T0",
       generated_at: "2026-05-08T00:00:00Z",
       threat_panel_as_of: "2026-05-08",
@@ -147,7 +147,7 @@ describe("tactical schemas (TAC-T1..T6)", () => {
 
     expect(() =>
       TeamTacticalOverviewSchema.parse({
-        schema_version: 4,
+        schema_version: 5,
         team_id: "x",
         generated_at: "2026-05-08T00:00:00Z",
         threat_panel_as_of: "2026-05-08",
@@ -182,7 +182,7 @@ describe("tactical schemas (TAC-T1..T6)", () => {
   it("TAC-T4. TeamTacticalOverview.threat_panel_as_of must be ISO date YYYY-MM-DD", () => {
     expect(() =>
       TeamTacticalOverviewSchema.parse({
-        schema_version: 4,
+        schema_version: 5,
         team_id: "x",
         generated_at: "2026-05-08T00:00:00Z",
         threat_panel_as_of: "May 8 2026",

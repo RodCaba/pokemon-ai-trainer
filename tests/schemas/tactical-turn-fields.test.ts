@@ -92,7 +92,7 @@ describe("TeamTacticalOverviewSchema bump 3 → 4 (S4)", () => {
   it("S4a. accepts schema_version: 4", () => {
     expect(
       TeamTacticalOverviewSchema.safeParse({
-        schema_version: 4,
+        schema_version: 5,
         team_id: "t1",
         generated_at: "2026-05-11T00:00:00Z",
         threat_panel_as_of: "2026-05-11",

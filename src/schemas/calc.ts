@@ -107,6 +107,14 @@ export const MoveSpecSchema = forbidIllegalKeys(
     ),
     isCrit: z.boolean().default(false),
     hits: z.number().int().min(1).max(10).optional(),
+    /**
+     * Stage D (Q5 binding): override the move's stored base power. Used
+     * for conditional-BP moves like Last Respects (50 + 50 × fallen_allies)
+     * where the caller knows the situational BP value the engine can't
+     * infer. When omitted (the overwhelming default), the engine uses the
+     * move's stored BP. Bounded `[1, 250]`.
+     */
+    bp: z.number().int().min(1).max(250).optional(),
   }),
 );
 

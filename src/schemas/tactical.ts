@@ -22,14 +22,67 @@ const ISODateTime = z.string().datetime({ offset: false });
 /** Coarse per-pillar tier label. */
 export const TierLabelSchema = z.enum(["Weak", "OK", "Good", "Strong"]);
 
-// Stage D stubs (per-mon state tracking) — schemas land in Stage 5 green.
-// These exports exist so Stage-4 red tests fail at the ASSERTION layer
-// (parse rejects/accepts the input incorrectly) rather than the
-// IMPORT layer ("module not found").
-/** Stub for Stage 5. */
-export const MonStateSchema = z.object({}).passthrough();
-/** Stub for Stage 5. */
-export const PhaseStateSchema = z.object({}).passthrough();
+/**
+ * Stat-stage boosts (-6..+6) accumulated on one actor during a phase.
+ *
+ * **When to use it:** internal — referenced by {@link MonStateSchema}.
+ * Distinct from SPS/EVs (memory `regulation_m_a_stat_rules.md`); these
+ * are battle-time multiplicative stages, not build-time stat points.
+ */
+const MonStateBoostsSchema = z
+  .object({
+    atk: z.number().int().min(-6).max(6).default(0),
+    def: z.number().int().min(-6).max(6).default(0),
+    spa: z.number().int().min(-6).max(6).default(0),
+    spd: z.number().int().min(-6).max(6).default(0),
+    spe: z.number().int().min(-6).max(6).default(0),
+    acc: z.number().int().min(-6).max(6).default(0),
+    eva: z.number().int().min(-6).max(6).default(0),
+  })
+  .strict();
+
+/**
+ * Per-actor state snapshot at the start of a phase (Stage D).
+ *
+ * **When to use it:** populate via {@link import('../data/tactical/derive-turn-states').deriveTurnStates};
+ * carried on `Lead/Mid/LatePhaseSchema.state.ours[]` / `.theirs[]`.
+ *
+ * `.strict()` rejects unknown keys — future fields (e.g. `win_condition_ref`)
+ * land under a fresh `schema_version` bump (memory `feature_win_condition_resolution.md`).
+ * Status enum drops `freeze` per plan Q1 (Reg-M-A effective freeze rate ~0).
+ */
+export const MonStateSchema = z
+  .object({
+    species_id: RosterId,
+    /** Clamped to [1, 100]; 0 reserved for a future fainted state (Stage E). */
+    hp_pct: z.number().int().min(1).max(100),
+    boosts: MonStateBoostsSchema,
+    status: z
+      .enum(["none", "burn", "paralysis", "sleep", "poison", "toxic"])
+      .default("none"),
+    /** Move id locked by a Choice item, or `null` if not locked. */
+    choice_locked_move: z.string().min(1).nullable().default(null),
+  })
+  .strict();
+export type MonState = z.infer<typeof MonStateSchema>;
+
+/**
+ * Aggregate state snapshot for one phase: our 1-2 actors, opposing 1-2
+ * actors, and fallen-ally counts on each side.
+ *
+ * **When to use it:** attached to `Lead/Mid/LatePhaseSchema.state` and
+ * consumed by `damage_calc` callers in `recommend-plan.ts` to thread
+ * per-mon HP/boosts/status into the engine input.
+ */
+export const PhaseStateSchema = z
+  .object({
+    ours: z.array(MonStateSchema).min(1).max(2),
+    theirs: z.array(MonStateSchema).min(1).max(2),
+    fallen_allies_ours: z.number().int().min(0).max(5),
+    fallen_allies_theirs: z.number().int().min(0).max(5),
+  })
+  .strict();
+export type PhaseState = z.infer<typeof PhaseStateSchema>;
 
 /**
  * Reg M-A field state for a scenario. No `tera_*` field by design
@@ -262,6 +315,10 @@ export const CalcResultRefSchema = z
     max_roll_pct: z.number(),
     ko_chance_desc: z.string(),
     field_summary: z.string(),
+    /** Stage D (Q5 binding): hand-rolled prose for a specific scaling
+     *  story. Today's only use is Last Respects BP scaling
+     *  (`"Last Respects BP=N from fallen_allies=M"`). ≤ 200 chars. */
+    notes: z.string().max(200).optional(),
   })
   .strict();
 
@@ -306,6 +363,9 @@ export const LeadPhaseSchema = z
      *  the agent loop introspect "what did the scorer assume for turn
      *  1?" instead of re-deriving from the rationale prose. */
     field: ScenarioFieldSchema.optional(),
+    /** Stage D: derived per-actor state for this phase (HP, boosts,
+     *  status, choice-lock). Always 100% HP / zero boosts on lead. */
+    state: PhaseStateSchema.optional(),
   })
   .strict();
 
@@ -321,6 +381,8 @@ export const MidPhaseSchema = z
     trigger: z.string().max(200),
     /** Stage C: derived field state for this phase (T2–T4). */
     field: ScenarioFieldSchema.optional(),
+    /** Stage D: derived per-actor state for this phase. */
+    state: PhaseStateSchema.optional(),
   })
   .strict();
 
@@ -336,6 +398,8 @@ export const LatePhaseSchema = z
     /** Stage C: derived field state for this phase (T4+). Typically
      *  neutral (all temporary effects decayed by turn 5+). */
     field: ScenarioFieldSchema.optional(),
+    /** Stage D: derived per-actor state for this phase. */
+    state: PhaseStateSchema.optional(),
   })
   .strict();
 
@@ -369,7 +433,7 @@ export const TeamPlanScenarioSchema = z
  *  production code remain green while the new tests target version 3. */
 export const TeamTacticalOverviewSchema = z
   .object({
-    schema_version: z.literal(4),
+    schema_version: z.literal(5),
     team_id: z.string(),
     generated_at: ISODateTime,
     threat_panel_as_of: ISODate,

@@ -19,18 +19,47 @@ import type { ScenarioSkeleton } from "../../schemas/tactical";
 import type { CalcCache } from "./calc-cache";
 import type { CalcDeps } from "./score-offense";
 
-/** Pure score (0..150) for a mid-phase candidate slot.
- *  Stage 5 emits a deterministic function of (slot index, opp count, role
- *  tags via deps.roleAssignments + deps.teamSlotSpeciesIds). Cleric /
- *  redirect roles are heavily preferred because they're the textbook
- *  mid-phase pivots. The real damage_calc-driven survival sim is a
- *  TODO(stage6-deferred): mid-phase-true-board-sim follow-up. */
+/**
+ * Result of {@link scoreMidPhase}: numeric score plus the Stage D
+ * mid → late HP echo.
+ *
+ * `mid_incoming_damage_pct.ours[0]` = max-roll % opposing leads deal to
+ * the mid pivot under the mid-phase field. Stub path returns `[0, 0]`.
+ */
+export interface ScoreMidPhaseResult {
+  score: number;
+  mid_incoming_damage_pct: {
+    ours: [number, number];
+  };
+}
+
+/**
+ * Score a mid-phase candidate slot AND surface the mid → late HP echo
+ * (Stage D Q2).
+ *
+ * **When to use it:** called once per candidate per scenario by
+ * `scorePlan` in `recommend-plan.ts`. The score in `[0, 150]` drives
+ * candidate ranking; the echo seeds `deriveTurnStates.midIncomingDamagePct`.
+ *
+ * Stage 5 emits a deterministic role-bonus score; the real
+ * `damage_calc`-driven survival sim is `TODO(stage6-deferred):
+ * mid-phase-true-board-sim`.
+ *
+ * @param midSlot - The slot index picked as mid pivot.
+ * @param scenario - Scenario skeleton (field + opposing_preview).
+ * @param _calcCache - Process-scoped calc cache (unused on stub path).
+ * @param deps - Calc engine DI. When `teamSlotSpeciesIds` +
+ *   `roleAssignments` are present, role bonuses apply.
+ * @returns `{ score, mid_incoming_damage_pct: { ours: [0, 0] } }` on the
+ *   stub path. Always finite numbers.
+ * @throws Never.
+ */
 export function scoreMidPhase(
   midSlot: number,
   scenario: ScenarioSkeleton,
   _calcCache: CalcCache,
   deps: CalcDeps,
-): number {
+): ScoreMidPhaseResult {
   const slotWeight = Math.max(0, 60 - midSlot * 8);
   const opponentCount = Math.min(scenario.opposing_preview.length, 2);
   const opponentBonus = opponentCount * 10;
@@ -48,5 +77,9 @@ export function scoreMidPhase(
     // dedicated cleric / redirect pivots.
     if (all.includes("disruptor")) roleBonus += 5;
   }
-  return Math.max(0, Math.min(150, slotWeight + opponentBonus + roleBonus));
+  const score = Math.max(0, Math.min(150, slotWeight + opponentBonus + roleBonus));
+  return {
+    score,
+    mid_incoming_damage_pct: { ours: [0, 0] },
+  };
 }

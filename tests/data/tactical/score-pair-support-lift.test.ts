@@ -187,7 +187,7 @@ describe("scorePair — support_lift integration (SP5)", () => {
     };
     const scenario = mkScenario(false);
     const cache = createCalcCache();
-    const baseScore = scorePair(team, [0, 1], [2, 3], scenario, cache, {});
+    const baseScore = scorePair(team, [0, 1], [2, 3], scenario, cache, {}).score;
 
     const roleAssignments = new Map<string, RoleTagAssignment>([
       // Map indices 0..3 to species ids by overlay; the test confirms the lift
@@ -200,7 +200,7 @@ describe("scorePair — support_lift integration (SP5)", () => {
     const liftedScore = scorePair(team, [0, 1], [2, 3], scenario, cache, {
       roleAssignments,
       teamSlotSpeciesIds: ["sableye", "pelipper", "archaludon", "basculegion", "x", "y"],
-    });
+    }).score;
     // setter+setter → setup_sweeper+cleaner back: +12 lift.
     expect(liftedScore - baseScore).toBeCloseTo(12 * SUPPORT_LIFT_DELTA, 5);
   });

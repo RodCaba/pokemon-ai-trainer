@@ -15,28 +15,30 @@ const validSps = { hp: 32, atk: 32, def: 0, spa: 0, spd: 0, spe: 0 } as const;
 
 const baseAttacker = {
   species: "Basculegion",
-  level: 50,
+  level: 50 as const,
   item: "Choice Scarf",
   ability: "Adaptability",
-  nature: "Adamant",
+  nature: "Adamant" as const,
   sps: validSps,
   moves: ["Last Respects", "Wave Crash", "Aqua Jet", "Liquidation"],
   status: "Healthy" as const,
   hpPercent: 100,
   statBoosts: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 },
+  no_mega: false,
 };
 
 const baseDefender = {
   species: "Garchomp",
-  level: 50,
-  item: "Life Orb",
+  level: 50 as const,
+  item: null,
   ability: "Rough Skin",
-  nature: "Adamant",
+  nature: "Adamant" as const,
   sps: { hp: 32, atk: 32, def: 0, spa: 0, spd: 0, spe: 0 } as const,
   moves: ["Earthquake", "Dragon Claw", "Outrage", "Stone Edge"],
   status: "Healthy" as const,
   hpPercent: 100,
   statBoosts: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 },
+  no_mega: false,
 };
 
 const validField = {
