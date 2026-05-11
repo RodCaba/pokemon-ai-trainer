@@ -53,6 +53,147 @@ export const ALPHA = 1.0;
 export const BETA = 0.5;
 /** Defense-loss weight (Q6 binding). */
 export const GAMMA = 0.7;
+/** Support-lift weight (Stage A, Q5 binding — calibration follow-up slice). */
+export const SUPPORT_LIFT_DELTA = 1.0;
+/** Bonus when a dedicated-setter lead pairs with a setup_sweeper lead AND
+ *  the payoff has NO weather-charged move (generic structural backbone).
+ *  TODO(stage6-deferred): support-lift-magnitude-calibration — re-tune
+ *  across ≥5 saved teams in the Q5 calibration follow-up slice. */
+export const STRUCTURAL_LEAD_BONUS = 25;
+/** Bonus when the setter's weather matches the sweeper's charged-move
+ *  requirement (Sableye Rain Dance → Archaludon Electro Shot). Larger
+ *  than {@link STRUCTURAL_LEAD_BONUS} because the setter is load-bearing:
+ *  without it the payoff move is functionally dead.
+ *  TODO(stage6-deferred): support-lift-magnitude-calibration. */
+export const WEATHER_MATCH_BONUS = 60;
+
+import type { RoleTag, RoleTagAssignment } from "../../schemas/tactical";
+
+/** Inputs to {@link computeSupportLift}. */
+export interface SupportLiftInputs {
+  leadIds: readonly [string, string];
+  backIds: readonly [string, string];
+  roleAssignments: ReadonlyMap<string, RoleTagAssignment>;
+  scenario: ScenarioOverview & { has_priority_threats?: boolean };
+}
+
+const SETTER_TAGS: ReadonlySet<RoleTag> = new Set([
+  "screen_setter",
+  "speed_control_setter",
+  "weather_setter",
+]);
+
+function tagsOf(
+  id: string,
+  roles: ReadonlyMap<string, RoleTagAssignment>,
+): ReadonlySet<RoleTag> {
+  const a = roles.get(id);
+  return new Set(a?.all ?? []);
+}
+
+const anyHas = (
+  ids: readonly string[],
+  roles: ReadonlyMap<string, RoleTagAssignment>,
+  tags: readonly RoleTag[],
+): boolean =>
+  ids.some((id) => {
+    const set = tagsOf(id, roles);
+    return tags.some((t) => set.has(t));
+  });
+
+const allHaveSetter = (
+  ids: readonly string[],
+  roles: ReadonlyMap<string, RoleTagAssignment>,
+): boolean =>
+  ids.every((id) => {
+    const set = tagsOf(id, roles);
+    return [...set].some((t) => SETTER_TAGS.has(t));
+  });
+
+/**
+ * Compute the signed `support_lift` term added to the pair score.
+ *
+ * **When to use it:** invoked by `scorePair` (when `roleAssignments` is
+ * threaded in via `CalcDeps`) and by Stage B's plan scorer.
+ *
+ * Stage A scaffold returns 0 unconditionally; Stage 5 wires the rule
+ * table verbatim from plan §3.3.
+ *
+ * @param _inputs - Lead + back ids, role map, scenario.
+ * @returns Lift in -10..+18.
+ * @throws Never.
+ */
+export function computeSupportLift(inputs: SupportLiftInputs): number {
+  const { leadIds, backIds, roleAssignments, scenario } = inputs;
+  let lift = 0;
+  const setterLead = anyHas(leadIds, roleAssignments, [...SETTER_TAGS]);
+  const payoffBack = anyHas(backIds, roleAssignments, ["setup_sweeper", "cleaner"]);
+  if (setterLead && payoffBack) lift += 12;
+
+  // Stage A: structural-lead bonus, gated on weather-mechanism compatibility
+  // (Q12(c)). The "pure setter + setup_sweeper" lead pair is the textbook
+  // support backbone (Sableye → Archaludon, Pelipper → Charizard). It
+  // requires (a) one lead is a setter that carries NO offensive role tag
+  // (setup_sweeper / cleaner / wallbreaker) — i.e. a dedicated supporter
+  // whose contribution is invisible to raw KO scoring, AND (b) the other
+  // lead is the setup payoff itself, AND (c) if the payoff has a weather
+  // dependency (Electro Shot ⇒ rain, Solar Beam ⇒ sun, …) the setter's
+  // `weather_provided` must match. Tailwind + Electro-Shot Archaludon FAILS
+  // (c) because Tailwind doesn't bring rain. Without (c) every speed_control
+  // setter looks identical to the right weather setter and the scorer can't
+  // distinguish "Sableye-rain → Archaludon-Electro-Shot" from
+  // "Dragonite-Tailwind → Archaludon-Electro-Shot stuck charging".
+  // A "dedicated setter" lead is one whose role tags include a setter
+  // sub-tag AND no offensive role tag — the canonical pure-support lead
+  // (Sableye, Pelipper) whose contribution is invisible to raw KO scoring.
+  const dedicatedSetterLeadId = leadIds.find((id) => {
+    const a = roleAssignments.get(id);
+    if (!a) return false;
+    const all = new Set(a.all);
+    const isSetter = [...SETTER_TAGS].some((t) => all.has(t));
+    const isOffensive = all.has("setup_sweeper") || all.has("cleaner") || all.has("wallbreaker");
+    return isSetter && !isOffensive;
+  });
+  const sweeperLeadId = leadIds.find((id) => {
+    const a = roleAssignments.get(id);
+    return a !== undefined && a.all.includes("setup_sweeper");
+  });
+  if (dedicatedSetterLeadId !== undefined && sweeperLeadId !== undefined) {
+    const setter = roleAssignments.get(dedicatedSetterLeadId);
+    const sweeper = roleAssignments.get(sweeperLeadId);
+    const dep = sweeper?.weather_charged_move;
+    const prov = setter?.weather_provided;
+    if (dep === undefined) {
+      lift += STRUCTURAL_LEAD_BONUS;
+    } else if (dep === prov) {
+      lift += WEATHER_MATCH_BONUS;
+    }
+    // dep defined but no match ⇒ 0 (Tailwind setter + Electro Shot sweeper).
+  }
+
+  if (
+    anyHas(leadIds, roleAssignments, ["redirect"]) &&
+    anyHas(backIds, roleAssignments, ["setup_sweeper"])
+  ) {
+    lift += 8;
+  }
+  if (
+    anyHas(leadIds, roleAssignments, ["setup_sweeper"]) &&
+    anyHas(backIds, roleAssignments, ["cleric"])
+  ) {
+    lift += 6;
+  }
+  if (
+    anyHas(leadIds, roleAssignments, ["anti_priority"]) &&
+    scenario.has_priority_threats === true
+  ) {
+    lift += 10;
+  }
+  if (allHaveSetter(leadIds, roleAssignments) && !payoffBack) {
+    lift -= 10;
+  }
+  return lift;
+}
 
 /**
  * Score a single (lead, back) configuration for a scenario.
@@ -71,19 +212,36 @@ export const GAMMA = 0.7;
 export function scorePair(
   _team: UserTeam,
   leads: [number, number],
-  _back: [number, number],
+  back: [number, number],
   scenario: ScenarioOverview,
   calcCache: CalcCache,
   deps: CalcDeps,
 ): number {
-  if (deps.scoring_team && deps.scoring_panel && deps.scoring_panel.entries.length > 0) {
-    return realScore(leads, scenario, calcCache, deps);
-  }
-  // Deterministic stub for tests with empty inputs.
-  const offense = 70 - leads[0] * 5 - leads[1] * 3;
-  const speed = 50 - leads[1];
-  const defenseLoss = 20 + leads[0];
-  return ALPHA * offense + BETA * speed - GAMMA * defenseLoss;
+  const base = deps.scoring_team && deps.scoring_panel && deps.scoring_panel.entries.length > 0
+    ? realScore(leads, scenario, calcCache, deps)
+    : (() => {
+        // Deterministic stub for tests with empty inputs.
+        const offense = 70 - leads[0] * 5 - leads[1] * 3;
+        const speed = 50 - leads[1];
+        const defenseLoss = 20 + leads[0];
+        return ALPHA * offense + BETA * speed - GAMMA * defenseLoss;
+      })();
+
+  // Stage A: add the signed support_lift term when the orchestrator threaded
+  // role assignments + slot-to-species mapping. Both deps are required —
+  // either alone is a no-op.
+  const slotIds = deps.teamSlotSpeciesIds;
+  const roles = deps.roleAssignments;
+  if (!roles || !slotIds) return base;
+  const leadIds = [slotIds[leads[0]] ?? "", slotIds[leads[1]] ?? ""] as [string, string];
+  const backIds = [slotIds[back[0]] ?? "", slotIds[back[1]] ?? ""] as [string, string];
+  const lift = computeSupportLift({
+    leadIds,
+    backIds,
+    roleAssignments: roles,
+    scenario: scenario as ScenarioOverview & { has_priority_threats?: boolean },
+  });
+  return base + SUPPORT_LIFT_DELTA * lift;
 }
 
 function realScore(

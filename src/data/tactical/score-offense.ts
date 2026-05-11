@@ -44,6 +44,14 @@ export interface CalcDeps {
    *  materialize ScoringThreats from labmaus team_sets for any species
    *  named in `scenario.opposing_preview` that isn't in the panel. */
   db?: import("../../db/open").Db;
+  /** Stage A: precomputed role assignments per species_id. When set
+   *  alongside `teamSlotSpeciesIds`, `scorePair` adds a signed
+   *  `support_lift` term to its score. */
+  roleAssignments?: ReadonlyMap<string, import("../../schemas/tactical").RoleTagAssignment>;
+  /** Stage A: ordered species ids for the 6 team slots — lets `scorePair`
+   *  resolve lead/back numeric indices into species ids without re-reading
+   *  the saved team. */
+  teamSlotSpeciesIds?: readonly string[];
 }
 
 interface PairOutcome {

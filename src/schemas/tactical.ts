@@ -82,22 +82,101 @@ export const ThreatHitSchema = z
 /** Per-pillar 0–100 score + tier + pillar-specific evidence record. */
 export const PillarScoreSchema = z
   .object({
-    pillar: z.enum(["offense", "defense", "speed", "synergy"]),
+    pillar: z.enum(["offense", "defense", "speed", "synergy", "support"]),
     score: z.number().int().min(0).max(100),
     tier: TierLabelSchema,
     evidence: z.record(z.unknown()),
   })
   .strict();
 
-/** Bundle of all four pillar scores for a team. */
+/** Bundle of all five pillar scores for a team. Stage A bumped from 4 → 5. */
 export const PillarBundleSchema = z
   .object({
     offense: PillarScoreSchema,
     defense: PillarScoreSchema,
     speed: PillarScoreSchema,
     synergy: PillarScoreSchema,
+    support: PillarScoreSchema,
   })
   .strict();
+
+/** Stage A: deterministic role classification per set.
+ *  Plan §3 + §3.1; Q2 binding split `setter` into three sub-tags. */
+export const RoleTagSchema = z.enum([
+  "screen_setter",
+  "speed_control_setter",
+  "weather_setter",
+  "redirect",
+  "cleric",
+  "disruptor",
+  "pivot",
+  "setup_sweeper",
+  "cleaner",
+  "wallbreaker",
+  "anti_priority",
+  "untagged",
+]);
+export type RoleTag = z.infer<typeof RoleTagSchema>;
+
+/** Weather a set brings (Rain Dance, Drizzle, etc.) or depends on
+ *  (Electro Shot's 1-turn-in-rain, Solar Beam's 1-turn-in-sun, etc.). */
+export const WeatherKindSchema = z.enum(["rain", "sun", "sand", "snow"]);
+export type WeatherKind = z.infer<typeof WeatherKindSchema>;
+
+/** Per-set role assignment: the highest-priority `primary` + every tag that
+ *  hit. Optional weather pairing data lets the support_lift scorer match a
+ *  rain-bringer to a rain-dependent payoff (Sableye Rain Dance →
+ *  Archaludon Electro Shot) instead of treating all setters as
+ *  interchangeable (plan §12 Q12(c) — mechanism compatibility). */
+export const RoleTagAssignmentSchema = z
+  .object({
+    primary: RoleTagSchema,
+    all: z.array(RoleTagSchema).min(1),
+    /** Set when the role classifier detects a weather move/ability that
+     *  brings this weather to the field. */
+    weather_provided: WeatherKindSchema.optional(),
+    /** Set when the role classifier detects a charging move whose
+     *  charge-skip condition is this weather (Electro Shot ⇒ rain,
+     *  Solar Beam ⇒ sun). The name reads as "the weather this move
+     *  REQUIRES to skip its charge turn" — not a general payoff hint. */
+    weather_charged_move: WeatherKindSchema.optional(),
+  })
+  .strict();
+export type RoleTagAssignment = z.infer<typeof RoleTagAssignmentSchema>;
+
+const RoleAssignmentRecord = z.record(RoleTagAssignmentSchema);
+
+const SupportMechanismsSchema = z
+  .object({
+    screens: z.array(RosterId),
+    weather_setters: z.array(RosterId),
+    speed_control: z.array(RosterId),
+    redirection: z.array(RosterId),
+    healers: z.array(RosterId),
+    disruption: z.array(RosterId),
+    pivots: z.array(RosterId),
+    anti_priority: z.array(RosterId),
+  })
+  .strict();
+
+const CoherenceChainSchema = z
+  .object({
+    setter: RosterId,
+    payoff: RosterId,
+    payoff_role: RoleTagSchema,
+  })
+  .strict();
+
+/** Pillar-specific evidence for `support`. */
+export const SupportPillarEvidenceSchema = z
+  .object({
+    role_tags: RoleAssignmentRecord,
+    mechanisms: SupportMechanismsSchema,
+    role_coherence: z.boolean(),
+    coherence_chain: CoherenceChainSchema.nullable(),
+  })
+  .strict();
+export type SupportPillarEvidence = z.infer<typeof SupportPillarEvidenceSchema>;
 
 /** Discriminator for ScenarioOverview kind.
  *  - `archetype`: Sun / Rain / Sand / Snow / Trick Room / Perish Trap
@@ -165,13 +244,17 @@ export const ScenarioOverviewSchema = z
      *  to the user. `"medium"` is the default. `"high"` indicates strong
      *  citation backing AND a clear pair_score margin over alternatives. */
     confidence: z.enum(["low", "medium", "high"]).optional(),
+    /** Stage A: signed lift applied by `computeSupportLift` to the pair score
+     *  for this scenario. Optional in Stage A (forward-compat); Stage B may
+     *  promote to required. Range typically -10..+18 (plan §3.3). */
+    support_lift: z.number().optional(),
   })
   .strict();
 
-/** End-to-end output of `buildOverview`. */
+/** End-to-end output of `buildOverview`. Stage A bumps from 1 → 2. */
 export const TeamTacticalOverviewSchema = z
   .object({
-    schema_version: z.literal(1),
+    schema_version: z.literal(2),
     team_id: z.string(),
     generated_at: ISODateTime,
     threat_panel_as_of: ISODate,

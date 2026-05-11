@@ -23,6 +23,7 @@ const validInsight: Insight = {
   },
   embedding_ref: "vec_garchomp_lead_001",
   chunk_id: null,
+  phase_tag: null,
 };
 
 describe("insights — v1 stub", () => {

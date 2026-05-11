@@ -55,25 +55,8 @@ function mkInsight(
   } as Insight;
 }
 
-function seedChunk(db: Db, id: string): void {
-  const v = fakeVec(0);
-  const r = db.$client
-    .prepare("INSERT INTO knowledge_chunk_embeddings (embedding) VALUES (?)")
-    .run(Buffer.from(v.buffer, v.byteOffset, v.byteLength));
-  const rowid = Number(r.lastInsertRowid);
-  db.$client
-    .prepare(
-      `INSERT INTO knowledge_chunks
-        (id, source_site, article_slug, article_title, article_url,
-         article_section, section_heading, chunk_index, chunk_text,
-         chunk_token_count, subtype, body_hash, embedding_ref,
-         fetched_at, author, captured_via, metadata)
-       VALUES (?, 'youtube', 'abc', 'T', 'https://www.youtube.com/watch?v=abc',
-               'intro', 'S', 0, 'text', 10, 'youtube-transcript',
-               ?, ?, '2026-05-09T00:00:00Z', NULL, 'ingest@dev', NULL)`,
-    )
-    .run(id, "sha256:" + "0".repeat(64), `knowledge_chunk_embeddings:${rowid}`);
-}
+// seedChunk is shared with `tests/db/insights-phase-tag.test.ts`.
+import { seedChunk } from "../_helpers/seed-chunk";
 
 describe("db/insights repo (YT-T30..YT-T38)", () => {
   it("YT-T30. upsertMany inserts insight + subjects + embedding atomically", async () => {

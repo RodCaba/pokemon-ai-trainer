@@ -27,7 +27,7 @@ import { PokemonSpecSchema } from "../../schemas/calc";
 import { createCalcCache } from "./calc-cache";
 import { buildThreatPanel } from "./threat-panel";
 import { generateScenarios } from "./scenarios";
-import { scoreAllPillars } from "./pillars";
+import { scoreAllPillars, buildRoleAssignments } from "./pillars";
 import { recommendLeads, pickConfidence } from "./recommend-leads";
 import { findCitations } from "./cite";
 import { userTeamToScoringTeam } from "./scoring-team";
@@ -251,10 +251,15 @@ export function buildOverview(
     ...(scoringTeamFinal ? { scoring_team: scoringTeamFinal } : {}),
   });
 
+  // Stage A: build the role-assignments map once and thread through both
+  // pillar scoring and per-scenario lead recommendation (Q6 binding).
+  const roleAssignments = buildRoleAssignments(team, deps.db);
+
   const pillars = scoreAllPillars(team, panel, scenarios, calcCache, {
     ...deps,
     ...(scoringTeamFinal ? { scoring_team: scoringTeamFinal } : {}),
     ...(scoringPanel ? { scoring_panel: scoringPanel } : {}),
+    roleAssignments,
   });
 
   const enriched: ScenarioOverview[] = scenarios.map((sc) => {
@@ -262,6 +267,7 @@ export function buildOverview(
       db: deps.db,
       ...(scoringTeamFinal ? { scoring_team: scoringTeamFinal } : {}),
       ...(scoringPanel ? { scoring_panel: scoringPanel } : {}),
+      roleAssignments,
     });
     const cites = findCitations(r, r.recommended_leads, { db: deps.db });
     // Recompute confidence after citations attach — recommendLeads ran
@@ -280,7 +286,7 @@ export function buildOverview(
   });
   const generatedAt = (deps.now ?? (() => new Date()))().toISOString();
   return {
-    schema_version: 1,
+    schema_version: 2,
     team_id: teamId,
     generated_at: generatedAt,
     threat_panel_as_of: panel.as_of,

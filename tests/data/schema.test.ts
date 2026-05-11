@@ -97,6 +97,7 @@ const validInsight = {
   },
   embedding_ref: "vec_garchomp_lead_001",
   chunk_id: null,
+  phase_tag: null,
 };
 
 // ---- PokemonSchema (cases 1–10) ----
