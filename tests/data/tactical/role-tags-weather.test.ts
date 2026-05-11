@@ -20,7 +20,7 @@ import {
 import {
   computeSupportLift,
 } from "../../../src/data/tactical/score-pair";
-import type { RoleTagAssignment, ScenarioOverview, RoleTag } from "../../../src/schemas/tactical";
+import type { RoleTagAssignment, ScenarioSkeleton, RoleTag } from "../../../src/schemas/tactical";
 
 const noopDeps: DeriveRoleTagsDeps = { logWarn: () => {} };
 
@@ -37,9 +37,16 @@ const mkInput = (p: Partial<RoleTagInput>): RoleTagInput => ({
 });
 
 describe("classifier — weather_provided (W1..W5)", () => {
-  it("W1. Rain Dance move → weather_provided='rain'", () => {
+  it("W1. Rain Dance move → weather_provided='rain', weather_provided_via_ability undefined (move-based, 2-turn setup)", () => {
     const r = deriveRoleTags(mkInput({ moves: ["Rain Dance"] }), noopDeps);
     expect(r.weather_provided).toBe("rain");
+    expect(r.weather_provided_via_ability).toBeUndefined();
+  });
+
+  it("W1b. Drizzle ability → both flags set (ability-based, instant on switch-in)", () => {
+    const r = deriveRoleTags(mkInput({ ability: "Drizzle" }), noopDeps);
+    expect(r.weather_provided).toBe("rain");
+    expect(r.weather_provided_via_ability).toBe("rain");
   });
 
   it("W2. Drizzle ability → weather_provided='rain'", () => {
@@ -102,7 +109,7 @@ const tag = (
   extras: { weather_provided?: "rain" | "sun" | "sand" | "snow"; weather_charged_move?: "rain" | "sun" | "sand" | "snow" } = {},
 ): RoleTagAssignment => ({ primary, all, ...extras });
 
-const scenario = (): ScenarioOverview => ({
+const scenario = (): ScenarioSkeleton => ({
   name: "test",
   type: "archetype",
   field: {
@@ -111,13 +118,6 @@ const scenario = (): ScenarioOverview => ({
     light_screen: false, reflect: false, gravity: false,
   },
   opposing_preview: ["incineroar"],
-  recommended_leads: ["a", "b"],
-  recommended_backline: ["c", "d"],
-  rejected_bench: ["e", "f"],
-  reasoning: "x",
-  key_calcs: [],
-  citations: [],
-  pair_score: 0,
 });
 
 describe("support_lift — weather mechanism gate (W9..W11)", () => {

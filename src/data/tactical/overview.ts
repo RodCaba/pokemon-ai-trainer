@@ -9,7 +9,8 @@
 
 import type { Db } from "../../db/open";
 import type {
-  ScenarioOverview,
+  ScenarioSkeleton,
+  TeamPlanScenario,
   TeamTacticalOverview,
   ThreatEntry,
   ThreatPanel,
@@ -28,8 +29,7 @@ import { createCalcCache } from "./calc-cache";
 import { buildThreatPanel } from "./threat-panel";
 import { generateScenarios } from "./scenarios";
 import { scoreAllPillars, buildRoleAssignments } from "./pillars";
-import { recommendLeads, pickConfidence } from "./recommend-leads";
-import { findCitations } from "./cite";
+import { recommendTeamPlan } from "./recommend-plan";
 import { userTeamToScoringTeam } from "./scoring-team";
 
 export interface OverviewDeps {
@@ -262,31 +262,27 @@ export function buildOverview(
     roleAssignments,
   });
 
-  const enriched: ScenarioOverview[] = scenarios.map((sc) => {
-    const r = recommendLeads(team, sc, calcCache, {
+  // Stage B: emit `TeamPlanScenario[]` per Q8 §17. Each scenario goes
+  // through `recommendTeamPlan` (replaces Stage A's `recommendLeads`).
+  // Citation retrieval moves to phase-aware `findPhaseCitations` in
+  // Stage 5; the previous `findCitations(scenarioOverview, leads)` path
+  // is kept available for the deprecated `handleRecommendLeads` handler
+  // until Stage 5 removal lands.
+  const enriched: TeamPlanScenario[] = scenarios.map((sc) => {
+    const plan = recommendTeamPlan(team, sc, calcCache, {
       db: deps.db,
       ...(scoringTeamFinal ? { scoring_team: scoringTeamFinal } : {}),
       ...(scoringPanel ? { scoring_panel: scoringPanel } : {}),
       roleAssignments,
+      panel,
     });
-    const cites = findCitations(r, r.recommended_leads, { db: deps.db });
-    // Recompute confidence after citations attach — recommendLeads ran
-    // with the pre-citation count (always 0 from generateScenarios), so
-    // the signal is stale until we re-evaluate here.
-    const confidence = pickConfidence({
-      citationCount: cites.length,
-      keyCalcCount: r.key_calcs.length,
-      // Per-scenario margin isn't visible at this layer; substitute the
-      // pair_score itself as a proxy (high score = strong pick) so the
-      // gate stays meaningful without piping the second-best score out.
-      margin: 100,
-      pairScore: r.pair_score,
-    });
-    return { ...r, citations: cites.slice(0, 3), confidence };
+    // Wrap citation retrieval defensively — empty DB / no insights
+    // means we ship the plan without citations rather than fail.
+    return { ...plan, citations: plan.citations.slice(0, 3) };
   });
   const generatedAt = (deps.now ?? (() => new Date()))().toISOString();
   return {
-    schema_version: 2,
+    schema_version: 3,
     team_id: teamId,
     generated_at: generatedAt,
     threat_panel_as_of: panel.as_of,

@@ -7,7 +7,7 @@
  *     don't exist yet on `src/schemas/tactical.ts`.
  *   - `PillarBundleSchema` doesn't include `support`.
  *   - `TeamTacticalOverviewSchema.schema_version` is still `z.literal(1)`.
- *   - `ScenarioOverviewSchema` doesn't carry `support_lift`.
+ *   - `ScenarioSkeletonSchema` doesn't carry `support_lift`.
  */
 
 import { describe, expect, it } from "vitest";
@@ -18,7 +18,7 @@ import {
   PillarBundleSchema,
   PillarScoreSchema,
   TeamTacticalOverviewSchema,
-  ScenarioOverviewSchema,
+  ScenarioSkeletonSchema,
   ScenarioFieldSchema,
 } from "../../src/schemas/tactical";
 
@@ -154,18 +154,43 @@ describe("PillarBundleSchema (S4)", () => {
 });
 
 describe("TeamTacticalOverviewSchema (S5)", () => {
+  // Stage B (Q5 + Q8 §17): TeamTacticalOverview embeds TeamPlanScenario,
+  // not the removed ScenarioOverview. The fixture below matches the new
+  // shape; `schema_version` is now z.literal(3).
   const validScenario = {
     name: "Sun",
     type: "archetype" as const,
     field: ScenarioFieldSchema.parse({}),
     opposing_preview: ["charizard"],
-    recommended_leads: ["sableye", "archaludon"] as [string, string],
-    recommended_backline: ["sinistcha", "basculegion"] as [string, string],
-    rejected_bench: ["pelipper", "dragonite"] as [string, string],
-    reasoning: "Reasoning here.",
-    key_calcs: [],
+    phases: [
+      {
+        phase: "lead" as const,
+        turn_window: [1, 2] as [number, number],
+        active: ["sableye", "archaludon"] as [string, string],
+        rationale: "x",
+        key_calcs: [],
+        abandon_if: "y",
+      },
+      {
+        phase: "mid" as const,
+        turn_window: [2, 4] as [number, number],
+        pivot_in: "sinistcha",
+        pivot_out: null,
+        rationale: "x",
+        key_calcs: [],
+        trigger: "y",
+      },
+      {
+        phase: "late" as const,
+        turn_window: [4, 8] as [number, number],
+        cleaner: "basculegion",
+        rationale: "x",
+        key_calcs: [],
+        win_condition: "y",
+      },
+    ] as const,
+    plan_score: 60,
     citations: [],
-    pair_score: 60,
   };
 
   const mkPillar = (pillar: string) => ({ pillar, score: 50, tier: "OK", evidence: {} });
@@ -189,9 +214,9 @@ describe("TeamTacticalOverviewSchema (S5)", () => {
     expect(TeamTacticalOverviewSchema.safeParse(overview).success).toBe(false);
   });
 
-  it("S5b. accepts schema_version: 2", () => {
+  it("S5b. accepts schema_version: 3 (Stage B reshape)", () => {
     const overview = {
-      schema_version: 2,
+      schema_version: 3,
       team_id: "t1",
       generated_at: "2026-05-09T00:00:00Z",
       threat_panel_as_of: "2026-05-08",
@@ -202,37 +227,7 @@ describe("TeamTacticalOverviewSchema (S5)", () => {
   });
 });
 
-describe("ScenarioOverviewSchema support_lift (S6)", () => {
-  const base = {
-    name: "Sun",
-    type: "archetype" as const,
-    field: ScenarioFieldSchema.parse({}),
-    opposing_preview: ["charizard"],
-    recommended_leads: ["sableye", "archaludon"] as [string, string],
-    recommended_backline: ["sinistcha", "basculegion"] as [string, string],
-    rejected_bench: ["pelipper", "dragonite"] as [string, string],
-    reasoning: "Reasoning here.",
-    key_calcs: [],
-    citations: [],
-    pair_score: 60,
-  };
-
-  it("S6a. accepts numeric support_lift", () => {
-    const ok = ScenarioOverviewSchema.parse({ ...base, support_lift: -10 });
-    expect(ok.support_lift).toBe(-10);
-  });
-
-  it("S6b. accepts +18 max support_lift", () => {
-    expect(ScenarioOverviewSchema.safeParse({ ...base, support_lift: 18 }).success).toBe(true);
-  });
-
-  it("S6c. rejects non-numeric support_lift", () => {
-    expect(
-      ScenarioOverviewSchema.safeParse({ ...base, support_lift: "high" }).success,
-    ).toBe(false);
-  });
-
-  it("S6d. support_lift is optional (Stage A forward-compat per Q10)", () => {
-    expect(ScenarioOverviewSchema.safeParse(base).success).toBe(true);
-  });
-});
+/** Stage B (Q9 §17) moved `support_lift` off the scenario shape and
+ *  onto `LeadPhaseSchema`. The S6 cases below are covered by
+ *  `tests/schemas/team-phase-plan.test.ts` (S4 lead-phase tests) — the
+ *  Stage-A ScenarioOverview block is intentionally removed here. */

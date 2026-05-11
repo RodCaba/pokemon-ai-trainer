@@ -9,7 +9,7 @@
 
 import type {
   PillarScore,
-  ScenarioOverview,
+  ScenarioSkeleton,
   ThreatPanel,
 } from "../../schemas/tactical";
 import type { UserTeam } from "../../schemas/user-teams";
@@ -96,7 +96,7 @@ function entryWeightedSpeed(e: SpeedTableEntry): number {
 export function scoreSpeed(
   team: UserTeam,
   _panel: ThreatPanel,
-  _scenarios: ScenarioOverview[],
+  _scenarios: ScenarioSkeleton[],
   speedTable: SpeedTable,
   deps: SpeedDeps,
 ): PillarScore {

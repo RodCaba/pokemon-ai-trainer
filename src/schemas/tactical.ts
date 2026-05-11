@@ -132,9 +132,18 @@ export const RoleTagAssignmentSchema = z
   .object({
     primary: RoleTagSchema,
     all: z.array(RoleTagSchema).min(1),
-    /** Set when the role classifier detects a weather move/ability that
-     *  brings this weather to the field. */
+    /** Set when the role classifier detects a weather move OR ability
+     *  that brings this weather to the field. Both Sableye Rain Dance
+     *  (move, 2-turn setup) and Pelipper Drizzle (ability, instant on
+     *  switch-in) emit this. Use {@link weather_provided_via_ability}
+     *  when the distinction matters (e.g. turn-1 field override). */
     weather_provided: WeatherKindSchema.optional(),
+    /** Set ONLY when the weather source is an ABILITY (Drizzle, Drought,
+     *  Sand Stream, Snow Warning). These activate on switch-in,
+     *  replacing the opposing weather immediately. Move-based setters
+     *  (Rain Dance, etc.) cost a turn and don't change the turn-1 field
+     *  state in the damage-calc loop, so they're absent here. */
+    weather_provided_via_ability: WeatherKindSchema.optional(),
     /** Set when the role classifier detects a charging move whose
      *  charge-skip condition is this weather (Electro Shot ⇒ rain,
      *  Solar Beam ⇒ sun). The name reads as "the weather this move
@@ -178,7 +187,7 @@ export const SupportPillarEvidenceSchema = z
   .strict();
 export type SupportPillarEvidence = z.infer<typeof SupportPillarEvidenceSchema>;
 
-/** Discriminator for ScenarioOverview kind.
+/** Discriminator for ScenarioSkeleton kind.
  *  - `archetype`: Sun / Rain / Sand / Snow / Trick Room / Perish Trap
  *  - `individual`: top-usage threat by species
  *  - `weakness_counter`: auto-generated for structural team weakness
@@ -205,6 +214,12 @@ export const TacticalCitationSchema = z
     source_site: z.string().min(1).optional(),
     /** Article title from `knowledge_chunks.article_title`. */
     article_title: z.string().optional(),
+    /** Stage B (Q6 §17): set when the citation was retrieved via the
+     *  phase-aware filter. `"phase_specific"` means the chunk's
+     *  `phase_tag` matched the requested phase; `"fallback"` means the
+     *  phase-tag filter returned zero hits and the citation was
+     *  surfaced via a species + claim_type only retry. */
+    phase_tag_source: z.enum(["phase_specific", "fallback"]).optional(),
   })
   .strict();
 
@@ -220,46 +235,106 @@ export const CalcResultRefSchema = z
   })
   .strict();
 
-/** Per-scenario overview: leads / back / rejected / reasoning / calcs / cites. */
-export const ScenarioOverviewSchema = z
+// Stage B (Q5 §17) removed `ScenarioOverviewSchema` and migrated
+// internal consumers to `ScenarioSkeletonSchema` (input-side fields
+// only) + `TeamPlanScenarioSchema` (output). The two new schemas
+// follow below.
+
+/** Input-side fields shared by every scenario. `scenarios.ts` builds
+ *  skeletons against this shape; the scoring loop
+ *  (Stage B: `recommendTeamPlan`) reads them. */
+export const ScenarioSkeletonSchema = z
   .object({
     name: z.string().min(1),
     type: ScenarioTypeSchema,
     field: ScenarioFieldSchema,
     opposing_preview: z.array(RosterId).min(1).max(6),
-    recommended_leads: z.tuple([RosterId, RosterId]),
-    recommended_backline: z.tuple([RosterId, RosterId]),
-    rejected_bench: z.tuple([RosterId, RosterId]),
-    /** 1–2 paragraph natural-language description of what the scenario
-     *  tests, why it matters in Reg M-A, and the high-level shape of the
-     *  recommended response. Authored at orchestration time from the
-     *  scenario field + opposing preview + pillar context. */
     description: z.string().max(800).optional(),
-    reasoning: z.string().max(400),
-    key_calcs: z.array(CalcResultRefSchema).min(0).max(3),
-    citations: z.array(TacticalCitationSchema).min(0).max(3),
-    pair_score: z.number(),
-    /** Confidence signal for the agent loop (Stage 8). When `"low"`, the
-     *  agent SHOULD chain a web_search before quoting the recommendation
-     *  to the user. `"medium"` is the default. `"high"` indicates strong
-     *  citation backing AND a clear pair_score margin over alternatives. */
-    confidence: z.enum(["low", "medium", "high"]).optional(),
-    /** Stage A: signed lift applied by `computeSupportLift` to the pair score
-     *  for this scenario. Optional in Stage A (forward-compat); Stage B may
-     *  promote to required. Range typically -10..+18 (plan §3.3). */
+  })
+  .strict();
+export type ScenarioSkeleton = z.infer<typeof ScenarioSkeletonSchema>;
+
+// ---- Stage B — phase-aware planning ----
+
+const TurnWindowSchema = z
+  .tuple([z.number().int().min(1), z.number().int().min(1)])
+  .refine(([a, b]) => a <= b, "turn_window start must be ≤ end");
+
+/** Lead phase — turn 1–2. Two active species + abandon condition. */
+export const LeadPhaseSchema = z
+  .object({
+    phase: z.literal("lead"),
+    turn_window: TurnWindowSchema,
+    active: z.tuple([RosterId, RosterId]),
+    rationale: z.string().max(300),
+    key_calcs: z.array(CalcResultRefSchema).min(0).max(2),
+    abandon_if: z.string().max(200),
+    /** Q9 §17: preserves Stage A's `support_lift` introspection signal. */
     support_lift: z.number().optional(),
   })
   .strict();
 
-/** End-to-end output of `buildOverview`. Stage A bumps from 1 → 2. */
+/** Mid phase — turn 2–4. One pivot-in, optional pivot-out. */
+export const MidPhaseSchema = z
+  .object({
+    phase: z.literal("mid"),
+    turn_window: TurnWindowSchema,
+    pivot_in: RosterId,
+    pivot_out: RosterId.nullable(),
+    rationale: z.string().max(300),
+    key_calcs: z.array(CalcResultRefSchema).min(0).max(2),
+    trigger: z.string().max(200),
+  })
+  .strict();
+
+/** Late phase — turn 4+. One cleaner + win condition. */
+export const LatePhaseSchema = z
+  .object({
+    phase: z.literal("late"),
+    turn_window: TurnWindowSchema,
+    cleaner: RosterId,
+    rationale: z.string().max(300),
+    key_calcs: z.array(CalcResultRefSchema).min(0).max(2),
+    win_condition: z.string().max(200),
+  })
+  .strict();
+
+/** Discriminated union — exported for type guards. Production code uses
+ *  the strongly-typed 3-tuple inside {@link TeamPlanScenarioSchema}. */
+export const PhaseSchema = z.discriminatedUnion("phase", [
+  LeadPhaseSchema,
+  MidPhaseSchema,
+  LatePhaseSchema,
+]);
+
+/** Per-scenario 3-phase plan. Replaces the Stage-A `ScenarioSkeleton`
+ *  shape inside {@link TeamTacticalOverviewSchema} per Q8 binding. */
+export const TeamPlanScenarioSchema = z
+  .object({
+    name: z.string().min(1),
+    type: ScenarioTypeSchema,
+    field: ScenarioFieldSchema,
+    opposing_preview: z.array(RosterId).min(1).max(6),
+    description: z.string().max(800).optional(),
+    phases: z.tuple([LeadPhaseSchema, MidPhaseSchema, LatePhaseSchema]),
+    plan_score: z.number(),
+    citations: z.array(TacticalCitationSchema).min(0).max(3),
+    confidence: z.enum(["low", "medium", "high"]).optional(),
+  })
+  .strict();
+
+/** End-to-end output of `buildOverview`. Stage A bumped 1 → 2; Stage B
+ *  will bump 2 → 3 once the Stage-5 green commit reshapes the scenarios
+ *  array to `TeamPlanScenario[]`. Stage 4 keeps the union to let Stage A
+ *  production code remain green while the new tests target version 3. */
 export const TeamTacticalOverviewSchema = z
   .object({
-    schema_version: z.literal(2),
+    schema_version: z.literal(3),
     team_id: z.string(),
     generated_at: ISODateTime,
     threat_panel_as_of: ISODate,
     pillars: PillarBundleSchema,
-    scenarios: z.array(ScenarioOverviewSchema).min(5).max(10),
+    scenarios: z.array(TeamPlanScenarioSchema).min(5).max(10),
   })
   .strict();
 
@@ -279,17 +354,19 @@ export const ScorePillarsOutputSchema = z
   })
   .strict();
 
-export const RecommendLeadsInputSchema = z
+/** Input to the `recommend_team_plan` Anthropic tool (replaces
+ *  `recommend_leads` per Q8). */
+export const RecommendTeamPlanInputSchema = z
   .object({
     team_id: z.string(),
     scenario_name: z.string().optional(),
   })
   .strict();
 
-export const RecommendLeadsOutputSchema = z
+export const RecommendTeamPlanOutputSchema = z
   .object({
     team_id: z.string(),
-    scenarios: z.array(ScenarioOverviewSchema).min(1),
+    scenarios: z.array(TeamPlanScenarioSchema).min(1),
   })
   .strict();
 
@@ -303,9 +380,13 @@ export type PillarBundle = z.infer<typeof PillarBundleSchema>;
 export type ScenarioType = z.infer<typeof ScenarioTypeSchema>;
 export type TacticalCitation = z.infer<typeof TacticalCitationSchema>;
 export type CalcResultRef = z.infer<typeof CalcResultRefSchema>;
-export type ScenarioOverview = z.infer<typeof ScenarioOverviewSchema>;
+export type LeadPhase = z.infer<typeof LeadPhaseSchema>;
+export type MidPhase = z.infer<typeof MidPhaseSchema>;
+export type LatePhase = z.infer<typeof LatePhaseSchema>;
+export type Phase = z.infer<typeof PhaseSchema>;
+export type TeamPlanScenario = z.infer<typeof TeamPlanScenarioSchema>;
 export type TeamTacticalOverview = z.infer<typeof TeamTacticalOverviewSchema>;
 export type ScorePillarsInput = z.infer<typeof ScorePillarsInputSchema>;
 export type ScorePillarsOutput = z.infer<typeof ScorePillarsOutputSchema>;
-export type RecommendLeadsInput = z.infer<typeof RecommendLeadsInputSchema>;
-export type RecommendLeadsOutput = z.infer<typeof RecommendLeadsOutputSchema>;
+export type RecommendTeamPlanInput = z.infer<typeof RecommendTeamPlanInputSchema>;
+export type RecommendTeamPlanOutput = z.infer<typeof RecommendTeamPlanOutputSchema>;

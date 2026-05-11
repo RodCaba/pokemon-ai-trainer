@@ -24,7 +24,7 @@ import {
   SUPPORT_LIFT_DELTA,
 } from "../../../src/data/tactical/score-pair";
 import { createCalcCache } from "../../../src/data/tactical/calc-cache";
-import type { ScenarioOverview, RoleTagAssignment, RoleTag } from "../../../src/schemas/tactical";
+import type { ScenarioSkeleton, RoleTagAssignment, RoleTag } from "../../../src/schemas/tactical";
 
 const tag = (primary: RoleTag, all?: RoleTag[]): RoleTagAssignment => ({
   primary,
@@ -34,7 +34,7 @@ const tag = (primary: RoleTag, all?: RoleTag[]): RoleTagAssignment => ({
 const mkScenario = (
   has_priority_threats = false,
   preview: string[] = ["incineroar", "garchomp"],
-): ScenarioOverview => ({
+): ScenarioSkeleton => ({
   name: "test",
   type: "archetype",
   field: {
@@ -53,7 +53,7 @@ const mkScenario = (
   // Stage A test extension: scenarios may carry has_priority_threats so the
   // anti_priority lift fires only when relevant.
   ...(has_priority_threats ? { has_priority_threats: true } : {}),
-} as ScenarioOverview & { has_priority_threats?: boolean });
+} as ScenarioSkeleton & { has_priority_threats?: boolean });
 
 describe("computeSupportLift — pure rule table (SP2..SP4)", () => {
   it("SP2. setter leads + setup_sweeper back → +12", () => {

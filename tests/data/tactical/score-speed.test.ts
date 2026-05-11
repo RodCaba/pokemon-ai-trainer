@@ -17,7 +17,7 @@ import {
 } from "../../../src/data/tactical/scoring-team";
 import { loadSpeedTable } from "../../../src/data/tactical/speed-table";
 import type {
-  ScenarioOverview,
+  ScenarioSkeleton,
   ThreatPanel,
 } from "../../../src/schemas/tactical";
 import type { UserTeam } from "../../../src/schemas/user-teams";
@@ -25,7 +25,7 @@ import type { SpeedTable } from "../../../src/data/tactical/speed-table";
 
 const TEAM = {} as UserTeam;
 const PANEL = {} as ThreatPanel;
-const SCENARIOS: ScenarioOverview[] = [];
+const SCENARIOS: ScenarioSkeleton[] = [];
 const EMPTY_SPEEDS: SpeedTable = { schema_version: 1, entries: [] };
 
 interface TeamFixture { sets: FixtureSet[] }

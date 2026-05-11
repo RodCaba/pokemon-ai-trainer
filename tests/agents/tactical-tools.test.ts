@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   TACTICAL_TOOL_DEFINITIONS,
-  recommendLeadsTool,
+  recommendTeamPlanTool,
   scorePillarsTool,
   tacticalToolHandlers,
 } from "../../src/agents/tactical-tools";
@@ -34,10 +34,10 @@ function makeDeps(db: Db) {
 }
 
 describe("tactical agent tool surface (TAC-T41..T43)", () => {
-  it("TAC-T41. catalog has 2 tools; both have additionalProperties:false; team_id is required", () => {
+  it("TAC-T41. catalog is exactly score_pillars + recommend_team_plan (Stage B Q7 removed recommend_leads)", () => {
     const names = TACTICAL_TOOL_DEFINITIONS.map((t) => t.name).sort();
-    expect(names).toEqual(["recommend_leads", "score_pillars"]);
-    for (const t of [scorePillarsTool, recommendLeadsTool]) {
+    expect(names).toEqual(["recommend_team_plan", "score_pillars"]);
+    for (const t of [scorePillarsTool, recommendTeamPlanTool]) {
       expect(t.input_schema).toBeDefined();
       const schema = t.input_schema as {
         additionalProperties?: boolean;
@@ -59,19 +59,15 @@ describe("tactical agent tool surface (TAC-T41..T43)", () => {
     expect(typeof result.threat_panel_as_of).toBe("string");
   });
 
-  it("TAC-T43. recommend_leads with scenario_name returns one scenario; without returns all", () => {
+  it("TAC-T43. recommend_team_plan with scenario_name returns one scenario; without returns all", () => {
     const db = open(":memory:"); opened = db;
-    const all = tacticalToolHandlers.recommend_leads(
+    const all = tacticalToolHandlers.recommend_team_plan(
       { team_id: "01H000000000000000000000T0" },
       makeDeps(db),
     );
     expect(all.scenarios.length).toBeGreaterThanOrEqual(5);
-
-    // Pick the first scenario that's actually emitted — archetype set is
-    // data-driven now (Sun isn't guaranteed without a Drought setter in
-    // pikalytics). Use the actual name from `all.scenarios[0]`.
     const targetName = all.scenarios[0]!.name;
-    const single = tacticalToolHandlers.recommend_leads(
+    const single = tacticalToolHandlers.recommend_team_plan(
       { team_id: "01H000000000000000000000T0", scenario_name: targetName },
       makeDeps(db),
     );

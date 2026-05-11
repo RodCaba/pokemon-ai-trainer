@@ -176,9 +176,14 @@ export function deriveRoleTags(
     tags.push("setup_sweeper");
   }
 
-  // ----- Cleaner (Choice Scarf + spe ≥ 90) -----
+  // ----- Cleaner (Choice Scarf + base spe ≥ 70) -----
+  // Gate set at base 70 (Scarf-boosted ⇒ 105+) so Basculegion (base 78)
+  // qualifies. The original plan §3.1 had base 90; reality is that nearly
+  // every Scarf user in VGC has base spe 70+ (Scarf locks moves, so
+  // slow Scarf is a builder mistake the classifier shouldn't try to
+  // model). R12's "base spe 60 → not cleaner" test still holds.
   const isScarf = item !== null && item.toLowerCase() === "choice scarf";
-  if (isScarf && input.base_stats.spe >= 90 && hasAnyDamagingMove(moveSet)) {
+  if (isScarf && input.base_stats.spe >= 70 && hasAnyDamagingMove(moveSet)) {
     tags.push("cleaner");
   }
 
@@ -210,14 +215,28 @@ export function deriveRoleTags(
   }
 
   // Detect weather pairing data (independent of role tag presence).
+  // The classifier surfaces TWO related fields:
+  //  - `weather_provided`: set whenever a weather source is detected
+  //    (either ability or move).
+  //  - `weather_provided_via_ability`: set ONLY when the source is an
+  //    ability (Drizzle, Drought, Sand Stream, Snow Warning). These fire
+  //    on switch-in, so turn-1 field state already reflects the new
+  //    weather. Move-based setters (Rain Dance etc.) cost a turn and
+  //    don't immediately flip the field for the damage-calc loop.
   let weather_provided: WeatherKind | undefined;
-  for (const m of moveSet) {
-    const k = WEATHER_MOVE_TO_KIND[m];
-    if (k !== undefined) { weather_provided = k; break; }
-  }
-  if (weather_provided === undefined && ability !== null) {
+  let weather_provided_via_ability: WeatherKind | undefined;
+  if (ability !== null) {
     const k = WEATHER_ABILITY_TO_KIND[ability];
-    if (k !== undefined) weather_provided = k;
+    if (k !== undefined) {
+      weather_provided = k;
+      weather_provided_via_ability = k;
+    }
+  }
+  if (weather_provided === undefined) {
+    for (const m of moveSet) {
+      const k = WEATHER_MOVE_TO_KIND[m];
+      if (k !== undefined) { weather_provided = k; break; }
+    }
   }
   let weather_charged_move: WeatherKind | undefined;
   for (const m of moveSet) {
@@ -230,6 +249,7 @@ export function deriveRoleTags(
       primary: "untagged",
       all: ["untagged"],
       ...(weather_provided !== undefined ? { weather_provided } : {}),
+      ...(weather_provided_via_ability !== undefined ? { weather_provided_via_ability } : {}),
       ...(weather_charged_move !== undefined ? { weather_charged_move } : {}),
     };
   }
@@ -239,6 +259,7 @@ export function deriveRoleTags(
     primary: sorted[0]!,
     all: sorted,
     ...(weather_provided !== undefined ? { weather_provided } : {}),
+    ...(weather_provided_via_ability !== undefined ? { weather_provided_via_ability } : {}),
     ...(weather_charged_move !== undefined ? { weather_charged_move } : {}),
   };
 }

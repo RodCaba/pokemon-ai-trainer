@@ -11,10 +11,11 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import type { Db } from "../db/open";
 import type {
-  RecommendLeadsInput,
-  RecommendLeadsOutput,
+  RecommendTeamPlanInput,
+  RecommendTeamPlanOutput,
   ScorePillarsInput,
   ScorePillarsOutput,
+  TeamPlanScenario,
 } from "../schemas/tactical";
 import type { OverviewDeps } from "../data/tactical/overview";
 
@@ -36,10 +37,16 @@ export const scorePillarsTool: Tool = {
   },
 };
 
-export const recommendLeadsTool: Tool = {
-  name: "recommend_leads",
+/**
+ * Stage B (Q8 §17): REPLACES `recommend_leads` with a 3-phase plan.
+ * Returns one `TeamPlanScenario` per scenario, each carrying
+ * `phases = [lead, mid, late]` instead of the legacy
+ * `(leads, backline, bench)` triple.
+ */
+export const recommendTeamPlanTool: Tool = {
+  name: "recommend_team_plan",
   description:
-    "Generate scenario-specific lead recommendations for a saved user team. Returns the recommended lead pair, backline pair, rejected bench, a `description` (1–2 paragraphs explaining what the scenario tests), `reasoning` (short rationale citing the top damage roll), `key_calcs` (≤ 3 CalcResultRefs from the engine), `citations` (≤ 3 knowledge_chunks tagged with the scenario species), `pair_score`, and `confidence` ('low'|'medium'|'high'). With scenario_name set, returns one scenario; without, returns all 5–7. Use AFTER score_pillars — this tool is more expensive (~10–15s for all scenarios) and the scores tell you which scenario the user's actual question maps to. **CONFIDENCE PROTOCOL:** when a scenario's `confidence='low'`, supplement with a `web_search` for the species/scenario before quoting the recommendation — our internal corpus may be incomplete. `'medium'` is acceptable to quote directly; `'high'` is strong enough to recommend without further research. Do NOT use to compare two teams (out of scope v1).",
+    "Generate a 3-phase plan (lead T1–T2 / mid T2–T4 / late T4+) for a saved user team against a scenario. Returns one TeamPlanScenario when `scenario_name` is set, all 5–10 otherwise. Each phase carries actor ids, deterministic rationale, top damage calcs, and per-phase trigger/abandon/win-condition strings. Use AFTER score_pillars to surface the actual play plan, not just the lead pair. Replaces the Stage-A `recommend_leads` tool.",
   input_schema: {
     type: "object",
     properties: {
@@ -60,7 +67,7 @@ export const recommendLeadsTool: Tool = {
 
 export const TACTICAL_TOOL_DEFINITIONS: readonly Tool[] = [
   scorePillarsTool,
-  recommendLeadsTool,
+  recommendTeamPlanTool,
 ];
 
 export interface TacticalToolDeps extends OverviewDeps {
@@ -91,23 +98,42 @@ export function handleScorePillars(
 }
 
 /**
- * Handler for `recommend_leads`. Returns one scenario (when `scenario_name`
- * provided) or all scenarios.
+ * Stage B handler for `recommend_team_plan`. Stage 4 stub returns the
+/**
+ * Stage B (Q8 §17) handler for the `recommend_team_plan` Anthropic
+ * tool. Returns one `TeamPlanScenario` when `scenario_name` is set;
+ * otherwise the full scenario array from `buildOverview`.
  *
- * @param input - `{ team_id, scenario_name? }` from the agent.
- * @param deps - DB handle + DI bundle.
- * @returns A {@link RecommendLeadsOutput}.
- * @throws TacticalOverviewError on draft / validation_errors / unknown id.
+ * **When to use it:** wired into the agent loop alongside
+ * `handleScorePillars`. The agent calls `score_pillars` first to
+ * understand the team, then `recommend_team_plan` once it knows which
+ * scenario the user's question maps to. Don't loop over scenarios
+ * client-side — the bundled overview is cheaper.
+ *
+ * @param input - `{ team_id, scenario_name? }` from the model.
+ * @param deps - DB handle + OverviewDeps for `buildOverview`.
+ * @returns A `RecommendTeamPlanOutput` validated by the schema.
+ * @throws TacticalOverviewError when the team is draft / has
+ *   validation_errors / scenario_name doesn't match any emitted name.
+ *
+ * @example
+ *   const out = handleRecommendTeamPlan(
+ *     { team_id: "01H..." , scenario_name: "Rain" },
+ *     { db, calc: {}, speed: {}, synergy: { db } },
+ *   );
+ *   console.log(out.scenarios[0]!.phases[0]!.active);  // [string, string]
  */
-export function handleRecommendLeads(
-  input: RecommendLeadsInput,
+export function handleRecommendTeamPlan(
+  input: RecommendTeamPlanInput,
   deps: TacticalToolDeps,
-): RecommendLeadsOutput {
+): RecommendTeamPlanOutput {
   const ov = buildOverview(input.team_id, deps);
+  // Stage 5: buildOverview emits TeamPlanScenarios directly.
+  const scenarios = ov.scenarios as unknown as TeamPlanScenario[];
   if (input.scenario_name) {
-    const match = ov.scenarios.find((s) => s.name === input.scenario_name);
+    const match = scenarios.find((s) => s.name === input.scenario_name);
     if (!match) {
-      const available = ov.scenarios.map((s) => s.name).join(", ");
+      const available = scenarios.map((s) => s.name).join(", ");
       throw new TacticalOverviewError(
         `scenario '${input.scenario_name}' not found; available: ${available}`,
         { team_id: input.team_id },
@@ -115,11 +141,11 @@ export function handleRecommendLeads(
     }
     return { team_id: input.team_id, scenarios: [match] };
   }
-  return { team_id: input.team_id, scenarios: ov.scenarios };
+  return { team_id: input.team_id, scenarios };
 }
 
 /** In-process dispatcher used by tests + the agent loop. */
 export const tacticalToolHandlers = {
   score_pillars: handleScorePillars,
-  recommend_leads: handleRecommendLeads,
+  recommend_team_plan: handleRecommendTeamPlan,
 } as const;

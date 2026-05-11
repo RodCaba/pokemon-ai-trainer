@@ -1,12 +1,12 @@
 /**
- * Generate 5–7 ScenarioOverview *skeletons*. 3 archetype clusters +
+ * Generate 5–7 ScenarioSkeleton skeletons. 3 archetype clusters +
  * 2–3 individual top-usage threats + 0–2 weakness-counter scenarios.
  */
 
 import type { Db } from "../../db/open";
 import type {
   ScenarioField,
-  ScenarioOverview,
+  ScenarioSkeleton,
   ThreatPanel,
 } from "../../schemas/tactical";
 import type { UserTeam } from "../../schemas/user-teams";
@@ -42,18 +42,10 @@ const FIELD_SAND: ScenarioField = { ...FIELD_NEUTRAL, weather: "sand" };
 const FIELD_SNOW: ScenarioField = { ...FIELD_NEUTRAL, weather: "snow" };
 const FIELD_TR: ScenarioField = { ...FIELD_NEUTRAL, trick_room: true };
 
-const PLACEHOLDER: Pick<
-  ScenarioOverview,
-  "recommended_leads" | "recommended_backline" | "rejected_bench" | "reasoning" | "key_calcs" | "citations" | "pair_score"
-> = {
-  recommended_leads: ["incineroar", "amoonguss"],
-  recommended_backline: ["rillaboom", "garchomp"],
-  rejected_bench: ["porygon2", "pelipper"],
-  reasoning: "Filled by recommendLeads.",
-  key_calcs: [],
-  citations: [],
-  pair_score: 0,
-};
+/** Stage B: scenarios.ts emits only the input-side skeleton fields.
+ *  `recommendTeamPlan` enriches with phases, plan_score, citations. The
+ *  Stage-A `PLACEHOLDER` (filling `recommended_leads` etc.) is no longer
+ *  needed — the legacy fields don't exist on `TeamPlanScenario`. */
 
 /**
  * Author a scenario `description` (1–2 paragraphs, ≤ 800 chars) explaining
@@ -600,10 +592,10 @@ function archetypeFromLabmaus(
  * Produce 5–7 scenario skeletons.
  *
  * @param deps - DB handle, threat panel, team, calc cache + weakness tunable.
- * @returns Array of {@link ScenarioOverview} skeletons (length 5–7).
+ * @returns Array of {@link ScenarioSkeleton} skeletons (length 5–7).
  * @throws TacticalScenarioError when fewer than 3 scenarios producible.
  */
-export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
+export function generateScenarios(deps: ScenarioGenDeps): ScenarioSkeleton[] {
   // Archetype previews — REAL META sourced from pikalytics_snapshots
   // (setter ability + top co-occurring teammate). When the current meta
   // has no setter for an archetype (e.g. Rain in current Reg M-A), the
@@ -642,7 +634,7 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
     fitsArchetype(e, SNOW_ABILITIES, SNOW_BENEFICIARIES),
   );
   const trPreview = archetypePreview("trick_room", fitsTrickRoom);
-  const archetypes: ScenarioOverview[] = [];
+  const archetypes: ScenarioSkeleton[] = [];
   if (sunPreview) {
     archetypes.push({
       name: "Sun",
@@ -650,7 +642,7 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
       field: FIELD_SUN,
       opposing_preview: [...sunPreview],
       description: describeScenario("Sun", "archetype", FIELD_SUN, [...sunPreview]),
-      ...PLACEHOLDER,
+      
     });
   }
   if (rainPreview) {
@@ -660,7 +652,7 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
       field: FIELD_RAIN,
       opposing_preview: [...rainPreview],
       description: describeScenario("Rain", "archetype", FIELD_RAIN, [...rainPreview]),
-      ...PLACEHOLDER,
+      
     });
   }
   if (sandPreview) {
@@ -670,7 +662,7 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
       field: FIELD_SAND,
       opposing_preview: [...sandPreview],
       description: describeScenario("Sand", "archetype", FIELD_SAND, [...sandPreview]),
-      ...PLACEHOLDER,
+      
     });
   }
   if (snowPreview) {
@@ -680,7 +672,7 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
       field: FIELD_SNOW,
       opposing_preview: [...snowPreview],
       description: describeScenario("Snow", "archetype", FIELD_SNOW, [...snowPreview]),
-      ...PLACEHOLDER,
+      
     });
   }
   if (trPreview) {
@@ -690,7 +682,7 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
       field: FIELD_TR,
       opposing_preview: [...trPreview],
       description: describeScenario("Trick Room", "archetype", FIELD_TR, [...trPreview]),
-      ...PLACEHOLDER,
+      
     });
   }
   // Perish Trap (Mega Gengar Shadow Tag + Perish Song teammate). Only
@@ -704,7 +696,7 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
       field: FIELD_NEUTRAL,
       opposing_preview: [...perishPreview],
       description: describeScenario("Perish Trap", "archetype", FIELD_NEUTRAL, [...perishPreview]),
-      ...PLACEHOLDER,
+      
     });
   }
 
@@ -734,7 +726,7 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
     ...pikaTop,
     ...panelFill,
   ].slice(0, individualTarget);
-  const individuals: ScenarioOverview[] = individualSeeds
+  const individuals: ScenarioSkeleton[] = individualSeeds
     .slice(0, individualTarget)
     .map((sp) => ({
       name: `vs ${sp}`,
@@ -742,7 +734,7 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
       field: FIELD_NEUTRAL,
       opposing_preview: [sp],
       description: describeScenario(`vs ${sp}`, "individual", FIELD_NEUTRAL, [sp]),
-      ...PLACEHOLDER,
+      
     }));
 
   const counters = detectWeaknessCounters(deps.team, deps.panel, deps.calcCache, {
@@ -750,7 +742,7 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
     scoring_team: deps.scoring_team,
     weakness_ohko_ratio: deps.weakness_ohko_ratio,
   });
-  const counterScenarios: ScenarioOverview[] = counters.slice(0, 2).map((c) => ({
+  const counterScenarios: ScenarioSkeleton[] = counters.slice(0, 2).map((c) => ({
     name: `vs ${c.species_id} (counter)`,
     type: "weakness_counter" as const,
     field: FIELD_NEUTRAL,
@@ -761,7 +753,7 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
       FIELD_NEUTRAL,
       [c.species_id],
     ),
-    ...PLACEHOLDER,
+    
   }));
 
   // Tournament-meta team scenarios — top-frequency 6-species compositions
@@ -777,29 +769,25 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
   // after mega-form normalization). If so, emit before meta_team so the
   // user sees "you're on a meta team, expect mirrors" up front.
   const mirrorCluster = findMirrorCluster(deps.db, userSpecies);
-  const mirrorScenarios: ScenarioOverview[] = [];
+  const mirrorScenarios: ScenarioSkeleton[] = [];
   if (mirrorCluster) {
     const preview: [string, string] = [
       mirrorCluster.species[0] ?? "incineroar",
       mirrorCluster.species[1] ?? "garchomp",
     ];
     const name = `Mirror match (${mirrorCluster.frequency}× tournament-meta team)`;
+    void preview;
     mirrorScenarios.push({
       name,
       type: "mirror_match" as const,
       field: FIELD_NEUTRAL,
       opposing_preview: mirrorCluster.species.slice(0, 6),
       description: describeScenario(name, "mirror_match", FIELD_NEUTRAL, mirrorCluster.species),
-      ...PLACEHOLDER,
-      // Use a slightly different placeholder preview hint by overriding
-      // recommended_leads via PLACEHOLDER spread (recommendLeads will
-      // overwrite at orchestration time).
-      recommended_leads: [preview[0], preview[1]] as [string, string],
     });
   }
   const metaTeamLimit = archetypes.length <= 2 ? 3 : 2;
   const metaTeams = topMetaTeams(deps.db, userSpecies, metaTeamLimit);
-  const metaTeamScenarios: ScenarioOverview[] = metaTeams.map((cluster) => {
+  const metaTeamScenarios: ScenarioSkeleton[] = metaTeams.map((cluster) => {
     // Top 2 species by labmaus tournament-frequency become the visible
     // opposing leads. (For now: arbitrary top-2 from the sorted set; a
     // future pass could rank by intra-cluster usage.)
@@ -816,7 +804,7 @@ export function generateScenarios(deps: ScenarioGenDeps): ScenarioOverview[] {
       field: FIELD_NEUTRAL,
       opposing_preview: cluster.species.slice(0, 6),
       description: describeScenario(name, "meta_team", FIELD_NEUTRAL, cluster.species),
-      ...PLACEHOLDER,
+      
     };
   });
 
