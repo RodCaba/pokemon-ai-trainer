@@ -194,6 +194,10 @@ describe("tools/insights/extract (YT-T41..YT-T48)", () => {
       },
     ]);
     const r = await extractInsights(input("Garchomp"), deps(anthropic));
+    // v1.0 is exercised here as a DI parameter only — the production
+    // default bumps to v1.1 after the team-support-pillar slice adds
+    // `phase_tag` to the emit_insights tool. See `tests/tools/insights/
+    // extract-phase-tag.test.ts` for the v1.1 contract.
     expect(r.insights[0]?.extracted_by.prompt_version).toBe("v1.0");
   });
 

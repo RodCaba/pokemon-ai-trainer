@@ -60,6 +60,12 @@ export async function invokeInsightsSearch(
     filter: {
       pokemon: args.species_id_filter ? [args.species_id_filter] : undefined,
       claim_type: args.claim_type ? [args.claim_type] : undefined,
+      // Q9 binding: parameter is in the JSON Schema but NOT advertised in
+      // the tool description. The handler still threads it through so the
+      // (rare) model that emits it gets a sensible response rather than a
+      // silently-dropped filter. Stage B's `recommend_team_plan` will
+      // promote this to the canonical retrieval path.
+      phase_tag: args.phase_tag_filter,
     },
     limit: args.limit,
   });

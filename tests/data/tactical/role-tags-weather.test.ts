@@ -66,8 +66,8 @@ describe("classifier — weather_provided (W1..W5)", () => {
   });
 });
 
-describe("classifier — weather_dependency (W6..W8)", () => {
-  it("W6. Electro Shot in moves → weather_dependency='rain'", () => {
+describe("classifier — weather_charged_move (W6..W8)", () => {
+  it("W6. Electro Shot in moves → weather_charged_move='rain'", () => {
     const r = deriveRoleTags(
       mkInput({
         species_id: "archaludon",
@@ -76,15 +76,15 @@ describe("classifier — weather_dependency (W6..W8)", () => {
       }),
       noopDeps,
     );
-    expect(r.weather_dependency).toBe("rain");
+    expect(r.weather_charged_move).toBe("rain");
   });
 
-  it("W7. Solar Beam → weather_dependency='sun'", () => {
+  it("W7. Solar Beam → weather_charged_move='sun'", () => {
     const r = deriveRoleTags(
       mkInput({ moves: ["Solar Beam", "Sludge Bomb", "Earth Power", "Protect"] }),
       noopDeps,
     );
-    expect(r.weather_dependency).toBe("sun");
+    expect(r.weather_charged_move).toBe("sun");
   });
 
   it("W8. Hurricane alone (incidental rain buff, not a charging move) → no dependency", () => {
@@ -92,14 +92,14 @@ describe("classifier — weather_dependency (W6..W8)", () => {
       mkInput({ moves: ["Hurricane", "Surf", "Ice Beam", "Roost"] }),
       noopDeps,
     );
-    expect(r.weather_dependency).toBeUndefined();
+    expect(r.weather_charged_move).toBeUndefined();
   });
 });
 
 const tag = (
   primary: RoleTag,
   all: RoleTag[] = [primary],
-  extras: { weather_provided?: "rain" | "sun" | "sand" | "snow"; weather_dependency?: "rain" | "sun" | "sand" | "snow" } = {},
+  extras: { weather_provided?: "rain" | "sun" | "sand" | "snow"; weather_charged_move?: "rain" | "sun" | "sand" | "snow" } = {},
 ): RoleTagAssignment => ({ primary, all, ...extras });
 
 const scenario = (): ScenarioOverview => ({
@@ -124,7 +124,7 @@ describe("support_lift — weather mechanism gate (W9..W11)", () => {
   it("W9. rain setter + rain-dependent sweeper in lead → +60 (weather-matched canonical)", () => {
     const roles = new Map<string, RoleTagAssignment>([
       ["sableye", tag("weather_setter", ["weather_setter", "screen_setter"], { weather_provided: "rain" })],
-      ["archaludon", tag("setup_sweeper", ["setup_sweeper"], { weather_dependency: "rain" })],
+      ["archaludon", tag("setup_sweeper", ["setup_sweeper"], { weather_charged_move: "rain" })],
       ["b1", tag("cleaner")],
       ["b2", tag("wallbreaker")],
     ]);
@@ -141,7 +141,7 @@ describe("support_lift — weather mechanism gate (W9..W11)", () => {
   it("W10. tailwind (speed_control_setter) + rain-dependent sweeper in lead → no +25", () => {
     const roles = new Map<string, RoleTagAssignment>([
       ["dragonite", tag("speed_control_setter")],
-      ["archaludon", tag("setup_sweeper", ["setup_sweeper"], { weather_dependency: "rain" })],
+      ["archaludon", tag("setup_sweeper", ["setup_sweeper"], { weather_charged_move: "rain" })],
       ["b1", tag("cleaner")],
       ["b2", tag("wallbreaker")],
     ]);

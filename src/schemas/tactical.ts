@@ -136,8 +136,10 @@ export const RoleTagAssignmentSchema = z
      *  brings this weather to the field. */
     weather_provided: WeatherKindSchema.optional(),
     /** Set when the role classifier detects a charging move whose
-     *  charge-skip condition is this weather (e.g. Electro Shot in rain). */
-    weather_dependency: WeatherKindSchema.optional(),
+     *  charge-skip condition is this weather (Electro Shot ⇒ rain,
+     *  Solar Beam ⇒ sun). The name reads as "the weather this move
+     *  REQUIRES to skip its charge turn" — not a general payoff hint. */
+    weather_charged_move: WeatherKindSchema.optional(),
   })
   .strict();
 export type RoleTagAssignment = z.infer<typeof RoleTagAssignmentSchema>;

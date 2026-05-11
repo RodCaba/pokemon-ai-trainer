@@ -656,4 +656,95 @@ Answer: ✅ optional in Stage A; revisit in Stage B.
 
 ---
 
+## 18. Stage-5 deviations (ratified in Stage 6 review)
+
+The Stage 6 reviewer ratified the following deviations from the
+Stage-3 plan. Each is captured here per CLAUDE.md §12 (recorded
+deviation rule) and the Stage 6 review's "Plan-amendment candidates"
+section.
+
+A. **Priority-order swap** — `src/data/tactical/role-tags.ts` puts
+   `speed_control_setter > screen_setter` (plan §3.1 had the reverse).
+   Reasoning: VGC convention treats Tailwind as the primary read on
+   Whimsicott-style screens-plus-speed Prankster sets; the R24 golden
+   pinned this expectation. Amendment supersedes §3.1's priority order.
+
+B. **Wallbreaker mutual-exclusion** — `src/data/tactical/role-tags.ts`
+   makes wallbreaker exclusive with every structural tag (incl. setter
+   sub-tags AND setup_sweeper via ability). Plan §3.1 only excluded
+   setup-MOVE presence, which produced `[setup_sweeper, wallbreaker]`
+   on Archaludon (Stamina ability) and `[speed_control_setter,
+   wallbreaker]` on Dragonite (Tailwind + 134 atk) — both contradict
+   the R21 golden. Amendment broadens the exclusion to all structural
+   tags.
+
+C. **Cleaner detection relaxation** — `src/data/tactical/role-tags.ts`
+   drops the plan's "base-power-100+ STAB move" gate. Reasoning: the
+   moves DB doesn't carry `base_power` yet. Implementation requires
+   only `(Choice Scarf AND base spe ≥ 90 AND any damaging move)`.
+   Tracked as a deferred refinement (§19) until moves.base_power
+   lands.
+
+D. **Synergy 50-score floor** — `src/data/tactical/score-synergy.ts`
+   floors the final synergy score at 50 when `role_coherence` holds.
+   Plan §5.3 only specified a `+20` floor on the archetype component;
+   the `+20` alone wasn't enough to clear the live ArchaEye 22 → ≥ 50
+   SY5 bar. The wider floor is surfaced on
+   `evidence.score_floor_applied: true` so downstream consumers can
+   detect it. Amendment supersedes §5.3.
+
+E. **Process deviation — Stage-4 red discipline on weather work.**
+   Commit `c4bf7e4` ("weather-mechanism gating on support_lift")
+   landed the classifier branches in `role-tags.ts` AND the
+   `computeSupportLift` weather gate AND the W1..W11 tests in a single
+   commit. Per CLAUDE.md §3 the pure-data exemption applies to schemas
+   and enum tables only; the support-lift rule is non-pure logic and
+   should have shipped with a prior `test: red` commit. The work
+   itself is correct (tests cover all branches, behavior matches the
+   user-stated Reg-M-A mechanic for Electro Shot) but the red→green
+   discipline lapsed. **Recorded here per §12 so it does not become
+   precedent.** Future weather-rule or support-lift extensions ship
+   red-first.
+
+F. **Q12(c) partial shipment** — Plan §17 Q12 marked mechanism
+   compatibility as deferred. Commit `c4bf7e4` ships the **weather**
+   compatibility check (Sableye-rain ↔ Archaludon-Electro-Shot) but
+   not the screens / speed-control / redirection compat checks. The
+   originally-deferred items list is updated:
+   - ✅ **shipped Stage A:** weather pairing (`weather_provided` vs
+     `weather_charged_move` on the setter / payoff).
+   - 🕓 **still deferred:** screens lifting payoff turn-1 survival,
+     redirect protecting setup turns. Re-evaluate alongside the
+     Stage-B phase-aware scoring.
+
+## 19. Stage-6 deferred refinements
+
+Tagged `// TODO(stage6-deferred):` in source where applicable, per
+memory `labmaus_pokepaste_deferred_todos.md`.
+
+- **Support-lift magnitude calibration** (`support-lift-magnitude-calibration`)
+  — `STRUCTURAL_LEAD_BONUS = 25`, `WEATHER_MATCH_BONUS = 60`, and the
+  individual rule weights (+12 / +8 / +6 / +10 / −10) are hand-tuned to
+  the live ArchaEye fixture. Re-tune across ≥5 saved teams as its own
+  slice.
+- **Synergy +20 archetype floor + 50 score floor** (§18.D) — same
+  calibration slice should evaluate both.
+- **Cleaner BP gate** (§18.C) — wait for `moves.base_power` ingest then
+  add the BP-100+ STAB-move check.
+- **Q12(c) screens / speed-control / redirect compatibility** (§18.F) —
+  follows Stage B's phase-aware turn-window model.
+- **Sableye+Archaludon vs Pelipper+Archaludon scenario differentiation.**
+  Plan §10 read "≥ 1 scenario picks Sableye + Archaludon." The live
+  demo wins Pelipper+Archaludon in rain scenarios because Pelipper has
+  STAB Hurricane; Sableye contributes screens + Quash whose value is
+  defensive. Updating §10 to "≥ 1 scenario picks a (rain
+  weather_setter, Archaludon) pair" reflects what the deterministic
+  scorer can express; full per-team preference (defensive value of
+  screens vs offensive Hurricane) needs a defense-pillar credit for
+  screens that Stage B can carry.
+- **Plan §15.5 phase_tag backfill** — pre-existing insight rows have
+  `phase_tag = NULL`; re-extract on YT slice.
+
+---
+
 **Reviewed-by:** _Rodrigo Caballero_

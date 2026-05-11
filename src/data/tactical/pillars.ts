@@ -86,6 +86,28 @@ export function scoreAllPillars(
   };
 }
 
+/** Narrow shape `buildRoleAssignments` needs from a team. Both the real
+ *  `UserTeam` (saved sets from the DB) and the `syntheticTeam` test fixture
+ *  in `overview.ts` (which casts itself to `UserTeam` but only carries
+ *  `species_roster_id` per set) satisfy this interface. Defined here so
+ *  the cast at the call boundary is narrow and documented. */
+export interface RoleTagSet {
+  species_id?: string | null;
+  species_roster_id?: string | null;
+  item_id?: string | null;
+  item?: string | null;
+  ability_id?: string | null;
+  ability?: string | null;
+  move_1_id?: string | null;
+  move_2_id?: string | null;
+  move_3_id?: string | null;
+  move_4_id?: string | null;
+  moves?: ReadonlyArray<string | null | undefined>;
+}
+export interface RoleTagTeamView {
+  sets?: ReadonlyArray<RoleTagSet>;
+}
+
 /** Stage A: classify every saved set on the team. Sets without a species_id
  *  (drafts) are skipped — drafts are filtered upstream in `buildOverview`. */
 export function buildRoleAssignments(
@@ -93,27 +115,22 @@ export function buildRoleAssignments(
   db: Db,
 ): Map<string, RoleTagAssignment> {
   const inputs: RoleTagInput[] = [];
-  // Defensive: synthetic test teams (overview.ts `syntheticTeam`) cast a
-  // shape with only `species_roster_id` set as `UserTeam`. Read every
-  // field via a permissive view so undefined slots don't reach `norm()`.
-  const view = team as unknown as { sets?: ReadonlyArray<Record<string, unknown>> };
+  const view = team as unknown as RoleTagTeamView;
   const setsList = view.sets ?? [];
   for (const s of setsList) {
-    const speciesId =
-      (s.species_id as string | null | undefined) ??
-      (s.species_roster_id as string | null | undefined);
+    const speciesId = s.species_id ?? s.species_roster_id ?? null;
     if (!speciesId) continue;
     let baseStats = { hp: 80, atk: 80, def: 80, spa: 80, spd: 80, spe: 80 };
     try {
       const p = roster.get(db, speciesId, "RegM-A");
       if (p) baseStats = p.base_stats;
     } catch { /* synthetic species — fall back to neutral 80s */ }
-    const itemRaw = s.item_id ?? s.item;
-    const abilityRaw = s.ability_id ?? s.ability;
-    const item = typeof itemRaw === "string" ? itemRaw : null;
-    const ability = typeof abilityRaw === "string" ? abilityRaw : null;
-    const movesRaw = [s.move_1_id, s.move_2_id, s.move_3_id, s.move_4_id];
-    if (Array.isArray(s.moves)) movesRaw.push(...(s.moves as unknown[]));
+    const item = s.item_id ?? s.item ?? null;
+    const ability = s.ability_id ?? s.ability ?? null;
+    const movesRaw: Array<string | null | undefined> = [
+      s.move_1_id, s.move_2_id, s.move_3_id, s.move_4_id,
+    ];
+    if (s.moves) movesRaw.push(...s.moves);
     const moves = movesRaw.filter(
       (m): m is string => typeof m === "string" && m.length > 0,
     );

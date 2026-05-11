@@ -645,10 +645,12 @@ export const insights = sqliteTable(
     uniqueIndex("uq_insights_chunk_claim").on(t.chunkId, t.claim),
     index("idx_insights_chunk").on(t.chunkId),
     index("idx_insights_phase_tag").on(t.phaseTag),
-    check(
-      "insights_phase_tag",
-      sql`${t.phaseTag} IS NULL OR ${t.phaseTag} IN ('lead','mid','late')`,
-    ),
+    // No CHECK on phase_tag: SQLite ALTER TABLE doesn't support adding a
+    // column-level CHECK without a table-rebuild, and the table already
+    // carries other CHECKs from migration 0010 — see
+    // `src/db/migrations/0011_insights_phase_tag.sql`. Enum enforcement
+    // lives at the app boundary via `PhaseTagSchema` (zod) on every
+    // insert and `rowToInsight`'s defensive coercion on every read.
     check("insights_schema_version", sql`${t.schemaVersion} = 1`),
     check("insights_claim_len", sql`length(${t.claim}) BETWEEN 1 AND 280`),
     check(

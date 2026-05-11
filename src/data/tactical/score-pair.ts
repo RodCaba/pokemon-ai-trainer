@@ -55,6 +55,17 @@ export const BETA = 0.5;
 export const GAMMA = 0.7;
 /** Support-lift weight (Stage A, Q5 binding — calibration follow-up slice). */
 export const SUPPORT_LIFT_DELTA = 1.0;
+/** Bonus when a dedicated-setter lead pairs with a setup_sweeper lead AND
+ *  the payoff has NO weather-charged move (generic structural backbone).
+ *  TODO(stage6-deferred): support-lift-magnitude-calibration — re-tune
+ *  across ≥5 saved teams in the Q5 calibration follow-up slice. */
+export const STRUCTURAL_LEAD_BONUS = 25;
+/** Bonus when the setter's weather matches the sweeper's charged-move
+ *  requirement (Sableye Rain Dance → Archaludon Electro Shot). Larger
+ *  than {@link STRUCTURAL_LEAD_BONUS} because the setter is load-bearing:
+ *  without it the payoff move is functionally dead.
+ *  TODO(stage6-deferred): support-lift-magnitude-calibration. */
+export const WEATHER_MATCH_BONUS = 60;
 
 import type { RoleTag, RoleTagAssignment } from "../../schemas/tactical";
 
@@ -132,7 +143,10 @@ export function computeSupportLift(inputs: SupportLiftInputs): number {
   // setter looks identical to the right weather setter and the scorer can't
   // distinguish "Sableye-rain → Archaludon-Electro-Shot" from
   // "Dragonite-Tailwind → Archaludon-Electro-Shot stuck charging".
-  const pureSetterLead = leadIds.find((id) => {
+  // A "dedicated setter" lead is one whose role tags include a setter
+  // sub-tag AND no offensive role tag — the canonical pure-support lead
+  // (Sableye, Pelipper) whose contribution is invisible to raw KO scoring.
+  const dedicatedSetterLeadId = leadIds.find((id) => {
     const a = roleAssignments.get(id);
     if (!a) return false;
     const all = new Set(a.all);
@@ -144,22 +158,15 @@ export function computeSupportLift(inputs: SupportLiftInputs): number {
     const a = roleAssignments.get(id);
     return a !== undefined && a.all.includes("setup_sweeper");
   });
-  if (pureSetterLead !== undefined && sweeperLeadId !== undefined) {
-    const setter = roleAssignments.get(pureSetterLead);
+  if (dedicatedSetterLeadId !== undefined && sweeperLeadId !== undefined) {
+    const setter = roleAssignments.get(dedicatedSetterLeadId);
     const sweeper = roleAssignments.get(sweeperLeadId);
-    const dep = sweeper?.weather_dependency;
+    const dep = sweeper?.weather_charged_move;
     const prov = setter?.weather_provided;
     if (dep === undefined) {
-      // No weather dependency on the payoff — any pure-setter qualifies.
-      lift += 25;
+      lift += STRUCTURAL_LEAD_BONUS;
     } else if (dep === prov) {
-      // Weather match: this is the canonical "setter enables charging-skip"
-      // line (Sableye Rain Dance → Archaludon Electro Shot). Bonus is
-      // larger than the generic case because the weather setter is
-      // load-bearing — without it the payoff move is functionally dead.
-      // The +60 magnitude is hand-tuned to close the offense gap to
-      // raw-KO leads (Basculegion's Wave Crash) on the live ArchaEye fixture.
-      lift += 60;
+      lift += WEATHER_MATCH_BONUS;
     }
     // dep defined but no match ⇒ 0 (Tailwind setter + Electro Shot sweeper).
   }

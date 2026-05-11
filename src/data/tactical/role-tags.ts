@@ -219,10 +219,10 @@ export function deriveRoleTags(
     const k = WEATHER_ABILITY_TO_KIND[ability];
     if (k !== undefined) weather_provided = k;
   }
-  let weather_dependency: WeatherKind | undefined;
+  let weather_charged_move: WeatherKind | undefined;
   for (const m of moveSet) {
     const k = CHARGING_MOVE_TO_WEATHER[m];
-    if (k !== undefined) { weather_dependency = k; break; }
+    if (k !== undefined) { weather_charged_move = k; break; }
   }
 
   if (tags.length === 0) {
@@ -230,7 +230,7 @@ export function deriveRoleTags(
       primary: "untagged",
       all: ["untagged"],
       ...(weather_provided !== undefined ? { weather_provided } : {}),
-      ...(weather_dependency !== undefined ? { weather_dependency } : {}),
+      ...(weather_charged_move !== undefined ? { weather_charged_move } : {}),
     };
   }
 
@@ -239,7 +239,7 @@ export function deriveRoleTags(
     primary: sorted[0]!,
     all: sorted,
     ...(weather_provided !== undefined ? { weather_provided } : {}),
-    ...(weather_dependency !== undefined ? { weather_dependency } : {}),
+    ...(weather_charged_move !== undefined ? { weather_charged_move } : {}),
   };
 }
 

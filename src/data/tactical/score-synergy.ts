@@ -335,8 +335,13 @@ export function scoreSynergy(
   // (which often misses sub-meta archetypes like screens-rain-stamina).
   // SY5 + the live ArchaEye success criterion both pin this floor; without
   // it, the support pillar surfaces the chain but synergy stays "Weak".
+  // Plan §5.3 only specified a +20 archetype-component floor; the broader
+  // 50-score floor is a Stage-5 amendment ratified in plan §5.3 (amendment
+  // D). Surfaced on evidence so reviewers can spot it downstream.
+  const preFloor = scoreFloat;
   if (role_coherence) scoreFloat = Math.max(scoreFloat, 50);
   if (role_coherence && !haveAnySignal) scoreFloat = Math.max(scoreFloat, 55 + 20);
+  const score_floor_applied = scoreFloat > preFloor;
   const score = Math.max(0, Math.min(100, Math.round(scoreFloat)));
 
   const evidence: Record<string, unknown> = {
@@ -351,6 +356,7 @@ export function scoreSynergy(
     evidence.role_tags = role_tags;
     evidence.role_coherence = role_coherence;
     evidence.coherence_chain = coherence_chain;
+    if (score_floor_applied) evidence.score_floor_applied = true;
   }
 
   return {
