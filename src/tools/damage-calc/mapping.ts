@@ -189,6 +189,13 @@ export function toEngineMove(spec: MoveSpec): Move {
   if (spec.hits !== undefined) {
     opts.hits = spec.hits;
   }
+  if (spec.bp !== undefined) {
+    // Override the engine's stored base power. The engine's `Move`
+    // constructor merges `options.overrides` over the dex's move data via
+    // `extend(true, {name}, gen.moves.get(toID(name)), options.overrides)`,
+    // so `basePower` lands as `data.basePower` → `this.bp`.
+    opts.overrides = { basePower: spec.bp };
+  }
   return new Move(ENGINE_GEN, spec.name, opts);
 }
 

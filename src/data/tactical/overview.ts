@@ -282,7 +282,7 @@ export function buildOverview(
   });
   const generatedAt = (deps.now ?? (() => new Date()))().toISOString();
   return {
-    schema_version: 4,
+    schema_version: 5,
     team_id: teamId,
     generated_at: generatedAt,
     threat_panel_as_of: panel.as_of,

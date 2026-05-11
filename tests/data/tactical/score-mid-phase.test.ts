@@ -26,7 +26,7 @@ const scenario: ScenarioSkeleton = {
 
 describe("scoreMidPhase (PS1..PS4)", () => {
   it("PS1. returns a number in [0, 150]", () => {
-    const v = scoreMidPhase(4, scenario, createCalcCache(), {});
+    const v = scoreMidPhase(4, scenario, createCalcCache(), {}).score;
     expect(typeof v).toBe("number");
     expect(v).toBeGreaterThanOrEqual(0);
     expect(v).toBeLessThanOrEqual(150);
@@ -35,15 +35,15 @@ describe("scoreMidPhase (PS1..PS4)", () => {
   it("PS2. a bulky cleric scoring well on survival beats a fragile attacker", () => {
     // Same scenario, different mid slot. Without a real scoring_team /
     // scoring_panel the stub returns 0; Stage 5 will distinguish.
-    const bulkyCleric = scoreMidPhase(4 /* sinistcha */, scenario, createCalcCache(), {});
-    const fragileAttacker = scoreMidPhase(5 /* dragonite */, scenario, createCalcCache(), {});
+    const bulkyCleric = scoreMidPhase(4 /* sinistcha */, scenario, createCalcCache(), {}).score;
+    const fragileAttacker = scoreMidPhase(5 /* dragonite */, scenario, createCalcCache(), {}).score;
     expect(bulkyCleric).toBeGreaterThanOrEqual(fragileAttacker);
   });
 
   it("PS3. deterministic: same input → identical output", () => {
     const cache = createCalcCache();
-    const a = scoreMidPhase(4, scenario, cache, {});
-    const b = scoreMidPhase(4, scenario, cache, {});
+    const a = scoreMidPhase(4, scenario, cache, {}).score;
+    const b = scoreMidPhase(4, scenario, cache, {}).score;
     expect(a).toBe(b);
   });
 

@@ -216,7 +216,7 @@ describe("TeamTacticalOverviewSchema (S5)", () => {
 
   it("S5b. accepts schema_version: 3 (Stage B reshape)", () => {
     const overview = {
-      schema_version: 4,
+      schema_version: 5,
       team_id: "t1",
       generated_at: "2026-05-09T00:00:00Z",
       threat_panel_as_of: "2026-05-08",
