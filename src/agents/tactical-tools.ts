@@ -13,9 +13,13 @@ import type { Db } from "../db/open";
 import type {
   RecommendLeadsInput,
   RecommendLeadsOutput,
+  RecommendTeamPlanInput,
+  RecommendTeamPlanOutput,
+  ScenarioOverview,
   ScorePillarsInput,
   ScorePillarsOutput,
 } from "../schemas/tactical";
+import { recommendTeamPlan } from "../data/tactical/recommend-plan";
 import type { OverviewDeps } from "../data/tactical/overview";
 
 /** Catalog of agent-callable tactical tools. */
@@ -58,9 +62,38 @@ export const recommendLeadsTool: Tool = {
   },
 };
 
+/**
+ * Stage B (Q8 §17): REPLACES `recommend_leads` with a 3-phase plan.
+ * Returns one `TeamPlanScenario` per scenario, each carrying
+ * `phases = [lead, mid, late]` instead of the legacy
+ * `(leads, backline, bench)` triple.
+ */
+export const recommendTeamPlanTool: Tool = {
+  name: "recommend_team_plan",
+  description:
+    "Generate a 3-phase plan (lead T1–T2 / mid T2–T4 / late T4+) for a saved user team against a scenario. Returns one TeamPlanScenario when `scenario_name` is set, all 5–10 otherwise. Each phase carries actor ids, deterministic rationale, top damage calcs, and per-phase trigger/abandon/win-condition strings. Use AFTER score_pillars to surface the actual play plan, not just the lead pair. Replaces the Stage-A `recommend_leads` tool.",
+  input_schema: {
+    type: "object",
+    properties: {
+      team_id: {
+        type: "string",
+        description: "Saved user_team id (ULID).",
+      },
+      scenario_name: {
+        type: "string",
+        description:
+          "Optional. Exact scenario name from a previous score_pillars or overview call. Omit to return all scenarios.",
+      },
+    },
+    required: ["team_id"],
+    additionalProperties: false,
+  },
+};
+
 export const TACTICAL_TOOL_DEFINITIONS: readonly Tool[] = [
   scorePillarsTool,
   recommendLeadsTool,
+  recommendTeamPlanTool,
 ];
 
 export interface TacticalToolDeps extends OverviewDeps {
@@ -104,10 +137,15 @@ export function handleRecommendLeads(
   deps: TacticalToolDeps,
 ): RecommendLeadsOutput {
   const ov = buildOverview(input.team_id, deps);
+  // Stage B: `buildOverview` still emits ScenarioOverview in Stage 4 — the
+  // union with TeamPlanScenario lands in Stage 5. Narrow the cast here so
+  // the deprecated handler keeps compiling without leaking the union to
+  // every consumer of `ov.scenarios`.
+  const scenarios = ov.scenarios as unknown as ScenarioOverview[];
   if (input.scenario_name) {
-    const match = ov.scenarios.find((s) => s.name === input.scenario_name);
+    const match = scenarios.find((s) => s.name === input.scenario_name);
     if (!match) {
-      const available = ov.scenarios.map((s) => s.name).join(", ");
+      const available = scenarios.map((s) => s.name).join(", ");
       throw new TacticalOverviewError(
         `scenario '${input.scenario_name}' not found; available: ${available}`,
         { team_id: input.team_id },
@@ -115,11 +153,43 @@ export function handleRecommendLeads(
     }
     return { team_id: input.team_id, scenarios: [match] };
   }
-  return { team_id: input.team_id, scenarios: ov.scenarios };
+  return { team_id: input.team_id, scenarios };
+}
+
+/**
+ * Stage B handler for `recommend_team_plan`. Stage 4 stub returns the
+ * scenarios array verbatim from `buildOverview` after coercing each
+ * entry through Stage B's `recommendTeamPlan`. Stage 5 wires the real
+ * orchestration.
+ */
+export function handleRecommendTeamPlan(
+  input: RecommendTeamPlanInput,
+  deps: TacticalToolDeps,
+): RecommendTeamPlanOutput {
+  const ov = buildOverview(input.team_id, deps);
+  // Stage 4 stub: coerce each ScenarioOverview into a minimum-viable
+  // TeamPlanScenario via Stage B's `recommendTeamPlan` stub. Stage 5
+  // makes buildOverview itself emit TeamPlanScenarios.
+  const scenarios = (ov.scenarios as unknown as ScenarioOverview[]).map((sc) =>
+    recommendTeamPlan({} as never, sc, {} as never, { db: deps.db }),
+  );
+  if (input.scenario_name) {
+    const match = scenarios.find((s) => s.name === input.scenario_name);
+    if (!match) {
+      const available = scenarios.map((s) => s.name).join(", ");
+      throw new TacticalOverviewError(
+        `scenario '${input.scenario_name}' not found; available: ${available}`,
+        { team_id: input.team_id },
+      );
+    }
+    return { team_id: input.team_id, scenarios: [match] };
+  }
+  return { team_id: input.team_id, scenarios };
 }
 
 /** In-process dispatcher used by tests + the agent loop. */
 export const tacticalToolHandlers = {
   score_pillars: handleScorePillars,
   recommend_leads: handleRecommendLeads,
+  recommend_team_plan: handleRecommendTeamPlan,
 } as const;

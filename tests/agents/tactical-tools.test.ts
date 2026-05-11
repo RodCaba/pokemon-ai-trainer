@@ -34,9 +34,13 @@ function makeDeps(db: Db) {
 }
 
 describe("tactical agent tool surface (TAC-T41..T43)", () => {
-  it("TAC-T41. catalog has 2 tools; both have additionalProperties:false; team_id is required", () => {
+  it("TAC-T41. catalog includes score_pillars + the Stage B recommend_team_plan (Stage A recommend_leads still present during transition)", () => {
     const names = TACTICAL_TOOL_DEFINITIONS.map((t) => t.name).sort();
-    expect(names).toEqual(["recommend_leads", "score_pillars"]);
+    expect(names).toContain("score_pillars");
+    expect(names).toContain("recommend_team_plan");
+    // Note: `recommend_leads` is still in the catalog during Stage 4 →
+    // 5 transition; the RM2 regression test in
+    // tests/schemas/scenario-overview-removed.test.ts pins its removal.
     for (const t of [scorePillarsTool, recommendLeadsTool]) {
       expect(t.input_schema).toBeDefined();
       const schema = t.input_schema as {
