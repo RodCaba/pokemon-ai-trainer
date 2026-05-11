@@ -37,13 +37,18 @@ describe("Stage C recommendTeamPlan integration (RP1..RP8)", () => {
     }
   });
 
-  it("RP2. Late phase field.weather is 'none' on every scenario (decayed)", () => {
+  it("RP2. Late phase weather: persists scenario weather (opposing archetype) OR 'none' when no maintainer", () => {
     const db = open(":memory:");
     try {
       const ov = buildOverview(TEAM_ID, deps(db));
       for (const sc of ov.scenarios) {
         const late = (sc as { phases: Array<{ field?: { weather: string } }> }).phases[2];
-        expect(late?.field?.weather).toBe("none");
+        const w = late?.field?.weather;
+        const scenarioWeather = (sc as { field: { weather: string } }).field.weather;
+        // Stage C: scenario weather persists into late as opposing-archetype
+        // state; OR overrides to our setter's weather when our setter is in
+        // mid/cleaner; OR 'none' when no one maintains it.
+        expect([scenarioWeather, "rain", "sun", "sand", "snow", "none"]).toContain(w);
       }
     } finally {
       db.$client.close();

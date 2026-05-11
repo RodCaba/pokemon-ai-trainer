@@ -250,6 +250,32 @@ export function deriveRoleTags(
     if (k !== undefined) { weather_charged_move = k; break; }
   }
 
+  // Stage C: priority-ability extension. When the set's ability appears
+  // in `deps.priority_grants_lookup` AND the moves carry a matching
+  // status / Flying / healing move with a field-state effect, emit
+  // `setter_priority_via_ability` so deriveTurnFieldStates promotes the
+  // move to lead-phase active.
+  let setter_priority_via_ability: NonNullable<RoleTagAssignment["setter_priority_via_ability"]> | undefined;
+  if (ability !== null && deps.priority_grants_lookup) {
+    const grants = deps.priority_grants_lookup.get(ability);
+    if (grants !== undefined) {
+      // Find a move whose effect this ability accelerates.
+      for (const m of moveSet) {
+        const eff = resolvePriorityMoveEffect(m, grants.kind);
+        if (eff !== null) {
+          setter_priority_via_ability = {
+            kind: grants.kind,
+            bonus: grants.bonus,
+            move_id: m,
+            effect: eff,
+            ...(grants.condition !== undefined ? { condition: grants.condition } : {}),
+          };
+          break;
+        }
+      }
+    }
+  }
+
   if (tags.length === 0) {
     return {
       primary: "untagged",
@@ -257,6 +283,7 @@ export function deriveRoleTags(
       ...(weather_provided !== undefined ? { weather_provided } : {}),
       ...(weather_provided_via_ability !== undefined ? { weather_provided_via_ability } : {}),
       ...(weather_charged_move !== undefined ? { weather_charged_move } : {}),
+      ...(setter_priority_via_ability !== undefined ? { setter_priority_via_ability } : {}),
     };
   }
 
@@ -267,7 +294,44 @@ export function deriveRoleTags(
     ...(weather_provided !== undefined ? { weather_provided } : {}),
     ...(weather_provided_via_ability !== undefined ? { weather_provided_via_ability } : {}),
     ...(weather_charged_move !== undefined ? { weather_charged_move } : {}),
+    ...(setter_priority_via_ability !== undefined ? { setter_priority_via_ability } : {}),
   };
+}
+
+type PriorityEffect = NonNullable<RoleTagAssignment["setter_priority_via_ability"]>["effect"];
+
+/** Stage C — map a (move, priority_grants.kind) combo to a field-state
+ *  effect. Returns null when the combo doesn't trigger a lead-phase
+ *  field flip (e.g., Prankster + Will-O-Wisp). */
+function resolvePriorityMoveEffect(
+  move: string,
+  kind: "status" | "flying" | "healing",
+): PriorityEffect | null {
+  if (kind === "healing") {
+    // Triage accelerates healing moves; no field flag, but record it.
+    const HEALING_MOVES = new Set([
+      "life dew", "pollen puff", "floral healing", "wish",
+      "heal pulse", "moonlight", "morning sun", "synthesis", "recover",
+    ]);
+    if (HEALING_MOVES.has(move)) return "healing";
+    return null;
+  }
+  if (kind === "flying") {
+    // Gale Wings: only Tailwind matters for lead-phase field state.
+    if (move === "tailwind") return "tailwind";
+    return null;
+  }
+  // kind === "status" (Prankster). Cover weather, TR, Tailwind, screens.
+  if (move === "rain dance") return "weather_rain";
+  if (move === "sunny day") return "weather_sun";
+  if (move === "sandstorm") return "weather_sand";
+  if (move === "snowscape") return "weather_snow";
+  if (move === "trick room") return "trick_room";
+  if (move === "tailwind") return "tailwind";
+  if (move === "reflect") return "reflect";
+  if (move === "light screen") return "light_screen";
+  if (move === "aurora veil") return "aurora_veil";
+  return null;
 }
 
 function damagingMoveCount(moveSet: ReadonlySet<string>): number {

@@ -7,6 +7,7 @@ interface Row {
   id: string;
   displayName: string;
   sourceJson: string;
+  priorityGrantsJson: string | null;
 }
 
 const repo = createSimpleRepo<Row, Ability>({
@@ -22,6 +23,9 @@ const repo = createSimpleRepo<Row, Ability>({
         id: r.id,
         display_name: r.displayName,
         source: JSON.parse(r.sourceJson),
+        ...(r.priorityGrantsJson
+          ? { priority_grants: JSON.parse(r.priorityGrantsJson) }
+          : {}),
       },
       "abilities",
       r.id,

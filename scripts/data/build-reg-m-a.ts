@@ -233,12 +233,15 @@ export async function buildRegMA(
       counts.items++;
     }
 
-    // Abilities.
+    // Abilities. Stage C: read priority_grants from the curated JSON.
+    const priorityGrantsById = loadPriorityGrants();
     for (const ab of sortedAbilities) {
+      const pg = priorityGrantsById.get(ab.id);
       db.insert(abilitiesTable).values({
         id: ab.id,
         displayName: ab.name,
         sourceJson: JSON.stringify(makeRefSource()),
+        priorityGrantsJson: pg !== undefined ? JSON.stringify(pg) : null,
       }).run();
       counts.abilities++;
     }
@@ -378,6 +381,21 @@ function loadAliases(): Record<string, string[]> {
     aliases?: Record<string, string[]>;
   };
   return raw.aliases ?? {};
+}
+
+const PRIORITY_GRANTS_PATH = "data/reg-m-a/abilities-priority.json";
+
+/** Stage C: load the curated priority-setting abilities map.
+ *  Format: `{ "<ability-id>": { kind, bonus, condition? }, ... }`. */
+function loadPriorityGrants(): Map<string, { kind: string; bonus: number; condition?: string }> {
+  const out = new Map<string, { kind: string; bonus: number; condition?: string }>();
+  if (!existsSync(PRIORITY_GRANTS_PATH)) return out;
+  const raw = JSON.parse(readFileSync(PRIORITY_GRANTS_PATH, "utf8")) as Record<
+    string,
+    { kind: string; bonus: number; condition?: string }
+  >;
+  for (const [id, val] of Object.entries(raw)) out.set(id, val);
+  return out;
 }
 
 function collect<T>(iter: Iterable<T>): T[] {

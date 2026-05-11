@@ -1,0 +1,5 @@
+{
+  "prankster": { "kind": "status", "bonus": 1 },
+  "galewings": { "kind": "flying", "bonus": 1, "condition": "full_hp" },
+  "triage": { "kind": "healing", "bonus": 3 }
+}

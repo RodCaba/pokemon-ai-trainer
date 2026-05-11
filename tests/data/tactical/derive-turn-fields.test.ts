@@ -171,7 +171,7 @@ describe("deriveTurnFieldStates (DT1..DT12)", () => {
     expect(r.late.trick_room).toBe(false);
   });
 
-  it("DT10. Late phase neutral by default — all flags false, weather none", () => {
+  it("DT10. Late phase: our setup flags decay (tailwind/TR/screens); scenario weather persists as opposing archetype state", () => {
     const r = deriveTurnFieldStates({
       team,
       scenario: scenario({ weather: "rain", tailwind_ours: true, trick_room: true, light_screen: true, reflect: true }),
@@ -179,7 +179,11 @@ describe("deriveTurnFieldStates (DT1..DT12)", () => {
       candidate: { leads: [0, 1], mid: 4, cleaner: 2 },
       roleAssignments: new Map(),
     });
-    expect(r.late.weather).toBe("none");
+    // scenario.weather="rain" represents an opposing-archetype condition
+    // (e.g., the Rain scenario means opp team's Drizzle keeps it up). No
+    // role-assignment overrides → rain persists in late phase.
+    expect(r.late.weather).toBe("rain");
+    // OUR setup flags decay — Tailwind 4T, TR/screens 5T.
     expect(r.late.tailwind_ours).toBe(false);
     expect(r.late.trick_room).toBe(false);
     expect(r.late.light_screen).toBe(false);
