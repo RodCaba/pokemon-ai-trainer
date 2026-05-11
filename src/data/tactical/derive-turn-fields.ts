@@ -40,12 +40,23 @@ import type { UserTeam } from "../../schemas/user-teams";
 import type { PlanCandidate } from "./recommend-plan";
 import type { OpposingSetter, OpposingSetters } from "./opposing-setter";
 
+/**
+ * Three derived field-state snapshots for one candidate plan / scenario.
+ * Each is consumed by its phase scorer to run `damage_calc` with the
+ * phase-specific field (weather, TR, Tailwind, screens). The lead
+ * field is evaluated at turn 1, mid at turn 2, late at turn 4 — per
+ * plan §4 turn-window model.
+ */
 export interface TurnFieldStates {
   lead: ScenarioField;
   mid: ScenarioField;
   late: ScenarioField;
 }
 
+/**
+ * Inputs to {@link deriveTurnFieldStates}. Pre-resolved upstream so
+ * the function stays pure and DB-free.
+ */
 export interface DeriveTurnFieldsInput {
   team: UserTeam;
   scenario: ScenarioSkeleton;
@@ -147,16 +158,51 @@ function baseSpeedOf(
   species_id: string,
   team: UserTeam,
 ): number {
-  // Heuristic: look up the lead's known shape via the team data. Stage 5
-  // stage doesn't have a species → base_spe map available without
-  // pulling the DB in; we accept 80 as the default. The opposing-setter
-  // detector DOES carry base_spe (resolved from the DB at detection
-  // time), so weather duels are accurate on the opposing side; ours
-  // is approximate.
+  // TODO(stage6-deferred): base-spe-on-role-assignment — Stage D will
+  // carry base_spe on RoleTagAssignment (resolved at classifier time
+  // alongside base_stats) so this function can read it without pulling
+  // the DB in. Today's fallback returns 80 (neutral) for every species,
+  // which makes our-side weather-duel comparisons against the opposing
+  // base_spe approximate. Intra-team duels (two ability weather
+  // setters on our team — extremely rare in Reg-M-A) currently resolve
+  // by candidate-array order rather than speed.
   void species_id; void team;
   return 80;
 }
 
+/**
+ * Resolve the per-phase field-state snapshot for one candidate plan
+ * in one scenario.
+ *
+ * **When to use it:** invoked from `scorePlan` once per candidate per
+ * scenario. Each returned `ScenarioField` is fed to its phase scorer
+ * (lead → `scorePair`, mid → `scoreMidPhase`, late → `scoreLatePhase`)
+ * via a phase-scoped `ScenarioSkeleton`. Pure function: tests can
+ * mock inputs as POJOs.
+ *
+ * Behavior per plan §4 + §5:
+ *  - Lead (turn 1): ability setters + priority-promoted move setters
+ *    are active; opposing setters resolved by speed duel (slower wins,
+ *    ties → theirs).
+ *  - Mid (turn 2): plain move setters land here (Rain Dance without
+ *    Prankster). All other effects from lead persist.
+ *  - Late (turn 4+): OUR-side temporary effects (tailwind, TR,
+ *    screens) decay to false. Scenario weather persists (represents
+ *    opposing-archetype maintainer). Our `weather_via_ability` setter
+ *    in mid/cleaner overrides late weather (assumed alive at turn 5+).
+ *
+ * @param input - Team + scenario + candidate + classifier output +
+ *   opposing-setter detection result.
+ * @returns Three `ScenarioField` snapshots.
+ * @throws Never.
+ *
+ * @example
+ *   const fields = deriveTurnFieldStates({
+ *     team, scenario, candidate, roleAssignments,
+ *     opposingSetters: detectOpposingSetters(db, scenario.opposing_preview),
+ *   });
+ *   scorePair(team, candidate.leads, ..., { ...scenario, field: fields.lead }, ...);
+ */
 export function deriveTurnFieldStates(input: DeriveTurnFieldsInput): TurnFieldStates {
   const { team, scenario, candidate, roleAssignments, opposingSetters } = input;
   const base = scenario.field;

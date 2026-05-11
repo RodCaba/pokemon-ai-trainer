@@ -292,6 +292,9 @@ function scorePlan(
   // unconditional ability-override. The phase scorers each consume a
   // ScenarioSkeleton whose `field` is the derived phase-specific state.
   const roles = deps.roleAssignments ?? new Map<string, RoleTagAssignment>();
+  // Q11 binding: `recommendTeamPlan` precomputes opposing setters once
+  // per scenario and threads them via `deps.opposingSetters`. Don't
+  // re-query — the inner loop runs ~50× per scenario.
   const opposing = deps.opposingSetters ?? detectOpposingSetters(deps.db, scenario.opposing_preview);
   const turnFields = deriveTurnFieldStates({
     team, scenario, candidate, roleAssignments: roles, opposingSetters: opposing,
@@ -330,11 +333,13 @@ function scorePlan(
  * end-to-end. Stage B's only entry point into the plan composer.
  *
  * Picks the highest-scoring `(lead, lead, mid, cleaner)` triple from
- * `generatePlanCandidates`, then builds template rationales and the
- * top damage calc for each phase. Supports the live ArchaEye demo by
- * overriding `scenario.field.weather` when an ability-based weather
- * setter is in the lead pair (Drizzle, Drought, Sand Stream, Snow
- * Warning).
+ * `generatePlanCandidates`, builds template rationales, and the top
+ * damage calc for each phase. Stage C wires per-phase field-state
+ * derivation via `deriveTurnFieldStates`: weather duel resolution
+ * (slower setter wins, ties → theirs), priority-ability promotion
+ * (Prankster Rain Dance / Gale Wings Tailwind), and decay schedules
+ * (Tailwind 4T, TR/screens 5T) all flow into the per-phase
+ * `ScenarioSkeleton` consumed by the phase scorers.
  *
  * @param team - The saved {@link UserTeam}.
  * @param scenario - Scenario skeleton (name, type, field, opposing_preview).
@@ -361,6 +366,15 @@ export function recommendTeamPlan(
   const cache = calcCache ?? createCalcCache();
   const candidates = generatePlanCandidates(team, scenario, roleAssignments);
 
+  // Q11 binding: memoize opposing-setter detection ONCE per scenario.
+  // Without this, the inner `scorePlan` loop re-queries the DB roughly
+  // 50× per scenario × 10 scenarios = 500× per overview. Compute once;
+  // thread to scorePlan via a stable `depsWithOpposing` object so the
+  // memoized value reaches the inner derivation calls.
+  const opposingSetters = deps.opposingSetters
+    ?? detectOpposingSetters(deps.db, scenario.opposing_preview);
+  const depsWithOpposing: RecommendPlanDeps = { ...deps, opposingSetters };
+
   // Fall-through: if no candidates pass the role pruning, surface a
   // confidence: "low" plan that picks the first three slots. This
   // preserves the schema contract for downstream callers; the live
@@ -369,8 +383,7 @@ export function recommendTeamPlan(
   if (candidates.length === 0) {
     // Stage C: emit a fallback per-phase field that just passes the
     // scenario field through with our-side decay applied for late.
-    const fallbackOpposing = deps.opposingSetters
-      ?? detectOpposingSetters(deps.db, scenario.opposing_preview);
+    const fallbackOpposing = opposingSetters;
     const fallbackFields = deriveTurnFieldStates({
       team, scenario,
       candidate: { leads: [0, 1], mid: 2, cleaner: 3 },
@@ -420,7 +433,7 @@ export function recommendTeamPlan(
 
   // Score every candidate; pick highest with deterministic tiebreak on
   // the (leads, mid, cleaner) tuple.
-  const scored = candidates.map((c) => ({ c, s: scorePlan(c, team, scenario, cache, deps) }));
+  const scored = candidates.map((c) => ({ c, s: scorePlan(c, team, scenario, cache, depsWithOpposing) }));
   scored.sort((a, b) => {
     if (b.s !== a.s) return b.s - a.s;
     if (a.c.leads[0] !== b.c.leads[0]) return a.c.leads[0] - b.c.leads[0];
@@ -468,7 +481,7 @@ export function recommendTeamPlan(
 
   // Stage C: derive per-phase field states for the winning candidate so
   // the emitted phases can introspect them.
-  const winnerOpposing = deps.opposingSetters ?? detectOpposingSetters(deps.db, scenario.opposing_preview);
+  const winnerOpposing = opposingSetters;
   const winnerFields = deriveTurnFieldStates({
     team, scenario, candidate: c, roleAssignments, opposingSetters: winnerOpposing,
   });

@@ -1,0 +1,15 @@
+{
+  "$comment": "Stage C fallback table for opposing-side weather setters when species_stats / species_abilities aren't populated (e.g. :memory: test DBs). Production DBs hit the species table path first; this file is only consulted on DB miss.",
+  "weather_setters": {
+    "pelipper":        { "kind": "rain", "base_spe": 65 },
+    "politoed":        { "kind": "rain", "base_spe": 70 },
+    "tyranitar":       { "kind": "sand", "base_spe": 61 },
+    "hippowdon":       { "kind": "sand", "base_spe": 47 },
+    "torkoal":         { "kind": "sun",  "base_spe": 20 },
+    "ninetales":       { "kind": "sun",  "base_spe": 100 },
+    "ninetalesalola":  { "kind": "snow", "base_spe": 109 },
+    "vanilluxe":       { "kind": "snow", "base_spe": 79 },
+    "abomasnow":       { "kind": "snow", "base_spe": 60 },
+    "charizardmegay":  { "kind": "sun",  "base_spe": 100 }
+  }
+}

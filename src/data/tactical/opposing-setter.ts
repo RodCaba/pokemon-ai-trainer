@@ -48,20 +48,27 @@ const WEATHER_ABILITY_TO_KIND: Record<string, "rain" | "sun" | "sand" | "snow"> 
  *  (e.g., `:memory:` test DB, or a species not yet ingested). The
  *  primary path is DB-driven (Q3 binding) — this is the safety net so
  *  scenarios with named opposing setters don't silently lose detection.
- *  TODO(stage6-deferred): migrate this table to a curated JSON ingest
- *  once the roster + species_abilities population is reliable in tests. */
-const KNOWN_WEATHER_SETTERS: Record<string, { kind: "rain" | "sun" | "sand" | "snow"; base_spe: number }> = {
-  pelipper: { kind: "rain", base_spe: 65 },
-  politoed: { kind: "rain", base_spe: 70 },
-  tyranitar: { kind: "sand", base_spe: 61 },
-  hippowdon: { kind: "sand", base_spe: 47 },
-  torkoal: { kind: "sun", base_spe: 20 },
-  ninetales: { kind: "sun", base_spe: 100 },
-  ninetalesalola: { kind: "snow", base_spe: 109 },
-  vanilluxe: { kind: "snow", base_spe: 79 },
-  abomasnow: { kind: "snow", base_spe: 60 },
-  charizardmegay: { kind: "sun", base_spe: 100 },
-};
+ *  Data source: `data/reg-m-a/opposing-setters-fallback.json`. */
+const FALLBACK_JSON_PATH = "data/reg-m-a/opposing-setters-fallback.json";
+let _fallbackCache: Map<string, { kind: "rain" | "sun" | "sand" | "snow"; base_spe: number }> | null = null;
+function loadFallback(): Map<string, { kind: "rain" | "sun" | "sand" | "snow"; base_spe: number }> {
+  if (_fallbackCache !== null) return _fallbackCache;
+  const out = new Map<string, { kind: "rain" | "sun" | "sand" | "snow"; base_spe: number }>();
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require("node:fs") as typeof import("node:fs");
+    if (fs.existsSync(FALLBACK_JSON_PATH)) {
+      const raw = JSON.parse(fs.readFileSync(FALLBACK_JSON_PATH, "utf8")) as {
+        weather_setters?: Record<string, { kind: "rain" | "sun" | "sand" | "snow"; base_spe: number }>;
+      };
+      for (const [k, v] of Object.entries(raw.weather_setters ?? {})) out.set(k, v);
+    }
+  } catch {
+    // Silent fallback — file optional.
+  }
+  _fallbackCache = out;
+  return out;
+}
 
 /**
  * Detect opposing setters from a scenario's `opposing_preview`.
@@ -111,8 +118,8 @@ export function detectOpposingSetters(
     } catch {
       // Continue to fallback.
     }
-    // Fallback: known-weather-setter table.
-    const fallback = KNOWN_WEATHER_SETTERS[species_id];
+    // Fallback: known-weather-setter table (curated JSON).
+    const fallback = loadFallback().get(species_id);
     if (fallback !== undefined) {
       out.weather = {
         species_id, base_spe: fallback.base_spe,
