@@ -132,9 +132,18 @@ export const RoleTagAssignmentSchema = z
   .object({
     primary: RoleTagSchema,
     all: z.array(RoleTagSchema).min(1),
-    /** Set when the role classifier detects a weather move/ability that
-     *  brings this weather to the field. */
+    /** Set when the role classifier detects a weather move OR ability
+     *  that brings this weather to the field. Both Sableye Rain Dance
+     *  (move, 2-turn setup) and Pelipper Drizzle (ability, instant on
+     *  switch-in) emit this. Use {@link weather_provided_via_ability}
+     *  when the distinction matters (e.g. turn-1 field override). */
     weather_provided: WeatherKindSchema.optional(),
+    /** Set ONLY when the weather source is an ABILITY (Drizzle, Drought,
+     *  Sand Stream, Snow Warning). These activate on switch-in,
+     *  replacing the opposing weather immediately. Move-based setters
+     *  (Rain Dance, etc.) cost a turn and don't change the turn-1 field
+     *  state in the damage-calc loop, so they're absent here. */
+    weather_provided_via_ability: WeatherKindSchema.optional(),
     /** Set when the role classifier detects a charging move whose
      *  charge-skip condition is this weather (Electro Shot ⇒ rain,
      *  Solar Beam ⇒ sun). The name reads as "the weather this move

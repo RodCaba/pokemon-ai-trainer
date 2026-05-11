@@ -125,9 +125,17 @@ function setterOnBenchPenalty(
  * @returns Pruned list of candidates (typically 30–60 of the 180 raw triples).
  * @throws Never.
  */
+/** Lead-eligible role tags. `setup_sweeper` is in (the payoff belongs in
+ *  the lead behind its setter — e.g. Archaludon behind Sableye/Pelipper).
+ *  `cleaner` is OUT: cleaner is a Choice-Scarf + Last-Respects/priority
+ *  archetype whose payoff scales with the late-game board (Last Respects
+ *  is +50 BP per fallen ally — effectively 0 BP turn 1, 200+ BP turn 5+).
+ *  Putting a cleaner in lead wastes the scaling and burns the setup
+ *  enabler. `pivot` is also OUT (pivot is a mid-phase concept). */
 const LEAD_ELIGIBLE_TAGS = new Set<RoleTag>([
   "weather_setter", "speed_control_setter", "screen_setter",
   "redirect", "disruptor", "wallbreaker",
+  "setup_sweeper",
 ]);
 const MID_ELIGIBLE_TAGS = new Set<RoleTag>([
   "cleric", "redirect", "pivot", "wallbreaker", "setup_sweeper", "disruptor",
@@ -170,10 +178,14 @@ export function generatePlanCandidates(
     for (let b = a + 1; b < 6; b++) {
       const tagsA = tagsForSlot(team, a, roleAssignments);
       const tagsB = tagsForSlot(team, b, roleAssignments);
-      const leadEligible =
-        [...LEAD_ELIGIBLE_TAGS].some((t) => tagsA.has(t)) ||
-        [...LEAD_ELIGIBLE_TAGS].some((t) => tagsB.has(t));
-      if (!leadEligible) continue;
+      // Both leads must be lead-eligible. Tightened from "at least one"
+      // so that the team's `cleaner` (Basculegion-style Scarf revenge
+      // killer) can't get pulled into the lead pair by a partner who
+      // happens to be a setter — that would waste Last Respects'
+      // scaling and burn the setter's screens/weather.
+      const aEligible = [...LEAD_ELIGIBLE_TAGS].some((t) => tagsA.has(t));
+      const bEligible = [...LEAD_ELIGIBLE_TAGS].some((t) => tagsB.has(t));
+      if (!aEligible || !bEligible) continue;
 
       for (let mid = 0; mid < 6; mid++) {
         if (mid === a || mid === b) continue;
@@ -235,7 +247,30 @@ function scorePlan(
     ...(deps.roleAssignments ? { roleAssignments: deps.roleAssignments } : {}),
     teamSlotSpeciesIds: [0, 1, 2, 3, 4, 5].map((i) => speciesAt(team, i)),
   };
-  const stageAScenario = scenario as ScenarioSkeleton;
+  // Drizzle / Drought / Sand Stream / Snow Warning activate on switch-in
+  // and REPLACE the existing weather. If a lead brings weather via
+  // ABILITY, override `scenario.field.weather` for the damage-calc loop:
+  // Pelipper cancels opposing Sand → Tyranitar loses its SpD boost AND
+  // Archaludon's Electro Shot fires in one turn. Move-based setters
+  // (Sableye Rain Dance, etc.) cost a turn — turn-1 calcs still happen
+  // in the opposing weather. Tracking those is a calibration follow-up:
+  // TODO(stage6-deferred): move-based-weather-turn-2-rescore.
+  const roles = deps.roleAssignments;
+  let scenarioForCalc: ScenarioSkeleton = scenario;
+  if (roles) {
+    const leadAId = speciesAt(team, candidate.leads[0]);
+    const leadBId = speciesAt(team, candidate.leads[1]);
+    const newWeather =
+      roles.get(leadAId)?.weather_provided_via_ability ??
+      roles.get(leadBId)?.weather_provided_via_ability;
+    if (newWeather !== undefined && newWeather !== scenario.field.weather) {
+      scenarioForCalc = {
+        ...scenario,
+        field: { ...scenario.field, weather: newWeather },
+      };
+    }
+  }
+  const stageAScenario = scenarioForCalc as ScenarioSkeleton;
   const pair = scorePair(
     team,
     candidate.leads,

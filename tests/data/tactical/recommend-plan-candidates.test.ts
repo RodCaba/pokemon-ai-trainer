@@ -98,19 +98,22 @@ describe("generatePlanCandidates (PG1..PG6)", () => {
     }
   });
 
-  it("PG3. every leads pair has at least one lead-eligible role tag", () => {
+  it("PG3. both leads carry a lead-eligible role tag (cleaner excluded — saved for late phase)", () => {
     const cands = generatePlanCandidates(archaEyeTeam, sunScenario, archaEyeRoles);
     const leadEligible = new Set<RoleTag>([
       "weather_setter", "speed_control_setter", "screen_setter",
-      "redirect", "disruptor", "wallbreaker",
+      "redirect", "disruptor", "wallbreaker", "setup_sweeper",
     ]);
     for (const c of cands) {
       const a = archaEyeRoles.get(archaEyeTeam.sets[c.leads[0]]!.species_id!);
       const b = archaEyeRoles.get(archaEyeTeam.sets[c.leads[1]]!.species_id!);
-      const anyEligible =
-        (a?.all.some((t) => leadEligible.has(t)) ?? false) ||
-        (b?.all.some((t) => leadEligible.has(t)) ?? false);
-      expect(anyEligible).toBe(true);
+      const aEligible = a?.all.some((t) => leadEligible.has(t)) ?? false;
+      const bEligible = b?.all.some((t) => leadEligible.has(t)) ?? false;
+      expect(aEligible && bEligible).toBe(true);
+      // Basculegion (cleaner) must never appear in any lead pair —
+      // Last Respects scales with the late-game board.
+      expect(archaEyeTeam.sets[c.leads[0]]!.species_id).not.toBe("basculegion");
+      expect(archaEyeTeam.sets[c.leads[1]]!.species_id).not.toBe("basculegion");
     }
   });
 
